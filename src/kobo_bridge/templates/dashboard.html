@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1>Dashboard</h1>
+    {% if not cc_authenticated %}
+        <a href="{{ url_for('cc_auth.auth') }}" class="btn btn-primary btn-lg">
+            Connect CompanyCam Account
+        </a>
+    {% else %}
+        <span class="badge bg-success p-2">CompanyCam Connected</span>
+    {% endif %}
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3 class="card-title">{{ stats.total }}</h3>
+                <p class="card-text">Total Submissions</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3 class="card-title text-success">{{ stats.synced }}</h3>
+                <p class="card-text">Synced to CC</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3 class="card-title text-warning">{{ stats.pending }}</h3>
+                <p class="card-text">Pending</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3 class="card-title text-danger">{{ stats.failed }}</h3>
+                <p class="card-text">Failed</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<p class="text-muted">
+    Background sync runs every 5 minutes.
+    Last run: {{ last_run.strftime('%Y-%m-%d %H:%M:%S UTC') if last_run else 'Never' }}
+</p>
+
+<h3>Recent Submissions</h3>
+<table class="table">
+    <thead>
+        <tr>
+            <th>Submitted At</th>
+            <th>Kobo ID</th>
+            <th>Sync Status</th>
+            <th>CC Project ID</th>
+            <th>Error</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for sub in submissions %}
+        <tr>
+            <td>{{ sub.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ sub.kobo_id }}</td>
+            <td>
+                {% if sub.sync_status == 'Synced' %}
+                    <span class="badge bg-success">Synced</span>
+                {% elif sub.sync_status == 'Failed' %}
+                    <span class="badge bg-danger">Failed</span>
+                {% else %}
+                    <span class="badge bg-warning">Pending</span>
+                {% endif %}
+            </td>
+            <td>{{ sub.companycam_project_id or 'N/A' }}</td>
+            <td class="text-danger"><small>{{ sub.sync_error or '' }}</small></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

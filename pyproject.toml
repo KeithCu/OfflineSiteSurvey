@@ -1,62 +1,20 @@
 [project]
-name = "site-survey"
-version = "0.0.1"
-description = "A site survey application for stores."
+name = "kobotoolbox-bridge-mvp"
+version = "0.1.0"
+description = "Bridge between KoboToolbox and CompanyCam for offline site surveys"
 authors = [
-    {name = "Survey Corp", email = "contact@surveycorp.example.com"}
+    {name = "Keith", email = "keith@example.com"}
 ]
+requires-python = ">=3.11"
 dependencies = [
     "flask>=2.3.0",
     "flask-sqlalchemy>=3.0.0",
     "requests>=2.31.0",
-    "pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
+    "apscheduler>=3.10.0",
+    "psycopg2-binary>=2.9.0"
 ]
 
-[tool.briefcase]
-project_name = "Site Survey"
-bundle = "com.example"
-version = "0.0.1"
-description = "A site survey application for stores."
-author = 'Survey Corp'
-author_email = 'contact@surveycorp.example.com'
-
-[tool.briefcase.app.survey_app]
-formal_name = "Site Survey App"
-description = "A site survey application"
-sources = [
-    'src/survey_app',
-]
-requires = [
-    "requests",
-    "toga",
-    "pillow",
-]
-
-[tool.briefcase.app.survey_app.macOS]
-requires = [
-    "toga-cocoa~=0.4.3",
-    "std-nslog~=1.0.0"
-]
-
-[tool.briefcase.app.survey_app.linux]
-requires = [
-    "toga-gtk~=0.4.3",
-]
-
-[tool.briefcase.app.survey_app.windows]
-requires = [
-    "toga-winforms~=0.4.3",
-]
-
-[tool.briefcase.app.survey_app.android]
-requires = [
-    "toga-android~=0.4.3",
-]
-# You might need to add permissions here later
-# permissions = ["android.permission.ACCESS_FINE_LOCATION", "android.permission.CAMERA"]
-
-[tool.briefcase.app.survey_app.iOS]
-requires = [
-    "toga-iOS~=0.4.3",
-]
-# You'll need to configure entitlements for camera/location access in the Xcode project
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

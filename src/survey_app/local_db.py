@@ -154,7 +154,7 @@ class LocalDatabase:
 
     def get_template_fields(self, template_id):
         session = self.get_session()
-        fields = session.query(TemplateField).filter_by(template_id=template_id).all()
+        fields = session.query(TemplateField).filter_by(template_id=template_id).order_by(TemplateField.order_index).all()
         session.close()
         return fields
 
@@ -205,6 +205,17 @@ class LocalDatabase:
         changes = [dict(zip([c[0] for c in cursor.description], row)) for row in changes]
         session.close()
         return changes
+
+    def get_current_version(self):
+        """Get the current CRDT database version"""
+        session = self.get_session()
+        conn = session.connection()
+        raw_conn = conn.connection
+        cursor = raw_conn.cursor()
+        cursor.execute("SELECT crsql_dbversion()")
+        version = cursor.fetchone()[0]
+        session.close()
+        return version
 
     def apply_changes(self, changes):
         session = self.get_session()

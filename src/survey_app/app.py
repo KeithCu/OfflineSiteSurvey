@@ -488,16 +488,37 @@ class SurveyApp(toga.App):
     def submit_answer(self, widget):
         """Submit the current answer in enhanced UI"""
         answer = self.answer_input.value.strip()
-        if answer:
-            question = self.question_label.text
-            response = {
+        # Check if this is a multiple choice question with options selected
+        if not answer and self.options_selection.value:
+            answer = self.options_selection.value
+            response_type = 'multiple_choice'
+        elif answer:
+            response_type = 'text'
+        else:
+            self.status_label.text = "Please provide an answer"
+            return
+
+        question = self.question_label.text
+        response = {
+            'question': question,
+            'answer': answer,
+            'response_type': response_type
+        }
+        self.responses.append(response)
+
+        # Save response immediately to database
+        if self.current_survey:
+            response_data = {
+                'id': str(uuid.uuid4()),
+                'survey_id': self.current_survey['id'],
                 'question': question,
                 'answer': answer,
-                'response_type': 'text'
+                'response_type': response_type
             }
-            self.responses.append(response)
-            self.status_label.text = f"Answer submitted for: {question[:50]}..."
-            self.next_question(None)
+            self.db.save_response(response_data)
+
+        self.status_label.text = f"Answer submitted for: {question[:50]}..."
+        self.next_question(None)
 
     def next_question(self, widget):
         """Move to next question - works for both legacy and enhanced UI"""
@@ -541,23 +562,69 @@ class SurveyApp(toga.App):
             'response_type': 'yesno'
         }
         self.responses.append(response)
+
+        # Save response immediately to database
+        if self.current_survey:
+            response_data = {
+                'id': str(uuid.uuid4()),
+                'survey_id': self.current_survey['id'],
+                'question': question,
+                'answer': answer,
+                'response_type': 'yesno'
+            }
+            self.db.save_response(response_data)
+
         self.status_label.text = f"Answer submitted: {answer}"
         self.current_question_index += 1
         self.show_question()
 
     def take_photo_enhanced(self, widget):
-        """Take a photo in enhanced UI (placeholder for now)"""
-        # TODO: Implement actual camera integration
-        question = self.question_label.text
-        response = {
-            'question': question,
-            'answer': '[Photo captured - placeholder]',
-            'response_type': 'photo'
-        }
-        self.responses.append(response)
-        self.status_label.text = f"Photo captured for: {question[:50]}..."
-        self.current_question_index += 1
-        self.show_question()
+        """Take a photo in enhanced UI"""
+        # Create dummy photo data (same as take_photo)
+        img = Image.new('RGB', (640, 480), color='red')
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='JPEG', quality=75)
+        photo_data = img_byte_arr.getvalue()
+
+        # Get GPS location
+        async def capture_with_location():
+            lat, long = await self.get_gps_location()
+            if self.current_survey:
+                # Save photo to database
+                photo_record = {
+                    'id': str(uuid.uuid4()),
+                    'survey_id': self.current_survey['id'],
+                    'image_data': photo_data,
+                    'latitude': lat,
+                    'longitude': long,
+                    'description': f"Photo for: {self.question_label.text}"
+                }
+                self.db.save_photo(photo_record)
+
+                # Save response
+                question = self.question_label.text
+                response = {
+                    'question': question,
+                    'answer': f'[Photo captured - ID: {photo_record["id"]}]',
+                    'response_type': 'photo'
+                }
+                self.responses.append(response)
+
+                # Save response to database immediately
+                response_data = {
+                    'id': str(uuid.uuid4()),
+                    'survey_id': self.current_survey['id'],
+                    'question': question,
+                    'answer': response['answer'],
+                    'response_type': 'photo'
+                }
+                self.db.save_response(response_data)
+
+                self.status_label.text = f"Photo captured for: {question[:50]}..."
+                self.current_question_index += 1
+                self.show_question()
+
+        asyncio.create_task(capture_with_location())
 
     def finish_survey(self, widget):
         """Finish the survey and save responses"""

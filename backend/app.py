@@ -243,6 +243,19 @@ def get_templates():
     templates = SurveyTemplate.query.all()
     return jsonify([{'id': t.id, 'name': t.name, 'fields': [{'id': f.id, 'question': f.question} for f in t.fields]} for t in templates])
 
+@app.route('/api/templates/<int:template_id>', methods=['GET'])
+def get_template(template_id):
+    template = SurveyTemplate.query.get_or_404(template_id)
+    fields = [{'id': f.id, 'field_type': f.field_type, 'question': f.question, 'description': f.description, 'required': f.required, 'options': f.options, 'order_index': f.order_index, 'section': f.section} for f in sorted(template.fields, key=lambda x: x.order_index)]
+    return jsonify({
+        'id': template.id,
+        'name': template.name,
+        'description': template.description,
+        'category': template.category,
+        'is_default': template.is_default,
+        'fields': fields
+    })
+
 @app.route('/api/changes', methods=['POST'])
 def apply_changes():
     changes = request.get_json()

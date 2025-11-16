@@ -15,8 +15,8 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 ## Phase 2: Enhanced Photo Management & Survey UI 🚀 (HIGH PRIORITY)
 
 ### Photo Capture & Processing
-- [ ] **GPS Integration**: Auto-tag photos with location data from device
-- [ ] **Photo Metadata**: Store EXIF data, device info, and capture conditions
+- [x] **GPS Integration**: Auto-tag photos with location data from device
+- [x] **Photo Metadata**: Store EXIF data, device info, and capture conditions
 - [ ] **Photo Quality Assessment**: Basic blur detection and warnings
 - [ ] **Bulk Photo Operations**: Select multiple photos for batch operations
 
@@ -27,7 +27,7 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 - [ ] **Photo Search**: Filter by location, date, tags, or survey section
 
 ### Survey UI Improvements
-- [ ] **Progress Tracking**: Visual progress indicators for survey completion
+- [x] **Progress Tracking**: Visual progress indicators for survey completion
 - [ ] **Required Field Validation**: Clear indicators for required vs. optional fields
 - [ ] **Conditional Logic**: Show/hide fields based on previous answers
 - [ ] **Photo Requirements**: Visual checklists for required photos per survey section
@@ -35,13 +35,13 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 ## Phase 3: Project & Site Management 📁 (HIGH PRIORITY)
 
 ### Project Structure
-- [ ] **Project Hierarchy**: Projects → Sites → Surveys → Photos
+- [x] **Project Hierarchy**: Projects → Sites → Surveys → Photos
 - [ ] **Project Templates**: Standardized project structures for different industries
 - [ ] **Project Status Tracking**: Draft, In Progress, Completed, Archived
 - [ ] **Project Metadata**: Client info, due dates, priority levels
 
 ### Site Management
-- [ ] **Site Addresses**: Full address with GPS coordinates
+- [x] **Site Addresses**: Full address with GPS coordinates
 - [ ] **Site Photos**: Dedicated site overview photos
 - [ ] **Site Notes**: General site information and access instructions
 - [ ] **Site History**: Track all visits and changes over time

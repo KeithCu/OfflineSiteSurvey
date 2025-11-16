@@ -10,13 +10,22 @@ from appdirs import user_data_dir
 
 Base = declarative_base()
 
+class Site(Base):
+    __tablename__ = 'sites'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    address = Column(Text)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class Survey(Base):
     __tablename__ = 'surveys'
     id = Column(Integer, primary_key=True)
     title = Column(String(200), nullable=False)
     description = Column(Text)
-    store_name = Column(String(100))
-    store_address = Column(String(300))
+    site_id = Column(Integer, ForeignKey('sites.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     status = Column(String(50), default='draft')
@@ -116,6 +125,25 @@ class LocalDatabase:
         survey = session.query(Survey).get(survey_id)
         session.close()
         return survey
+
+    def get_sites(self):
+        session = self.get_session()
+        sites = session.query(Site).all()
+        session.close()
+        return sites
+
+    def save_site(self, site_data):
+        session = self.get_session()
+        site = Site(**site_data)
+        session.add(site)
+        session.commit()
+        session.close()
+
+    def get_surveys_for_site(self, site_id):
+        session = self.get_session()
+        surveys = session.query(Survey).filter_by(site_id=site_id).all()
+        session.close()
+        return surveys
 
     def save_survey(self, survey_data):
         session = self.get_session()

@@ -21,6 +21,7 @@ class SurveyApp(toga.App):
         """Initialize the app"""
         self.db = LocalDatabase()
         self.current_survey = None
+        self.current_site = None
         self.responses = []
         self.config = {}  # App configuration
         self.last_sync_version = 0
@@ -38,6 +39,17 @@ class SurveyApp(toga.App):
         # Start the background sync thread
         self.sync_thread = threading.Thread(target=self.background_sync, daemon=True)
         self.sync_thread.start()
+
+        # Initialize location service
+        self.location = toga.Location()
+
+    async def get_gps_location(self):
+        try:
+            location_info = await self.location.current_location()
+            return location_info.latitude, location_info.longitude
+        except Exception as e:
+            self.status_label.text = f"GPS error: {e}"
+            return None, None
 
     def background_sync(self):
         while True:
@@ -73,7 +85,8 @@ class SurveyApp(toga.App):
                     self.db.apply_changes(remote_changes)
                 self.last_sync_version = self.db.get_current_version()
                 self.status_label.text = "Sync complete"
-                self.load_surveys() # Refresh the survey list
+                if self.current_site:
+                    self.load_surveys_for_site(self.current_site.id)
             else:
                 self.status_label.text = "Sync failed - server error"
 
@@ -97,19 +110,19 @@ class SurveyApp(toga.App):
         )
 
         self.survey_selection = toga.Selection(
-            items=['Loading surveys...'],
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        load_surveys_button = toga.Button(
-            'Load Surveys',
-            on_press=self.load_surveys,
+            items=['Select a site first...'],
             style=Pack(padding=(5, 10, 10, 10))
         )
 
         select_survey_button = toga.Button(
             'Start Survey',
             on_press=self.start_survey,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        sites_button = toga.Button(
+            'Sites',
+            on_press=self.show_sites_ui,
             style=Pack(padding=(5, 10, 10, 10))
         )
 
@@ -133,7 +146,8 @@ class SurveyApp(toga.App):
 
         next_question_button = toga.Button('Next', on_press=self.next_question, style=Pack(padding=(5, 10, 10, 10)))
 
-        self.question_box.add(self.question_label, self.answer_input, self.answer_selection, next_question_button)
+        self.progress_bar = toga.ProgressBar(max=100, value=0, style=Pack(padding=(10, 10, 10, 10)))
+        self.question_box.add(self.question_label, self.answer_input, self.answer_selection, next_question_button, self.progress_bar)
 
 
         # Photo capture UI
@@ -181,8 +195,8 @@ class SurveyApp(toga.App):
                 header_label,
                 survey_label,
                 self.survey_selection,
-                load_surveys_button,
                 select_survey_button,
+                sites_button,
                 templates_button,
                 config_button,
                 self.question_box,
@@ -193,16 +207,6 @@ class SurveyApp(toga.App):
         )
 
         self.main_window.content = main_box
-
-    def load_surveys(self, widget=None):
-        """Load surveys from local db"""
-        surveys = self.db.get_surveys()
-        if surveys:
-            survey_names = [f"{s['id']}: {s['title']}" for s in surveys]
-            self.survey_selection.items = survey_names
-            self.status_label.text = f"Loaded {len(surveys)} surveys from local storage"
-        else:
-            self.status_label.text = "No surveys available"
 
     def start_survey(self, widget):
         """Start the selected survey"""
@@ -219,6 +223,7 @@ class SurveyApp(toga.App):
                 self.status_label.text = "Invalid survey ID"
         else:
             self.status_label.text = "Please select a survey"
+        self.update_progress()
 
     def load_questions(self):
         if self.current_survey and self.current_survey.get('template_id'):
@@ -240,6 +245,14 @@ class SurveyApp(toga.App):
         else:
             self.question_box.style.visibility = 'hidden'
             self.status_label.text = "Survey complete!"
+        self.update_progress()
+
+    def update_progress(self):
+        if self.questions:
+            progress = (self.current_question_index / len(self.questions)) * 100
+            self.progress_bar.value = progress
+        else:
+            self.progress_bar.value = 0
 
     def next_question(self, widget):
         self.save_response()
@@ -263,6 +276,88 @@ class SurveyApp(toga.App):
         }
         self.db.save_response(response_data)
         self.status_label.text = f"Saved response for: {question['question']}"
+
+    def show_sites_ui(self, widget):
+        """Show sites management UI"""
+        sites_window = toga.Window(title="Sites")
+
+        sites_label = toga.Label('Available Sites:', style=Pack(padding=(10, 5, 10, 5)))
+        self.sites_list = toga.Selection(items=['Loading...'], style=Pack(padding=(5, 5, 10, 5)))
+
+        load_sites_button = toga.Button('Load Sites', on_press=self.load_sites, style=Pack(padding=(5, 5, 5, 5)))
+        select_site_button = toga.Button('Select Site', on_press=lambda w: self.select_site(sites_window), style=Pack(padding=(5, 5, 10, 5)))
+
+        new_site_label = toga.Label('Create New Site:', style=Pack(padding=(10, 5, 10, 5)))
+        self.new_site_name_input = toga.TextInput(placeholder='Site Name', style=Pack(padding=(5, 5, 10, 5)))
+        self.new_site_address_input = toga.TextInput(placeholder='Site Address', style=Pack(padding=(5, 5, 10, 5)))
+        create_site_button = toga.Button('Create Site', on_press=self.create_site, style=Pack(padding=(5, 5, 10, 5)))
+
+        close_button = toga.Button('Close', on_press=lambda w: sites_window.close(), style=Pack(padding=(5, 5, 10, 5)))
+
+        sites_box = toga.Box(
+            children=[
+                sites_label,
+                self.sites_list,
+                load_sites_button,
+                select_site_button,
+                new_site_label,
+                self.new_site_name_input,
+                self.new_site_address_input,
+                create_site_button,
+                close_button
+            ],
+            style=Pack(direction=COLUMN, padding=20)
+        )
+
+        sites_window.content = sites_box
+        sites_window.show()
+        self.load_sites(None)
+
+    def load_sites(self, widget):
+        """Load sites from local db"""
+        sites = self.db.get_sites()
+        if sites:
+            site_names = [f"{s.id}: {s.name}" for s in sites]
+            self.sites_list.items = site_names
+            self.sites_data = sites
+            self.status_label.text = f"Loaded {len(sites)} sites"
+        else:
+            self.sites_list.items = ['No sites available']
+
+    def create_site(self, widget):
+        """Create a new site"""
+        site_name = self.new_site_name_input.value
+        site_address = self.new_site_address_input.value
+        if site_name:
+            site_data = {'name': site_name, 'address': site_address}
+            self.db.save_site(site_data)
+            self.status_label.text = f"Created site: {site_name}"
+            self.load_sites(None)
+        else:
+            self.status_label.text = "Please enter a site name"
+
+    def select_site(self, sites_window):
+        if self.sites_list.value and hasattr(self, 'sites_data'):
+            site_id = int(self.sites_list.value.split(':')[0])
+            self.current_site = next((s for s in self.sites_data if s.id == site_id), None)
+            if self.current_site:
+                self.load_surveys_for_site(self.current_site.id)
+                sites_window.close()
+            else:
+                self.status_label.text = "Site not found"
+        else:
+            self.status_label.text = "Please select a site"
+
+    def load_surveys_for_site(self, site_id):
+        """Load surveys for the selected site"""
+        surveys = self.db.get_surveys_for_site(site_id)
+        if surveys:
+            survey_names = [f"{s.id}: {s.title}" for s in surveys]
+            self.survey_selection.items = survey_names
+            self.status_label.text = f"Loaded {len(surveys)} surveys for site {self.current_site.name}"
+        else:
+            self.survey_selection.items = []
+            self.status_label.text = f"No surveys available for site {self.current_site.name}"
 
     def show_templates_ui(self, widget):
         """Show templates management UI"""
@@ -329,11 +424,14 @@ class SurveyApp(toga.App):
             # Find template data
             template = next((t for t in self.templates_data if t['id'] == template_id), None)
             if template:
+                if not self.current_site:
+                    self.status_label.text = "Please select a site first"
+                    return
+
                 survey_data = {
                     'title': f"{template['name']} - New Survey",
                     'description': template['description'],
-                    'store_name': 'New Store',
-                    'store_address': 'Address TBD',
+                    'site_id': self.current_site.id,
                     'status': 'draft',
                     'template_id': template_id
                 }
@@ -342,7 +440,8 @@ class SurveyApp(toga.App):
                 self.db.save_survey(survey_data)
                 self.status_label.text = f"Created survey from template"
                 # Refresh surveys list
-                self.load_surveys(None)
+                if self.current_site:
+                    self.load_surveys_for_site(self.current_site.id)
 
             else:
                 self.status_label.text = "Template not found"
@@ -414,9 +513,17 @@ class SurveyApp(toga.App):
         # For now, we'll create a dummy image.
         img = Image.new('RGB', (640, 480), color = 'red')
         img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='JPEG')
+        img.save(img_byte_arr, format='JPEG', quality=75)
         self.current_photo_data = img_byte_arr.getvalue()
         self.image_view.image = toga.Image(data=self.current_photo_data)
+
+        # Get GPS location
+        async def update_location():
+            lat, long = await self.get_gps_location()
+            if lat is not None and long is not None:
+                self.photo_location_input.value = f"{lat}, {long}"
+
+        asyncio.create_task(update_location())
 
     def save_photo(self, widget):
         if self.current_survey and hasattr(self, 'current_photo_data'):

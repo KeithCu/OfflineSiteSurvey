@@ -17,6 +17,8 @@ import base64
 import uuid
 
 class SurveyApp(toga.App):
+    def __init__(self):
+        super().__init__(formal_name='Site Survey App', app_id='com.keith.surveyapp')
     def startup(self):
         """Initialize the app"""
         self.db = LocalDatabase()
@@ -25,6 +27,8 @@ class SurveyApp(toga.App):
         self.responses = []
         self.config = {}  # App configuration
         self.last_sync_version = 0
+        self.template_fields = []
+        self.total_fields = 0
         self.current_question_index = 0
 
         # Create main window
@@ -132,22 +136,92 @@ class SurveyApp(toga.App):
             style=Pack(padding=(5, 10, 10, 10))
         )
 
+        # Enhanced survey form (initially hidden)
+        self.survey_title_label = toga.Label(
+            '',
+            style=Pack(font_size=18, padding=(20, 10, 10, 10), font_weight='bold')
+        )
+
+        # Progress indicator
+        self.progress_label = toga.Label(
+            '',
+            style=Pack(padding=(5, 10, 5, 10), color='#666666')
+        )
+
+        # Field type specific UI elements
+        self.yes_button = toga.Button(
+            'Yes',
+            on_press=lambda w: self.submit_yesno_answer('Yes'),
+            style=Pack(padding=(5, 10, 5, 5))
+        )
+        self.no_button = toga.Button(
+            'No',
+            on_press=lambda w: self.submit_yesno_answer('No'),
+            style=Pack(padding=(5, 10, 10, 5))
+        )
+
+        self.options_selection = toga.Selection(
+            items=[],
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        self.enhanced_photo_button = toga.Button(
+            '📷 Take Photo',
+            on_press=self.take_photo_enhanced,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        submit_answer_button = toga.Button(
+            'Submit Answer',
+            on_press=self.submit_answer,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        next_question_button = toga.Button(
+            'Next Question',
+            on_press=self.next_question,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        finish_survey_button = toga.Button(
+            'Finish Survey',
+            on_press=self.finish_survey,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        sync_button = toga.Button(
+            'Sync Now',
+            on_press=self.sync_with_server,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
         config_button = toga.Button(
             'Settings',
             on_press=self.show_config_ui,
             style=Pack(padding=(5, 10, 10, 10))
         )
 
-        # Question UI
+        # Question UI (legacy)
         self.question_box = toga.Box(style=Pack(direction=COLUMN, padding=10, visibility='hidden'))
-        self.question_label = toga.Label("Question", style=Pack(padding=(5, 10, 5, 10)))
-        self.answer_input = toga.TextInput(style=Pack(padding=(5, 10, 10, 10)))
+        self.question_label_legacy = toga.Label("Question", style=Pack(padding=(5, 10, 5, 10)))
+        self.answer_input_legacy = toga.TextInput(style=Pack(padding=(5, 10, 10, 10)))
         self.answer_selection = toga.Selection(style=Pack(padding=(5, 10, 10, 10)))
 
-        next_question_button = toga.Button('Next', on_press=self.next_question, style=Pack(padding=(5, 10, 10, 10)))
+        next_question_button_legacy = toga.Button('Next', on_press=self.next_question, style=Pack(padding=(5, 10, 10, 10)))
 
         self.progress_bar = toga.ProgressBar(max=100, value=0, style=Pack(padding=(10, 10, 10, 10)))
-        self.question_box.add(self.question_label, self.answer_input, self.answer_selection, next_question_button, self.progress_bar)
+        self.question_box.add(self.question_label_legacy, self.answer_input_legacy, self.answer_selection, next_question_button_legacy, self.progress_bar)
+
+        # Enhanced question UI elements (separate from legacy)
+        self.question_label = toga.Label(
+            '',
+            style=Pack(padding=(10, 10, 5, 10))
+        )
+
+        self.answer_input = toga.TextInput(
+            placeholder='Enter your answer',
+            style=Pack(padding=(5, 10, 10, 10))
+        )
 
 
         # Photo capture UI
@@ -189,6 +263,20 @@ class SurveyApp(toga.App):
             style=Pack(padding=(10, 10, 10, 10), color='#666666')
         )
 
+        # Initially hide enhanced survey form
+        self.survey_title_label.style.visibility = 'hidden'
+        self.progress_label.style.visibility = 'hidden'
+        self.question_label.style.visibility = 'hidden'
+        self.answer_input.style.visibility = 'hidden'
+        self.yes_button.style.visibility = 'hidden'
+        self.no_button.style.visibility = 'hidden'
+        self.options_selection.style.visibility = 'hidden'
+        self.enhanced_photo_button.style.visibility = 'hidden'
+        submit_answer_button.style.visibility = 'hidden'
+        next_question_button.style.visibility = 'hidden'
+        finish_survey_button.style.visibility = 'hidden'
+        sync_button.style.visibility = 'hidden'
+
         # Create main box
         main_box = toga.Box(
             children=[
@@ -201,6 +289,18 @@ class SurveyApp(toga.App):
                 config_button,
                 self.question_box,
                 self.photo_box,
+                self.survey_title_label,
+                self.progress_label,
+                self.question_label,
+                self.answer_input,
+                self.yes_button,
+                self.no_button,
+                self.options_selection,
+                self.enhanced_photo_button,
+                submit_answer_button,
+                next_question_button,
+                finish_survey_button,
+                sync_button,
                 self.status_label
             ],
             style=Pack(direction=COLUMN, padding=10)
@@ -214,11 +314,66 @@ class SurveyApp(toga.App):
             survey_id_str = self.survey_selection.value.split(':')[0]
             try:
                 survey_id = int(survey_id_str)
-                self.current_survey = self.db.get_survey(survey_id)
-                self.question_box.style.visibility = 'visible'
-                self.photo_box.style.visibility = 'visible'
-                self.load_questions()
-                self.display_question()
+                # Try to fetch from server first
+                try:
+                    response = requests.get(f'http://localhost:5000/api/surveys/{survey_id}', timeout=5)
+                    if response.status_code == 200:
+                        survey_data = response.json()
+                        self.current_survey = survey_data
+                        self.db.save_survey(survey_data)  # Cache locally
+                    else:
+                        # Try local cache
+                        survey_data = self.db.get_survey(survey_id)
+                        if survey_data:
+                            self.current_survey = survey_data
+                        else:
+                            self.status_label.text = "Survey not found"
+                            return
+                except:
+                    # Try local cache if server unavailable
+                    survey_data = self.db.get_survey(survey_id)
+                    if survey_data:
+                        self.current_survey = survey_data
+                    else:
+                        self.status_label.text = "Survey not found and server unavailable"
+                        return
+
+                # Reset responses
+                self.responses = []
+
+                # Load template fields if survey has a template_id
+                if survey_data.get('template_id'):
+                    try:
+                        template_response = requests.get(f'http://localhost:5000/api/templates/{survey_data["template_id"]}', timeout=5)
+                        if template_response.status_code == 200:
+                            template_data = template_response.json()
+                            self.template_fields = template_data['fields']
+                            self.total_fields = len(self.template_fields)
+                        else:
+                            self.template_fields = []
+                            self.total_fields = 0
+                    except:
+                        self.template_fields = []
+                        self.total_fields = 0
+                elif hasattr(self, 'default_template_fields'):
+                    self.template_fields = self.default_template_fields
+                    self.total_fields = len(self.template_fields)
+                else:
+                    self.template_fields = []
+                    self.total_fields = 0
+
+                # Use enhanced UI if template fields are available, otherwise use legacy
+                if self.template_fields:
+                    # Show enhanced survey form
+                    self.show_survey_ui()
+                    self.current_question_index = 0
+                    self.show_question()
+                else:
+                    # Use legacy UI
+                    self.question_box.style.visibility = 'visible'
+                    self.photo_box.style.visibility = 'visible'
+                    self.load_questions()
+                    self.display_question()
             except ValueError:
                 self.status_label.text = "Invalid survey ID"
         else:
@@ -226,20 +381,22 @@ class SurveyApp(toga.App):
         self.update_progress()
 
     def load_questions(self):
+        """Load questions for legacy UI"""
         if self.current_survey and self.current_survey.get('template_id'):
             self.questions = self.db.get_template_fields(self.current_survey['template_id'])
         else:
             self.questions = []
 
     def display_question(self):
+        """Display question in legacy UI"""
         if self.current_question_index < len(self.questions):
             question = self.questions[self.current_question_index]
-            self.question_label.text = question['question']
+            self.question_label_legacy.text = question['question']
             if question['field_type'] == 'text':
-                self.answer_input.style.visibility = 'visible'
+                self.answer_input_legacy.style.visibility = 'visible'
                 self.answer_selection.style.visibility = 'hidden'
             elif question['field_type'] == 'multiple_choice':
-                self.answer_input.style.visibility = 'hidden'
+                self.answer_input_legacy.style.visibility = 'hidden'
                 self.answer_selection.style.visibility = 'visible'
                 self.answer_selection.items = json.loads(question['options'])
         else:
@@ -248,34 +405,193 @@ class SurveyApp(toga.App):
         self.update_progress()
 
     def update_progress(self):
-        if self.questions:
+        """Update progress indicator"""
+        if hasattr(self, 'questions') and self.questions:
             progress = (self.current_question_index / len(self.questions)) * 100
+            self.progress_bar.value = progress
+        elif self.total_fields > 0:
+            progress = (self.current_question_index / self.total_fields) * 100
             self.progress_bar.value = progress
         else:
             self.progress_bar.value = 0
 
+    def show_survey_ui(self):
+        """Show the enhanced survey interface"""
+        self.survey_title_label.style.visibility = 'visible'
+        self.progress_label.style.visibility = 'visible'
+        self.question_label.style.visibility = 'visible'
+        self.survey_title_label.text = self.current_survey['title']
+
+    def show_question(self):
+        """Show the current question in enhanced UI"""
+        # Update progress
+        if self.total_fields > 0:
+            progress = f"Question {self.current_question_index + 1} of {self.total_fields}"
+            self.progress_label.text = progress
+        else:
+            self.progress_label.text = ""
+
+        # Hide all input elements first
+        self.answer_input.style.visibility = 'hidden'
+        self.yes_button.style.visibility = 'hidden'
+        self.no_button.style.visibility = 'hidden'
+        self.options_selection.style.visibility = 'hidden'
+        self.enhanced_photo_button.style.visibility = 'hidden'
+
+        if self.current_question_index < len(self.current_survey.get('responses', [])):
+            # Show existing response
+            response = self.current_survey['responses'][self.current_question_index]
+            self.question_label.text = response['question']
+            self.answer_input.value = response.get('answer', '')
+            self.answer_input.style.visibility = 'visible'
+        else:
+            # Check if survey has template fields
+            if self.template_fields and self.current_question_index < len(self.template_fields):
+                field = self.template_fields[self.current_question_index]
+                self.question_label.text = field['question']
+
+                # Handle different field types
+                field_type = field.get('field_type', 'text')
+                if field_type == 'yesno':
+                    self.yes_button.style.visibility = 'visible'
+                    self.no_button.style.visibility = 'visible'
+                elif field_type == 'photo':
+                    self.enhanced_photo_button.style.visibility = 'visible'
+                elif field.get('options'):
+                    # Multiple choice
+                    self.options_selection.items = field['options']
+                    self.options_selection.style.visibility = 'visible'
+                else:
+                    # Text input
+                    self.answer_input.placeholder = field.get('description', 'Enter your answer')
+                    self.answer_input.value = ''
+                    self.answer_input.style.visibility = 'visible'
+            else:
+                # Fallback to basic questions
+                questions = [
+                    "What is the store's overall condition?",
+                    "Are there any maintenance issues?",
+                    "How is the store lighting?",
+                    "Describe the store layout",
+                    "Any additional notes?"
+                ]
+
+                if self.current_question_index < len(questions):
+                    self.question_label.text = questions[self.current_question_index]
+                    self.answer_input.placeholder = 'Enter your answer'
+                    self.answer_input.value = ''
+                    self.answer_input.style.visibility = 'visible'
+                else:
+                    self.finish_survey(None)
+                    return
+
+    def submit_answer(self, widget):
+        """Submit the current answer in enhanced UI"""
+        answer = self.answer_input.value.strip()
+        if answer:
+            question = self.question_label.text
+            response = {
+                'question': question,
+                'answer': answer,
+                'response_type': 'text'
+            }
+            self.responses.append(response)
+            self.status_label.text = f"Answer submitted for: {question[:50]}..."
+            self.next_question(None)
+
     def next_question(self, widget):
-        self.save_response()
+        """Move to next question - works for both legacy and enhanced UI"""
+        # Save current response if using legacy UI
+        if hasattr(self, 'questions') and self.questions and self.current_question_index < len(self.questions):
+            self.save_response()
         self.current_question_index += 1
-        self.display_question()
+        
+        # Use appropriate display method
+        if hasattr(self, 'questions') and self.questions:
+            self.display_question()
+        else:
+            self.show_question()
 
     def save_response(self):
-        question = self.questions[self.current_question_index]
-        answer = ''
-        if question['field_type'] == 'text':
-            answer = self.answer_input.value
-        elif question['field_type'] == 'multiple_choice':
-            answer = self.answer_selection.value
+        """Save response for legacy UI"""
+        if hasattr(self, 'questions') and self.current_question_index < len(self.questions):
+            question = self.questions[self.current_question_index]
+            answer = ''
+            if question['field_type'] == 'text':
+                answer = self.answer_input_legacy.value
+            elif question['field_type'] == 'multiple_choice':
+                answer = self.answer_selection.value
 
-        response_data = {
-            'id': str(uuid.uuid4()),
-            'survey_id': self.current_survey['id'],
-            'question': question['question'],
+            response_data = {
+                'id': str(uuid.uuid4()),
+                'survey_id': self.current_survey['id'],
+                'question': question['question'],
+                'answer': answer,
+                'response_type': question['field_type']
+            }
+            self.db.save_response(response_data)
+            self.status_label.text = f"Saved response for: {question['question']}"
+
+    def submit_yesno_answer(self, answer):
+        """Submit yes/no answer in enhanced UI"""
+        question = self.question_label.text
+        response = {
+            'question': question,
             'answer': answer,
-            'response_type': question['field_type']
+            'response_type': 'yesno'
         }
-        self.db.save_response(response_data)
-        self.status_label.text = f"Saved response for: {question['question']}"
+        self.responses.append(response)
+        self.status_label.text = f"Answer submitted: {answer}"
+        self.current_question_index += 1
+        self.show_question()
+
+    def take_photo_enhanced(self, widget):
+        """Take a photo in enhanced UI (placeholder for now)"""
+        # TODO: Implement actual camera integration
+        question = self.question_label.text
+        response = {
+            'question': question,
+            'answer': '[Photo captured - placeholder]',
+            'response_type': 'photo'
+        }
+        self.responses.append(response)
+        self.status_label.text = f"Photo captured for: {question[:50]}..."
+        self.current_question_index += 1
+        self.show_question()
+
+    def finish_survey(self, widget):
+        """Finish the survey and save responses"""
+        if self.current_survey:
+            # Save responses locally
+            if hasattr(self.db, 'save_responses'):
+                self.db.save_responses(self.current_survey['id'], self.responses)
+            else:
+                # Fallback: save each response individually
+                for response in self.responses:
+                    response_data = {
+                        'id': str(uuid.uuid4()),
+                        'survey_id': self.current_survey['id'],
+                        'question': response['question'],
+                        'answer': response['answer'],
+                        'response_type': response.get('response_type', 'text')
+                    }
+                    self.db.save_response(response_data)
+
+            # Hide enhanced survey form
+            self.survey_title_label.style.visibility = 'hidden'
+            self.progress_label.style.visibility = 'hidden'
+            self.question_label.style.visibility = 'hidden'
+            self.answer_input.style.visibility = 'hidden'
+            self.yes_button.style.visibility = 'hidden'
+            self.no_button.style.visibility = 'hidden'
+            self.options_selection.style.visibility = 'hidden'
+            self.enhanced_photo_button.style.visibility = 'hidden'
+            
+            # Hide legacy UI as well
+            self.question_box.style.visibility = 'hidden'
+            self.photo_box.style.visibility = 'hidden'
+            
+            self.status_label.text = "Survey completed and saved!"
 
     def show_sites_ui(self, widget):
         """Show sites management UI"""
@@ -550,4 +866,4 @@ class SurveyApp(toga.App):
 
 
 def main():
-    return SurveyApp('Site Survey App', 'com.example.survey_app')
+    return SurveyApp()

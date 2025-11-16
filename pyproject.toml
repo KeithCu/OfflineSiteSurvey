@@ -1,7 +1,7 @@
 [project]
-name = "survey-app"
+name = "site-survey-app"
 version = "0.1.0"
-description = "Offline-first site survey app"
+description = "Offline-first site survey application with CRDT-based synchronization"
 authors = [
     {name = "Keith", email = "keith@example.com"}
 ]
@@ -15,7 +15,7 @@ dependencies = [
     "apscheduler>=3.10.0",
     "psycopg2-binary>=2.9.0",
     "toga>=0.4.0",
-    "Pillow>=10.0.0",
+    "pillow>=10.0.0",
     "appdirs>=1.4.4"
 ]
 
@@ -24,18 +24,25 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/survey_app"]
+packages = ["backend", "src"]
 
 [tool.briefcase]
-project_name = "Survey App"
-bundle = "com.example"
+project_name = "Site Survey App"
+bundle = "com.keith.surveyapp"
 version = "0.1.0"
+url = "https://example.com"
+license = "BSD license"
+author = "Keith"
+author_email = "keith@example.com"
 output_format = "app"
 
-[tool.briefcase.app.survey-app]
-formal_name = "Survey App"
-description = "Offline-first site survey app"
+[tool.briefcase.app.survey_app]
+formal_name = "Site Survey App"
+description = "Offline-first site survey application"
+icon = "icon"
 sources = ["src/survey_app"]
-license = "MIT"
 requires = [
+    "toga>=0.4.0",
+    "pillow>=10.0.0",
+    "requests>=2.31.0"
 ]

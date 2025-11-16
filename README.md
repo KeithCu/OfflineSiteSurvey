@@ -12,11 +12,12 @@ This project contains a comprehensive offline-first site survey application with
 
 ## Key Features
 
-✅ **Offline-First Architecture** - Works without internet connectivity, syncs when available  
-✅ **Automatic Image Compression** - Reduces photo sizes to 75% quality to save storage  
-✅ **Configurable Settings** - Server-managed configuration for image quality, sync intervals, etc.  
-✅ **Survey Templates** - Create and manage reusable survey templates for different property types  
-✅ **Cross-Platform** - Native apps for iOS, Android, Windows, macOS, and Linux  
+✅ **Offline-First Architecture** - Works without internet connectivity, syncs when available
+✅ **Automatic Image Compression** - Reduces photo sizes to 75% quality to save storage
+✅ **Configurable Settings** - Server-managed configuration for image quality, sync intervals, etc.
+✅ **Survey Templates** - Create and manage reusable survey templates for different property types
+✅ **Enhanced Survey UI** - Progress tracking, field type validation, and intuitive navigation
+✅ **Cross-Platform** - Native apps for iOS, Android, Windows, macOS, and Linux
 ✅ **CRDT-Based Sync** - Robust multi-client synchronization with automatic conflict resolution
 
 ## File Structure
@@ -24,9 +25,9 @@ This project contains a comprehensive offline-first site survey application with
 - `pyproject.toml` (Project configuration)
 - `README.md` (Main project documentation)
 - `ROADMAP.md` (Development roadmap and priorities)
-- `backend/app.py` (Flask REST API backend)
+- `backend/app.py` (Flask REST API backend with template support)
 - `backend/store_survey_template.py` (Survey template definitions)
-- `src/survey_app/app.py` (BeeWare cross-platform frontend)
+- `src/survey_app/app.py` (BeeWare cross-platform frontend with enhanced UI)
 - `src/survey_app/local_db.py` (Local SQLite database with CRDT sync)
 - `archive/` (Archived KoboToolbox and analysis files)
 
@@ -50,6 +51,12 @@ This project contains a comprehensive offline-first site survey application with
 - Covers electrical, structural, safety, and maintenance inspections
 - Template system for creating custom survey types
 - Organized by sections (General, Electrical, Structural, Safety, etc.)
+
+### Enhanced Survey UI
+- Progress indicators showing current question and completion status
+- Field type validation with appropriate input controls (text, yes/no, dropdown, photo)
+- Dynamic UI that adapts to different question types
+- Template-based survey creation and execution
 
 ### Enhanced UI
 - Settings panel for configuration management
@@ -106,6 +113,7 @@ PostgreSQL can serve as a read-only analytics and reporting database, populated 
 - **Python**: 3.11+ with uv
 - **Database**: PostgreSQL (recommended) or SQLite
 - **Mobile Development**: Android SDK (for Android), Xcode (for iOS, macOS only)
+- **GUI Framework**: GTK+ development libraries (for Linux desktop development)
 
 ## API Endpoints
 
@@ -136,8 +144,13 @@ uv run flask init-db
 # Run backend development server
 uv run flask --app backend.app run --debug
 
-# Or run frontend development
+# Run frontend development (Linux)
 uv run briefcase dev
+
+# Build for other platforms
+uv run briefcase build android  # Android APK
+uv run briefcase build iOS      # iOS app (macOS only)
+uv run briefcase build windows  # Windows app
 ```
 
 ## Production Deployment

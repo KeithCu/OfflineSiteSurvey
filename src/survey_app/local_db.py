@@ -128,6 +128,8 @@ class LocalDatabase:
 
         with self.engine.connect() as connection:
             for table in Base.metadata.sorted_tables:
+                if table.name == 'config':
+                    continue
                 connection.execute(text(f"SELECT crsql_as_crr('{table.name}');"))
 
         self.Session = sessionmaker(bind=self.engine)

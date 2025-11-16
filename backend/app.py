@@ -43,7 +43,7 @@ class SurveyStatus(enum.Enum):
 
 class Site(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
+    name = db.Column(db.String(200), nullable=False, server_default="Untitled")
     address = db.Column(db.Text)
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
@@ -52,9 +52,9 @@ class Site(db.Model):
 
 class Survey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200), nullable=False)
+    title = db.Column(db.String(200), nullable=False, server_default="Untitled Survey")
     description = db.Column(db.Text)
-    site_id = db.Column(db.Integer, db.ForeignKey('site.id'), nullable=False)
+    site_id = db.Column(db.Integer, db.ForeignKey('site.id'), nullable=False, server_default="1")
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     status = db.Column(db.Enum(SurveyStatus), default=SurveyStatus.DRAFT)
@@ -85,7 +85,7 @@ class AppConfig(db.Model):
 
 class SurveyTemplate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
+    name = db.Column(db.String(200), nullable=False, server_default="Untitled Template")
     description = db.Column(db.Text)
     category = db.Column(db.String(50))
     is_default = db.Column(db.Boolean, default=False)
@@ -95,9 +95,9 @@ class SurveyTemplate(db.Model):
 
 class TemplateField(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    template_id = db.Column(db.Integer, db.ForeignKey('survey_template.id'), nullable=False)
+    template_id = db.Column(db.Integer, db.ForeignKey('survey_template.id'), nullable=False, server_default="1")
     field_type = db.Column(db.String(50))
-    question = db.Column(db.String(500), nullable=False)
+    question = db.Column(db.String(500), nullable=False, server_default="")
     description = db.Column(db.Text)
     required = db.Column(db.Boolean, default=False)
     options = db.Column(db.Text)
@@ -123,13 +123,9 @@ class Photo(db.Model):
 
 
 def create_crr_tables(target, connection, **kw):
-    connection.execute(text("SELECT crsql_as_crr('site');"))
-    connection.execute(text("SELECT crsql_as_crr('survey');"))
-    connection.execute(text("SELECT crsql_as_crr('survey_response');"))
-    connection.execute(text("SELECT crsql_as_crr('app_config');"))
-    connection.execute(text("SELECT crsql_as_crr('survey_template');"))
-    connection.execute(text("SELECT crsql_as_crr('template_field');"))
-    connection.execute(text("SELECT crsql_as_crr('photo');"))
+    crr_tables = ['site', 'survey', 'survey_response', 'survey_template', 'template_field', 'photo']
+    for table_name in crr_tables:
+        connection.execute(text(f"SELECT crsql_as_crr('{table_name}');"))
 
 event.listen(db.metadata, 'after_create', create_crr_tables)
 

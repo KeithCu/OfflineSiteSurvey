@@ -35,9 +35,9 @@ This project contains a comprehensive offline-first site survey application with
 - `src/survey_app/local_db.py` (Local SQLite database with CRDT sync, photo metadata, and project hierarchy)
 - `archive/` (Archived KoboToolbox and analysis files)
 
-## Status: MVP Complete + Enhanced Features ✅
+## Status: MVP Complete + Phase 2 Complete ✅
 
-The core MVP survey workflow is fully functional with all question types working properly. Additional Phase 2 features have been implemented including photo gallery management, project hierarchy, and enhanced photo capabilities.
+The core MVP survey workflow is fully functional with all question types working properly. Phase 2 enhancements are complete including conditional logic, photo requirements, enhanced survey UI, and comprehensive photo management.
 
 ### Core MVP Features Implemented
 
@@ -67,12 +67,16 @@ The core MVP survey workflow is fully functional with all question types working
 - Covers electrical, structural, safety, and maintenance inspections
 - Template system for creating custom survey types
 - Organized by sections (General, Electrical, Structural, Safety, etc.)
+- **Conditional Logic**: Fields show/hide based on previous answers (e.g., electrical safety notes only if exposed wires = Yes)
+- **Photo Requirements**: Built-in photo requirement definitions with descriptions and validation
 
 ### Enhanced Survey UI
 - Progress indicators showing current question and completion status
 - Field type validation with appropriate input controls (text, yes/no, dropdown, photo)
 - Dynamic UI that adapts to different question types
 - Template-based survey creation and execution
+- **Conditional Logic**: Fields show/hide dynamically based on previous answers
+- **Photo Requirements**: Visual checklists for required photos per survey section
 
 ### Enhanced UI
 - Settings panel for configuration management
@@ -86,6 +90,8 @@ The core MVP survey workflow is fully functional with all question types working
 - EXIF metadata storage and extraction
 - Photo quality assessment framework
 - Bulk operations support
+- **Photo Requirements Tracking**: Visual checklists showing required vs. taken photos
+- **Fulfillment Status**: Track which photos fulfill specific survey requirements
 
 ### Project Hierarchy
 - Projects → Sites → Surveys → Photos organization

@@ -83,6 +83,7 @@ STORE_SURVEY_TEMPLATE = {
             'description': 'Photograph the main electrical panel',
             'required': False,
             'section': 'Electrical',
+            'photo_requirements': '{"description": "Must clearly show panel door, labels, and breakers", "required": true}',
             'order_index': 9
         },
         {
@@ -92,6 +93,15 @@ STORE_SURVEY_TEMPLATE = {
             'required': False,
             'section': 'Electrical',
             'order_index': 10
+        },
+        {
+            'field_type': 'text',
+            'question': 'Describe any electrical safety issues found',
+            'description': 'Detail location, severity, and recommended action for electrical problems',
+            'required': True,
+            'section': 'Electrical',
+            'order_index': 10.5,
+            'conditions': '{"conditions": [{"question_id": 6, "operator": "equals", "value": "Yes"}], "logic": "AND"}'
         },
 
         # Structural Section
@@ -132,9 +142,11 @@ STORE_SURVEY_TEMPLATE = {
             'field_type': 'photo',
             'question': 'Photo of any structural issues',
             'description': 'Document any structural problems found',
-            'required': False,
+            'required': True,
             'section': 'Structural',
-            'order_index': 15
+            'photo_requirements': '{"description": "Must clearly show crack location, size, and severity", "required": true}',
+            'order_index': 15,
+            'conditions': '{"conditions": [{"question_id": 12, "operator": "equals", "value": "Yes"}], "logic": "AND"}'
         },
         {
             'field_type': 'text',
@@ -193,6 +205,16 @@ STORE_SURVEY_TEMPLATE = {
             'required': True,
             'section': 'Safety',
             'order_index': 22
+        },
+        {
+            'field_type': 'photo',
+            'question': 'Photo of trip hazards',
+            'description': 'Document any trip hazards found',
+            'required': True,
+            'section': 'Safety',
+            'order_index': 22.5,
+            'conditions': '{"conditions": [{"question_id": 22, "operator": "equals", "value": "Yes"}], "logic": "AND"}',
+            'photo_requirements': '{"description": "Must clearly show hazard location and nature", "required": true}'
         },
         {
             'field_type': 'photo',

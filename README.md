@@ -13,10 +13,7 @@ This project contains a comprehensive offline-first site survey application with
 ## Key Features
 
 ✅ **Offline-First Architecture** - Works without internet connectivity, syncs when available  
-✅ **Site Management** - Organize surveys by site, with support for site-specific data like addresses and GPS coordinates.
 ✅ **Automatic Image Compression** - Reduces photo sizes to 75% quality to save storage  
-✅ **GPS Photo Tagging** - Automatically tags photos with GPS coordinates.
-✅ **Survey Progress Tracking** - Visual indicators show survey completion progress.
 ✅ **Configurable Settings** - Server-managed configuration for image quality, sync intervals, etc.  
 ✅ **Survey Templates** - Create and manage reusable survey templates for different property types  
 ✅ **Cross-Platform** - Native apps for iOS, Android, Windows, macOS, and Linux  
@@ -111,13 +108,6 @@ PostgreSQL can serve as a read-only analytics and reporting database, populated 
 - **Mobile Development**: Android SDK (for Android), Xcode (for iOS, macOS only)
 
 ## API Endpoints
-
-### Sites
-- `GET /api/sites` - List all sites
-- `GET /api/sites/<id>` - Get site details
-- `POST /api/sites` - Create new site
-- `PUT /api/sites/<id>` - Update site
-- `DELETE /api/sites/<id>` - Delete site
 
 ### Configuration
 - `GET /api/config` - Get all configuration

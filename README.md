@@ -127,12 +127,14 @@ PostgreSQL can serve as a read-only analytics and reporting database, populated 
 # Install dependencies
 uv sync
 
-# Set environment (copy .env.example to .env if it exists)
-cp .env.example .env 2>/dev/null || true
-# Edit .env with your configuration if needed
+# Download and set up cr-sqlite
+./setup_crsqlite.sh
+
+# Initialize the database
+uv run flask init-db
 
 # Run backend development server
-uv run flask --app backend.app:create_app --debug run
+uv run flask --app backend.app run --debug
 
 # Or run frontend development
 uv run briefcase dev

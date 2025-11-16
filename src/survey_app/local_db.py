@@ -1,231 +1,194 @@
-import sqlite3
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey
 import json
 import os
 from datetime import datetime
-from PIL import Image
-import io
-import base64
+import uuid
+import zlib
+from appdirs import user_data_dir
+
+Base = declarative_base()
+
+class Survey(Base):
+    __tablename__ = 'surveys'
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    store_name = Column(String(100))
+    store_address = Column(String(300))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    status = Column(String(50), default='draft')
+    template_id = Column(Integer, ForeignKey('templates.id'))
+
+class SurveyResponse(Base):
+    __tablename__ = 'responses'
+    id = Column(Integer, primary_key=True)
+    survey_id = Column(Integer, ForeignKey('surveys.id'), nullable=False)
+    question = Column(String(500), nullable=False)
+    answer = Column(Text)
+    response_type = Column(String(50))
+    latitude = Column(Float)
+    longitude = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class AppConfig(Base):
+    __tablename__ = 'config'
+    id = Column(Integer, primary_key=True)
+    key = Column(String(100), unique=True, nullable=False)
+    value = Column(Text)
+    description = Column(String(300))
+    category = Column(String(50))
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class SurveyTemplate(Base):
+    __tablename__ = 'templates'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    category = Column(String(50))
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class TemplateField(Base):
+    __tablename__ = 'template_fields'
+    id = Column(Integer, primary_key=True)
+    template_id = Column(Integer, ForeignKey('templates.id'), nullable=False)
+    field_type = Column(String(50))
+    question = Column(String(500), nullable=False)
+    description = Column(Text)
+    required = Column(Boolean, default=False)
+    options = Column(Text)
+    order_index = Column(Integer, default=0)
+    section = Column(String(100))
+
+class Photo(Base):
+    __tablename__ = 'photos'
+    id = Column(String, primary_key=True)
+    survey_id = Column(String, ForeignKey('surveys.id'))
+    image_data = Column(LargeBinary)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    crc = Column(Integer)
+
 
 class LocalDatabase:
     def __init__(self, db_path='local_surveys.db'):
         """Initialize the local database"""
         self.db_path = db_path
-        self.init_db()
+        self.site_id = str(uuid.uuid4())
+        self.engine = create_engine(f'sqlite:///{self.db_path}')
 
-    def init_db(self):
-        """Initialize database tables"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
+        @event.listens_for(self.engine, "connect")
+        def load_crsqlite_extension(db_conn, conn_record):
+            data_dir = user_data_dir("crsqlite", "vlcn.io")
+            lib_path = os.path.join(data_dir, 'crsqlite.so')
 
-            # Create surveys table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS surveys (
-                    id INTEGER PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    description TEXT,
-                    store_name TEXT,
-                    store_address TEXT,
-                    status TEXT DEFAULT 'draft',
-                    data TEXT NOT NULL,
-                    last_updated TEXT,
-                    synced INTEGER DEFAULT 0
-                )
-            ''')
+            if not os.path.exists(lib_path):
+                lib_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'lib', 'crsqlite.so')
 
-            # Create responses table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS responses (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    survey_id INTEGER NOT NULL,
-                    question TEXT NOT NULL,
-                    answer TEXT,
-                    response_type TEXT DEFAULT 'text',
-                    latitude REAL,
-                    longitude REAL,
-                    created_at TEXT,
-                    synced INTEGER DEFAULT 0,
-                    FOREIGN KEY (survey_id) REFERENCES surveys (id)
-                )
-            ''')
+            db_conn.enable_load_extension(True)
+            db_conn.load_extension(lib_path)
 
-            conn.commit()
+        Base.metadata.create_all(self.engine)
 
-    def save_survey(self, survey_data):
-        """Save or update a survey locally"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
+        with self.engine.connect() as connection:
+            for table in Base.metadata.sorted_tables:
+                connection.execute(text(f"SELECT crsql_as_crr('{table.name}');"))
 
-            cursor.execute('''
-                INSERT OR REPLACE INTO surveys
-                (id, title, description, store_name, store_address, status, data, last_updated, synced)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                survey_data['id'],
-                survey_data['title'],
-                survey_data.get('description'),
-                survey_data.get('store_name'),
-                survey_data.get('store_address'),
-                survey_data.get('status', 'draft'),
-                json.dumps(survey_data),
-                datetime.now().isoformat(),
-                1  # Mark as synced since we got it from server
-            ))
+        self.Session = sessionmaker(bind=self.engine)
 
-            conn.commit()
-
-    def get_survey(self, survey_id):
-        """Get a survey by ID"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT data FROM surveys WHERE id = ?', (survey_id,))
-            row = cursor.fetchone()
-
-            if row:
-                return json.loads(row[0])
-            return None
+    def get_session(self):
+        return self.Session()
 
     def get_surveys(self):
-        """Get all surveys"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT data FROM surveys ORDER BY last_updated DESC')
-            rows = cursor.fetchall()
+        session = self.get_session()
+        surveys = session.query(Survey).all()
+        session.close()
+        return surveys
 
-            return [json.loads(row[0]) for row in rows]
+    def get_survey(self, survey_id):
+        session = self.get_session()
+        survey = session.query(Survey).get(survey_id)
+        session.close()
+        return survey
 
-    def save_responses(self, survey_id, responses):
-        """Save responses for a survey"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
+    def save_survey(self, survey_data):
+        session = self.get_session()
+        survey = Survey(**survey_data)
+        session.add(survey)
+        session.commit()
+        session.close()
 
-            for response in responses:
-                cursor.execute('''
-                    INSERT INTO responses
-                    (survey_id, question, answer, response_type, latitude, longitude, created_at, synced)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    survey_id,
-                    response['question'],
-                    response.get('answer'),
-                    response.get('response_type', 'text'),
-                    response.get('latitude'),
-                    response.get('longitude'),
-                    datetime.now().isoformat(),
-                    0  # Not synced yet
-                ))
+    def get_template_fields(self, template_id):
+        session = self.get_session()
+        fields = session.query(TemplateField).filter_by(template_id=template_id).all()
+        session.close()
+        return fields
 
-            conn.commit()
+    def get_templates(self):
+        session = self.get_session()
+        templates = session.query(SurveyTemplate).all()
+        session.close()
+        return templates
 
-    def get_responses(self, survey_id):
-        """Get all responses for a survey"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT question, answer, response_type, latitude, longitude, created_at
-                FROM responses
-                WHERE survey_id = ?
-                ORDER BY created_at
-            ''', (survey_id,))
+    def save_template(self, template_data):
+        session = self.get_session()
+        # a bit of a hack to deal with the fields relationship
+        fields = template_data.pop('fields', [])
+        template = SurveyTemplate(**template_data)
+        session.merge(template)
+        for field_data in fields:
+            field = TemplateField(**field_data)
+            session.merge(field)
+        session.commit()
+        session.close()
 
-            rows = cursor.fetchall()
-            return [{
-                'question': row[0],
-                'answer': row[1],
-                'response_type': row[2],
-                'latitude': row[3],
-                'longitude': row[4],
-                'created_at': row[5]
-            } for row in rows]
+    def save_photo(self, photo_data):
+        session = self.get_session()
+        photo = Photo(**photo_data)
+        session.add(photo)
+        session.commit()
+        session.close()
 
-    def get_unsynced_responses(self):
-        """Get all unsynced responses grouped by survey"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT survey_id, question, answer, response_type, latitude, longitude, created_at
-                FROM responses
-                WHERE synced = 0
-                ORDER BY survey_id, created_at
-            ''')
+    def save_response(self, response_data):
+        session = self.get_session()
+        response = SurveyResponse(**response_data)
+        session.add(response)
+        session.commit()
+        session.close()
 
-            rows = cursor.fetchall()
-            unsynced = {}
+    def get_changes_since(self, version):
+        session = self.get_session()
+        conn = session.connection()
+        # We need the raw connection to get the cursor
+        raw_conn = conn.connection
+        cursor = raw_conn.cursor()
+        cursor.execute(
+            "SELECT \"table\", pk, cid, val, col_version, db_version, site_id FROM crsql_changes WHERE db_version > ? AND site_id = ?",
+            (version, self.site_id)
+        )
+        changes = cursor.fetchall()
+        # We need to convert the rows to dicts
+        changes = [dict(zip([c[0] for c in cursor.description], row)) for row in changes]
+        session.close()
+        return changes
 
-            for row in rows:
-                survey_id = row[0]
-                if survey_id not in unsynced:
-                    unsynced[survey_id] = []
+    def apply_changes(self, changes):
+        session = self.get_session()
+        conn = session.connection()
+        raw_conn = conn.connection
+        cursor = raw_conn.cursor()
 
-                unsynced[survey_id].append({
-                    'question': row[1],
-                    'answer': row[2],
-                    'response_type': row[3],
-                    'latitude': row[4],
-                    'longitude': row[5],
-                    'created_at': row[6]
-                })
+        for change in changes:
+            cursor.execute(
+                "INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (change['table'], change['pk'], change['cid'], change['val'], change['col_version'], change['db_version'], change['site_id'])
+            )
 
-            return unsynced
-
-    def mark_synced(self, survey_id):
-        """Mark all responses for a survey as synced"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE responses SET synced = 1 WHERE survey_id = ?', (survey_id,))
-            conn.commit()
-
-    def clear_old_data(self, days=30):
-        """Clear old synced data to save space"""
-        # This could be implemented to remove old completed surveys
-        # For now, we'll keep all data
-        pass
-
-    def export_data(self, filename):
-        """Export all data to a JSON file"""
-        data = {
-            'surveys': self.get_surveys(),
-            'exported_at': datetime.now().isoformat()
-        }
-
-        # Add responses to each survey
-        for survey in data['surveys']:
-            survey['responses'] = self.get_responses(survey['id'])
-
-        with open(filename, 'w') as f:
-            json.dump(data, f, indent=2)
-
-        return filename
-
-    def compress_image(self, image_data, quality=75):
-        """Compress image data to specified quality while maintaining dimensions"""
-        try:
-            # Decode base64 if needed
-            if isinstance(image_data, str) and image_data.startswith('data:image'):
-                # Handle data URL format
-                header, base64_data = image_data.split(',', 1)
-                image_bytes = base64.b64decode(base64_data)
-            elif isinstance(image_data, str):
-                # Assume base64 encoded
-                image_bytes = base64.b64decode(image_data)
-            else:
-                # Assume bytes
-                image_bytes = image_data
-
-            # Open image with PIL
-            image = Image.open(io.BytesIO(image_bytes))
-
-            # Convert to RGB if necessary (for JPEG compatibility)
-            if image.mode in ('RGBA', 'P'):
-                image = image.convert('RGB')
-
-            # Compress while maintaining original dimensions
-            output_buffer = io.BytesIO()
-            image.save(output_buffer, format='JPEG', quality=quality, optimize=True)
-            compressed_bytes = output_buffer.getvalue()
-
-            # Return as base64
-            return base64.b64encode(compressed_bytes).decode('utf-8')
-
-        except Exception as e:
-            print(f"Image compression failed: {e}")
-            return image_data  # Return original if compression fails
+        session.commit()
+        session.close()

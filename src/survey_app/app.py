@@ -1,6 +1,10 @@
-import toga
-from toga.style import Pack
-from toga.style.pack import COLUMN, ROW
+try:
+    import toga
+    from toga.style import Pack
+    from toga.style.pack import COLUMN, ROW
+except (ImportError, RuntimeError):
+    from . import toga_mock as toga
+    from .toga_mock import Pack, COLUMN, ROW
 from .local_db import LocalDatabase
 import requests
 import json
@@ -10,6 +14,7 @@ import time
 from PIL import Image
 import io
 import base64
+import uuid
 
 class SurveyApp(toga.App):
     def startup(self):
@@ -18,12 +23,11 @@ class SurveyApp(toga.App):
         self.current_survey = None
         self.responses = []
         self.config = {}  # App configuration
+        self.last_sync_version = 0
+        self.current_question_index = 0
 
         # Create main window
         self.main_window = toga.MainWindow(title=self.formal_name)
-
-        # Load configuration
-        self.load_configuration()
 
         # Create UI components
         self.create_main_ui()
@@ -31,34 +35,52 @@ class SurveyApp(toga.App):
         # Show the main window
         self.main_window.show()
 
-    def load_configuration(self):
-        """Load configuration from server"""
-        try:
-            response = requests.get('http://localhost:5000/api/config', timeout=5)
-            if response.status_code == 200:
-                self.config = response.json()
-                self.status_label.text = "Configuration loaded from server"
-            else:
-                # Fall back to defaults
-                self.config = {
-                    'image_compression_quality': 75,
-                    'auto_sync_interval': 300,
-                    'max_offline_days': 30
-                }
-                self.status_label.text = "Using default configuration"
-        except:
-            # Use defaults if server unavailable
-            self.config = {
-                'image_compression_quality': 75,
-                'auto_sync_interval': 300,
-                'max_offline_days': 30
-            }
-            self.status_label.text = "Server unavailable, using defaults"
+        # Start the background sync thread
+        self.sync_thread = threading.Thread(target=self.background_sync, daemon=True)
+        self.sync_thread.start()
 
-    def compress_image(self, image_data):
-        """Compress image using configured quality"""
-        quality = self.config.get('image_compression_quality', 75)
-        return self.db.compress_image(image_data, quality)
+    def background_sync(self):
+        while True:
+            self.sync_with_server()
+            time.sleep(10) # Sync every 10 seconds
+
+    def sync_with_server(self, widget=None):
+        """Sync local data with server"""
+        try:
+            # Get local changes
+            local_changes = self.db.get_changes_since(self.last_sync_version)
+
+            # Send local changes to the server
+            if local_changes:
+                response = requests.post(
+                    'http://localhost:5000/api/changes',
+                    json=local_changes,
+                    timeout=10
+                )
+                if response.status_code != 200:
+                    self.status_label.text = "Sync failed - server error"
+                    return
+
+            # Get remote changes from the server
+            response = requests.get(
+                f'http://localhost:5000/api/changes?version={self.last_sync_version}&site_id={self.db.site_id}',
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                remote_changes = response.json()
+                if remote_changes:
+                    self.db.apply_changes(remote_changes)
+                self.last_sync_version = self.db.get_current_version()
+                self.status_label.text = "Sync complete"
+                self.load_surveys() # Refresh the survey list
+            else:
+                self.status_label.text = "Sync failed - server error"
+
+        except requests.exceptions.RequestException:
+            self.status_label.text = "Sync failed - server not available"
+        except Exception as e:
+            self.status_label.text = f"Sync error: {str(e)}"
 
     def create_main_ui(self):
         """Create the main user interface"""
@@ -91,58 +113,60 @@ class SurveyApp(toga.App):
             style=Pack(padding=(5, 10, 10, 10))
         )
 
-        # Survey form (initially hidden)
-        self.survey_title_label = toga.Label(
-            '',
-            style=Pack(font_size=18, padding=(20, 10, 10, 10), font_weight='bold')
-        )
-
-        self.question_label = toga.Label(
-            '',
-            style=Pack(padding=(10, 10, 5, 10))
-        )
-
-        self.answer_input = toga.TextInput(
-            placeholder='Enter your answer',
+        templates_button = toga.Button(
+            'Templates',
+            on_press=self.show_templates_ui,
             style=Pack(padding=(5, 10, 10, 10))
         )
 
-        submit_answer_button = toga.Button(
-            'Submit Answer',
-            on_press=self.submit_answer,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        next_question_button = toga.Button(
-            'Next Question',
-            on_press=self.next_question,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        finish_survey_button = toga.Button(
-            'Finish Survey',
-            on_press=self.finish_survey,
-            style=Pack(padding=(5, 10, 20, 10))
-        )
-
-        sync_button = toga.Button(
-            'Sync with Server',
-            on_press=self.sync_with_server,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        # Configuration button
         config_button = toga.Button(
-            '⚙️ Settings',
+            'Settings',
             on_press=self.show_config_ui,
             style=Pack(padding=(5, 10, 10, 10))
         )
 
-        # Templates button
-        templates_button = toga.Button(
-            '📋 Templates',
-            on_press=self.show_templates_ui,
+        # Question UI
+        self.question_box = toga.Box(style=Pack(direction=COLUMN, padding=10, visibility='hidden'))
+        self.question_label = toga.Label("Question", style=Pack(padding=(5, 10, 5, 10)))
+        self.answer_input = toga.TextInput(style=Pack(padding=(5, 10, 10, 10)))
+        self.answer_selection = toga.Selection(style=Pack(padding=(5, 10, 10, 10)))
+
+        next_question_button = toga.Button('Next', on_press=self.next_question, style=Pack(padding=(5, 10, 10, 10)))
+
+        self.question_box.add(self.question_label, self.answer_input, self.answer_selection, next_question_button)
+
+
+        # Photo capture UI
+        self.photo_box = toga.Box(style=Pack(direction=COLUMN, padding=10, visibility='hidden'))
+
+        take_photo_button = toga.Button(
+            'Take Photo',
+            on_press=self.take_photo,
             style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        self.image_view = toga.ImageView(style=Pack(height=200))
+
+        self.photo_description_input = toga.TextInput(
+            placeholder='Photo description',
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+        self.photo_location_input = toga.TextInput(
+            placeholder='Photo location (lat, long)',
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+        save_photo_button = toga.Button(
+            'Save Photo',
+            on_press=self.save_photo,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        self.photo_box.add(
+            take_photo_button,
+            self.image_view,
+            self.photo_description_input,
+            self.photo_location_input,
+            save_photo_button
         )
 
         # Status label
@@ -150,15 +174,6 @@ class SurveyApp(toga.App):
             'Ready',
             style=Pack(padding=(10, 10, 10, 10), color='#666666')
         )
-
-        # Initially hide survey form
-        self.survey_title_label.style.visibility = 'hidden'
-        self.question_label.style.visibility = 'hidden'
-        self.answer_input.style.visibility = 'hidden'
-        submit_answer_button.style.visibility = 'hidden'
-        next_question_button.style.visibility = 'hidden'
-        finish_survey_button.style.visibility = 'hidden'
-        sync_button.style.visibility = 'hidden'
 
         # Create main box
         main_box = toga.Box(
@@ -168,15 +183,10 @@ class SurveyApp(toga.App):
                 self.survey_selection,
                 load_surveys_button,
                 select_survey_button,
-                config_button,
                 templates_button,
-                self.survey_title_label,
-                self.question_label,
-                self.answer_input,
-                submit_answer_button,
-                next_question_button,
-                finish_survey_button,
-                sync_button,
+                config_button,
+                self.question_box,
+                self.photo_box,
                 self.status_label
             ],
             style=Pack(direction=COLUMN, padding=10)
@@ -184,204 +194,160 @@ class SurveyApp(toga.App):
 
         self.main_window.content = main_box
 
-    def load_surveys(self, widget):
-        """Load surveys from server"""
-        try:
-            # Try to load from server first
-            response = requests.get('http://localhost:5000/api/surveys', timeout=5)
-            if response.status_code == 200:
-                surveys = response.json()
-
-                # Load default template if available
-                try:
-                    template_response = requests.get('http://localhost:5000/api/templates', timeout=5)
-                    if template_response.status_code == 200:
-                        templates = template_response.json()
-                        default_template = next((t for t in templates if t['is_default']), None)
-                        if default_template:
-                            # Load template details
-                            template_detail = requests.get(f'http://localhost:5000/api/templates/{default_template["id"]}', timeout=5)
-                            if template_detail.status_code == 200:
-                                template_data = template_detail.json()
-                                # Store template fields for later use
-                                self.default_template_fields = template_data['fields']
-                except:
-                    pass  # Template loading is optional
-
-                survey_names = [f"{s['id']}: {s['title']}" for s in surveys]
-                self.survey_selection.items = survey_names
-                self.status_label.text = f"Loaded {len(surveys)} surveys from server"
-            else:
-                raise Exception("Server not available")
-        except:
-            # Fall back to local surveys
-            local_surveys = self.db.get_surveys()
-            if local_surveys:
-                survey_names = [f"{s['id']}: {s['title']}" for s in local_surveys]
-                self.survey_selection.items = survey_names
-                self.status_label.text = f"Loaded {len(local_surveys)} surveys from local storage"
-            else:
-                self.status_label.text = "No surveys available"
+    def load_surveys(self, widget=None):
+        """Load surveys from local db"""
+        surveys = self.db.get_surveys()
+        if surveys:
+            survey_names = [f"{s['id']}: {s['title']}" for s in surveys]
+            self.survey_selection.items = survey_names
+            self.status_label.text = f"Loaded {len(surveys)} surveys from local storage"
+        else:
+            self.status_label.text = "No surveys available"
 
     def start_survey(self, widget):
         """Start the selected survey"""
         if self.survey_selection.value:
-            survey_id = int(self.survey_selection.value.split(':')[0])
-
-            # Load survey data
+            survey_id_str = self.survey_selection.value.split(':')[0]
             try:
-                response = requests.get(f'http://localhost:5000/api/surveys/{survey_id}', timeout=5)
-                if response.status_code == 200:
-                    survey_data = response.json()
-                    self.current_survey = survey_data
-                    self.db.save_survey(survey_data)  # Cache locally
-                else:
-                    # Try local cache
-                    survey_data = self.db.get_survey(survey_id)
-                    if survey_data:
-                        self.current_survey = survey_data
-                    else:
-                        self.status_label.text = "Survey not found"
-                        return
-            except:
-                # Try local cache
-                survey_data = self.db.get_survey(survey_id)
-                if survey_data:
-                    self.current_survey = survey_data
-                else:
-                    self.status_label.text = "Survey not found and server unavailable"
-                    return
-
-            # Reset responses
-            self.responses = []
-
-            # Load template fields if available
-            if hasattr(self, 'default_template_fields'):
-                self.current_survey.template_fields = self.default_template_fields
-
-            # Show survey form
-            self.show_survey_ui()
-
-            # Start with first question
-            self.current_question_index = 0
-            self.show_question()
+                survey_id = int(survey_id_str)
+                self.current_survey = self.db.get_survey(survey_id)
+                self.question_box.style.visibility = 'visible'
+                self.photo_box.style.visibility = 'visible'
+                self.load_questions()
+                self.display_question()
+            except ValueError:
+                self.status_label.text = "Invalid survey ID"
         else:
-            # Try to create from template
-            self.create_basic_survey()
+            self.status_label.text = "Please select a survey"
 
-    def show_survey_ui(self):
-        """Show the survey interface"""
-        self.survey_title_label.style.visibility = 'visible'
-        self.question_label.style.visibility = 'visible'
-        self.answer_input.style.visibility = 'visible'
-        self.survey_title_label.text = self.current_survey['title']
-
-    def show_question(self):
-        """Show the current question"""
-        if self.current_question_index < len(self.current_survey.get('responses', [])):
-            # Show existing response
-            response = self.current_survey['responses'][self.current_question_index]
-            self.question_label.text = response['question']
-            self.answer_input.value = response.get('answer', '')
+    def load_questions(self):
+        if self.current_survey and self.current_survey.get('template_id'):
+            self.questions = self.db.get_template_fields(self.current_survey['template_id'])
         else:
-            # Check if survey has template fields
-            if hasattr(self.current_survey, 'template_fields') and self.current_survey.template_fields:
-                fields = self.current_survey.template_fields
-                if self.current_question_index < len(fields):
-                    field = fields[self.current_question_index]
-                    self.question_label.text = field['question']
-                    self.answer_input.value = ''
-                    # Handle different field types
-                    if field.get('field_type') == 'yesno':
-                        self.answer_input.placeholder = 'Yes/No'
-                    elif field.get('field_type') == 'photo':
-                        self.answer_input.placeholder = 'Photo will be captured'
-                    else:
-                        self.answer_input.placeholder = 'Enter your answer'
-                else:
-                    self.finish_survey(None)
-                    return
-            else:
-                # Fallback to basic questions
-                questions = [
-                    "What is the store's overall condition?",
-                    "Are there any maintenance issues?",
-                    "How is the store lighting?",
-                    "Describe the store layout",
-                    "Any additional notes?"
-                ]
+            self.questions = []
 
-                if self.current_question_index < len(questions):
-                    self.question_label.text = questions[self.current_question_index]
-                    self.answer_input.value = ''
-                else:
-                    self.finish_survey(None)
-                    return
-
-    def submit_answer(self, widget):
-        """Submit the current answer"""
-        answer = self.answer_input.value.strip()
-        if answer:
-            question = self.question_label.text
-            response = {
-                'question': question,
-                'answer': answer,
-                'response_type': 'text'
-            }
-            self.responses.append(response)
-            self.status_label.text = f"Answer submitted for: {question[:50]}..."
+    def display_question(self):
+        if self.current_question_index < len(self.questions):
+            question = self.questions[self.current_question_index]
+            self.question_label.text = question['question']
+            if question['field_type'] == 'text':
+                self.answer_input.style.visibility = 'visible'
+                self.answer_selection.style.visibility = 'hidden'
+            elif question['field_type'] == 'multiple_choice':
+                self.answer_input.style.visibility = 'hidden'
+                self.answer_selection.style.visibility = 'visible'
+                self.answer_selection.items = json.loads(question['options'])
+        else:
+            self.question_box.style.visibility = 'hidden'
+            self.status_label.text = "Survey complete!"
 
     def next_question(self, widget):
-        """Move to next question"""
+        self.save_response()
         self.current_question_index += 1
-        self.show_question()
+        self.display_question()
 
-    def finish_survey(self, widget):
-        """Finish the survey and save responses"""
-        if self.current_survey:
-            # Save responses locally
-            self.db.save_responses(self.current_survey['id'], self.responses)
+    def save_response(self):
+        question = self.questions[self.current_question_index]
+        answer = ''
+        if question['field_type'] == 'text':
+            answer = self.answer_input.value
+        elif question['field_type'] == 'multiple_choice':
+            answer = self.answer_selection.value
 
-            # Hide survey form
-            self.survey_title_label.style.visibility = 'hidden'
-            self.question_label.style.visibility = 'hidden'
-            self.answer_input.style.visibility = 'hidden'
+        response_data = {
+            'id': str(uuid.uuid4()),
+            'survey_id': self.current_survey['id'],
+            'question': question['question'],
+            'answer': answer,
+            'response_type': question['field_type']
+        }
+        self.db.save_response(response_data)
+        self.status_label.text = f"Saved response for: {question['question']}"
 
-            self.status_label.text = f"Survey completed! {len(self.responses)} responses saved locally."
+    def show_templates_ui(self, widget):
+        """Show templates management UI"""
+        # Create templates window
+        templates_window = toga.Window(title="Survey Templates")
 
-            # Show sync button
-            # Note: In a real app, you'd want to show this button earlier
-            # self.sync_button.style.visibility = 'visible'
+        # Template list
+        templates_label = toga.Label('Available Templates:', style=Pack(padding=(10, 5, 10, 5)))
+        self.templates_list = toga.Selection(items=['Loading...'], style=Pack(padding=(5, 5, 10, 5)))
 
-    def sync_with_server(self, widget):
-        """Sync local data with server"""
-        try:
-            # Get all local responses that haven't been synced
-            unsynced_responses = self.db.get_unsynced_responses()
+        # Buttons
+        load_templates_button = toga.Button(
+            'Load Templates',
+            on_press=self.load_templates,
+            style=Pack(padding=(5, 5, 5, 5))
+        )
 
-            for survey_id, responses in unsynced_responses.items():
-                if responses:
-                    data = {'responses': responses}
-                    response = requests.post(
-                        f'http://localhost:5000/api/surveys/{survey_id}/sync',
-                        json=data,
-                        timeout=10
-                    )
+        create_survey_button = toga.Button(
+            'Create Survey from Template',
+            on_press=self.create_survey_from_template,
+            style=Pack(padding=(5, 5, 10, 5))
+        )
 
-                    if response.status_code == 200:
-                        # Mark as synced
-                        self.db.mark_synced(survey_id)
-                        self.status_label.text = f"Synced {len(responses)} responses for survey {survey_id}"
-                    else:
-                        self.status_label.text = "Sync failed - server error"
-                        return
+        close_button = toga.Button(
+            'Close',
+            on_press=lambda w: templates_window.close(),
+            style=Pack(padding=(5, 5, 10, 5))
+        )
 
-            self.status_label.text = "All data synced successfully!"
+        # Create templates box
+        templates_box = toga.Box(
+            children=[
+                templates_label,
+                self.templates_list,
+                load_templates_button,
+                create_survey_button,
+                close_button
+            ],
+            style=Pack(direction=COLUMN, padding=20)
+        )
 
-        except requests.exceptions.RequestException:
-            self.status_label.text = "Sync failed - server not available"
-        except Exception as e:
-            self.status_label.text = f"Sync error: {str(e)}"
+        templates_window.content = templates_box
+        templates_window.show()
+
+        # Auto-load templates
+        self.load_templates(None)
+
+    def load_templates(self, widget):
+        """Load templates from local db"""
+        templates = self.db.get_templates()
+        if templates:
+            template_names = [f"{t['id']}: {t['name']} ({t['category']})" for t in templates]
+            self.templates_list.items = template_names
+            self.templates_data = templates  # Store for later use
+            self.status_label.text = f"Loaded {len(templates)} templates"
+        else:
+            self.templates_list.items = ['Failed to load templates']
+
+    def create_survey_from_template(self, widget):
+        """Create a new survey from selected template"""
+        if self.templates_list.value and hasattr(self, 'templates_data'):
+            template_id = int(self.templates_list.value.split(':')[0])
+
+            # Find template data
+            template = next((t for t in self.templates_data if t['id'] == template_id), None)
+            if template:
+                survey_data = {
+                    'title': f"{template['name']} - New Survey",
+                    'description': template['description'],
+                    'store_name': 'New Store',
+                    'store_address': 'Address TBD',
+                    'status': 'draft',
+                    'template_id': template_id
+                }
+
+                # In a real app, this would be a CRDT insert
+                self.db.save_survey(survey_data)
+                self.status_label.text = f"Created survey from template"
+                # Refresh surveys list
+                self.load_surveys(None)
+
+            else:
+                self.status_label.text = "Template not found"
+        else:
+            self.status_label.text = "Please select a template first"
 
     def show_config_ui(self, widget):
         """Show configuration settings UI"""
@@ -440,161 +406,41 @@ class SurveyApp(toga.App):
 
     def save_config(self, widget):
         """Save configuration settings"""
-        try:
-            # Update local config
-            self.config['image_compression_quality'] = int(self.quality_input.value)
-            self.config['auto_sync_interval'] = int(self.sync_input.value)
-            self.config['max_offline_days'] = int(self.offline_input.value)
+        # In a real app, this would be a CRDT insert
+        pass
 
-            # Try to save to server
-            for key, value in self.config.items():
-                try:
-                    response = requests.put(
-                        f'http://localhost:5000/api/config/{key}',
-                        json={'value': value},
-                        timeout=5
-                    )
-                    if response.status_code == 200:
-                        self.status_label.text = f"Saved {key} to server"
-                    else:
-                        self.status_label.text = f"Failed to save {key} to server"
-                except:
-                    self.status_label.text = f"Server unavailable, {key} saved locally only"
+    def take_photo(self, widget):
+        # In a real app, this would open the camera.
+        # For now, we'll create a dummy image.
+        img = Image.new('RGB', (640, 480), color = 'red')
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='JPEG')
+        self.current_photo_data = img_byte_arr.getvalue()
+        self.image_view.image = toga.Image(data=self.current_photo_data)
 
-        except ValueError:
-            self.status_label.text = "Invalid configuration values"
+    def save_photo(self, widget):
+        if self.current_survey and hasattr(self, 'current_photo_data'):
+            latitude, longitude = None, None
+            try:
+                lat_str, lon_str = self.photo_location_input.value.split(',')
+                latitude = float(lat_str.strip())
+                longitude = float(lon_str.strip())
+            except (ValueError, IndexError):
+                pass # Ignore if location is not a valid lat,long pair
 
-    def show_templates_ui(self, widget):
-        """Show templates management UI"""
-        # Create templates window
-        templates_window = toga.Window(title="Survey Templates")
-
-        # Template list
-        templates_label = toga.Label('Available Templates:', style=Pack(padding=(10, 5, 10, 5)))
-        self.templates_list = toga.Selection(items=['Loading...'], style=Pack(padding=(5, 5, 10, 5)))
-
-        # Buttons
-        load_templates_button = toga.Button(
-            'Load Templates',
-            on_press=self.load_templates,
-            style=Pack(padding=(5, 5, 5, 5))
-        )
-
-        create_survey_button = toga.Button(
-            'Create Survey from Template',
-            on_press=self.create_survey_from_template,
-            style=Pack(padding=(5, 5, 10, 5))
-        )
-
-        close_button = toga.Button(
-            'Close',
-            on_press=lambda w: templates_window.close(),
-            style=Pack(padding=(5, 5, 10, 5))
-        )
-
-        # Create templates box
-        templates_box = toga.Box(
-            children=[
-                templates_label,
-                self.templates_list,
-                load_templates_button,
-                create_survey_button,
-                close_button
-            ],
-            style=Pack(direction=COLUMN, padding=20)
-        )
-
-        templates_window.content = templates_box
-        templates_window.show()
-
-        # Auto-load templates
-        self.load_templates(None)
-
-    def load_templates(self, widget):
-        """Load templates from server"""
-        try:
-            response = requests.get('http://localhost:5000/api/templates', timeout=5)
-            if response.status_code == 200:
-                templates = response.json()
-                template_names = [f"{t['id']}: {t['name']} ({t['category']})" for t in templates]
-                self.templates_list.items = template_names
-                self.templates_data = templates  # Store for later use
-                self.status_label.text = f"Loaded {len(templates)} templates"
-            else:
-                self.templates_list.items = ['Failed to load templates']
-        except:
-            self.templates_list.items = ['Server unavailable']
-
-    def create_survey_from_template(self, widget):
-        """Create a new survey from selected template"""
-        if self.templates_list.value and hasattr(self, 'templates_data'):
-            template_id = int(self.templates_list.value.split(':')[0])
-
-            # Find template data
-            template = next((t for t in self.templates_data if t['id'] == template_id), None)
-            if template:
-                try:
-                    response = requests.get(f'http://localhost:5000/api/templates/{template_id}', timeout=5)
-                    if response.status_code == 200:
-                        template_data = response.json()
-                        # Create survey from template
-                        survey_data = {
-                            'title': f"{template_data['name']} - New Survey",
-                            'description': template_data['description'],
-                            'store_name': 'New Store',
-                            'store_address': 'Address TBD',
-                            'status': 'draft'
-                        }
-
-                        create_response = requests.post(
-                            'http://localhost:5000/api/surveys',
-                            json=survey_data,
-                            timeout=5
-                        )
-
-                        if create_response.status_code == 201:
-                            survey_id = create_response.json()['id']
-                            self.status_label.text = f"Created survey {survey_id} from template"
-                            # Refresh surveys list
-                            self.load_surveys(None)
-                        else:
-                            self.status_label.text = "Failed to create survey"
-                    else:
-                        self.status_label.text = "Failed to load template details"
-                except:
-                    self.status_label.text = "Server unavailable for survey creation"
-            else:
-                self.status_label.text = "Template not found"
+            photo_data = {
+                'id': str(uuid.uuid4()),
+                'survey_id': self.current_survey['id'],
+                'image_data': self.current_photo_data,
+                'latitude': latitude,
+                'longitude': longitude,
+                'description': self.photo_description_input.value
+            }
+            self.db.save_photo(photo_data)
+            self.status_label.text = "Photo saved locally"
         else:
-            self.status_label.text = "Please select a template first"
+            self.status_label.text = "Please select a survey and take a photo first"
 
-    def create_basic_survey(self):
-        """Create a basic survey if no template is available"""
-        # Create a simple survey
-        survey_data = {
-            'title': 'Basic Store Survey',
-            'description': 'A simple store survey',
-            'store_name': 'Unknown Store',
-            'store_address': 'Unknown Address',
-            'status': 'draft'
-        }
-
-        try:
-            response = requests.post(
-                'http://localhost:5000/api/surveys',
-                json=survey_data,
-                timeout=5
-            )
-
-            if response.status_code == 201:
-                survey_id = response.json()['id']
-                self.status_label.text = f"Created basic survey {survey_id}"
-                # Refresh surveys list
-                self.load_surveys(None)
-            else:
-                self.status_label.text = "Failed to create survey"
-        except:
-            self.status_label.text = "Server unavailable for survey creation"
 
 def main():
     return SurveyApp('Site Survey App', 'com.example.survey_app')

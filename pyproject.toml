@@ -1,20 +1,41 @@
 [project]
-name = "kobotoolbox-bridge-mvp"
+name = "survey-app"
 version = "0.1.0"
-description = "Bridge between KoboToolbox and CompanyCam for offline site surveys"
+description = "Offline-first site survey app"
 authors = [
     {name = "Keith", email = "keith@example.com"}
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "briefcase>=0.3.17",
     "flask>=2.3.0",
     "flask-sqlalchemy>=3.0.0",
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
     "apscheduler>=3.10.0",
-    "psycopg2-binary>=2.9.0"
+    "psycopg2-binary>=2.9.0",
+    "toga>=0.4.0",
+    "Pillow>=10.0.0",
+    "appdirs>=1.4.4"
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/survey_app"]
+
+[tool.briefcase]
+project_name = "Survey App"
+bundle = "com.example"
+version = "0.1.0"
+output_format = "app"
+
+[tool.briefcase.app.survey-app]
+formal_name = "Survey App"
+description = "Offline-first site survey app"
+sources = ["src/survey_app"]
+license = "MIT"
+requires = [
+]

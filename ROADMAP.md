@@ -184,9 +184,9 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 
 ## Current Status Summary
 
-✅ **Completed**: Core CRDT sync infrastructure, BeeWare cross-platform setup, basic photo handling, Flask REST API
-🔄 **In Progress**: Enhanced survey UI, photo management improvements
-📋 **Next Priority**: Photo gallery and organization features, survey progress tracking
+✅ **Completed**: Core CRDT sync infrastructure, BeeWare cross-platform setup, basic photo handling, Flask REST API with SQLAlchemy and `cr-sqlite` integration.
+🔄 **In Progress**: Basic survey functionality with multiple choice and text questions.
+📋 **Next Priority**: Full photo management features, including GPS tagging and gallery view.
 
 ## Risk Mitigation
 

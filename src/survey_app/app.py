@@ -5,13 +5,14 @@ try:
 except (ImportError, RuntimeError):
     from . import toga_mock as toga
     from .toga_mock import Pack, COLUMN, ROW
+
 from .local_db import LocalDatabase
 import requests
 import json
 import asyncio
 import threading
 import time
-from PIL import Image
+from PIL import Image, ExifTags
 import io
 import base64
 import uuid
@@ -22,6 +23,7 @@ class SurveyApp(toga.App):
     def startup(self):
         """Initialize the app"""
         self.db = LocalDatabase()
+        self.current_project = None
         self.current_survey = None
         self.current_site = None
         self.responses = []
@@ -30,6 +32,11 @@ class SurveyApp(toga.App):
         self.template_fields = []
         self.total_fields = 0
         self.current_question_index = 0
+        # Phase 2 additions
+        self.visible_fields = []  # Track which fields are visible based on conditions
+        self.section_progress = {}  # Track progress by section
+        self.photo_requirements = {}  # Track photo requirements by section
+        self.current_responses = []  # Track responses for conditional logic
 
         # Create main window
         self.main_window = toga.MainWindow(title=self.formal_name)
@@ -124,6 +131,12 @@ class SurveyApp(toga.App):
             style=Pack(padding=(5, 10, 10, 10))
         )
 
+        projects_button = toga.Button(
+            'Projects',
+            on_press=self.show_projects_ui,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
         sites_button = toga.Button(
             'Sites',
             on_press=self.show_sites_ui,
@@ -133,6 +146,12 @@ class SurveyApp(toga.App):
         templates_button = toga.Button(
             'Templates',
             on_press=self.show_templates_ui,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
+        photos_button = toga.Button(
+            'Photos',
+            on_press=self.show_photos_ui,
             style=Pack(padding=(5, 10, 10, 10))
         )
 
@@ -284,8 +303,10 @@ class SurveyApp(toga.App):
                 survey_label,
                 self.survey_selection,
                 select_survey_button,
+                projects_button,
                 sites_button,
                 templates_button,
+                photos_button,
                 config_button,
                 self.question_box,
                 self.photo_box,
@@ -344,7 +365,8 @@ class SurveyApp(toga.App):
                 # Load template fields if survey has a template_id
                 if survey_data.get('template_id'):
                     try:
-                        template_response = requests.get(f'http://localhost:5000/api/templates/{survey_data["template_id"]}', timeout=5)
+                        # Use new conditional fields API
+                        template_response = requests.get(f'http://localhost:5000/api/templates/{survey_data["template_id"]}/conditional-fields', timeout=5)
                         if template_response.status_code == 200:
                             template_data = template_response.json()
                             self.template_fields = template_data['fields']
@@ -405,15 +427,30 @@ class SurveyApp(toga.App):
         self.update_progress()
 
     def update_progress(self):
-        """Update progress indicator"""
-        if hasattr(self, 'questions') and self.questions:
-            progress = (self.current_question_index / len(self.questions)) * 100
-            self.progress_bar.value = progress
-        elif self.total_fields > 0:
-            progress = (self.current_question_index / self.total_fields) * 100
-            self.progress_bar.value = progress
+        """Update progress indicator with enhanced Phase 2 tracking"""
+        if self.current_survey:
+            # Get detailed progress from database
+            progress_data = self.db.get_survey_progress(self.current_survey['id'])
+            self.section_progress = progress_data.get('sections', {})
+            overall_progress = progress_data.get('overall_progress', 0)
+            
+            # Update progress bar
+            self.progress_bar.value = overall_progress
+            
+            # Update progress label with detailed information
+            total_required = progress_data.get('total_required', 0)
+            total_completed = progress_data.get('total_completed', 0)
+            self.progress_label.text = f"Progress: {total_completed}/{total_required} ({overall_progress:.1f}%)"
         else:
-            self.progress_bar.value = 0
+            # Fallback to basic progress calculation
+            if hasattr(self, 'questions') and self.questions:
+                progress = (self.current_question_index / len(self.questions)) * 100
+                self.progress_bar.value = progress
+            elif self.total_fields > 0:
+                progress = (self.current_question_index / self.total_fields) * 100
+                self.progress_bar.value = progress
+            else:
+                self.progress_bar.value = 0
 
     def show_survey_ui(self):
         """Show the enhanced survey interface"""
@@ -423,13 +460,9 @@ class SurveyApp(toga.App):
         self.survey_title_label.text = self.current_survey['title']
 
     def show_question(self):
-        """Show the current question in enhanced UI"""
+        """Show the current question in enhanced UI with Phase 2 features"""
         # Update progress
-        if self.total_fields > 0:
-            progress = f"Question {self.current_question_index + 1} of {self.total_fields}"
-            self.progress_label.text = progress
-        else:
-            self.progress_label.text = ""
+        self.update_progress()
 
         # Hide all input elements first
         self.answer_input.style.visibility = 'hidden'
@@ -438,55 +471,65 @@ class SurveyApp(toga.App):
         self.options_selection.style.visibility = 'hidden'
         self.enhanced_photo_button.style.visibility = 'hidden'
 
-        if self.current_question_index < len(self.current_survey.get('responses', [])):
-            # Show existing response
-            response = self.current_survey['responses'][self.current_question_index]
-            self.question_label.text = response['question']
-            self.answer_input.value = response.get('answer', '')
-            self.answer_input.style.visibility = 'visible'
+        # Find the next visible field
+        visible_field = self.get_next_visible_field()
+        
+        if not visible_field:
+            self.finish_survey(None)
+            return
+        
+        # Update question label with required indicator
+        required_indicator = " * " if visible_field.get('required', False) else " "
+        self.question_label.text = f"{required_indicator}{visible_field['question']}"
+
+        # Handle different field types
+        field_type = visible_field.get('field_type', 'text')
+        if field_type == 'yesno':
+            self.yes_button.style.visibility = 'visible'
+            self.no_button.style.visibility = 'visible'
+        elif field_type == 'photo':
+            self.enhanced_photo_button.style.visibility = 'visible'
+            # Show photo requirements if available
+            if visible_field.get('photo_requirements'):
+                self.show_photo_requirements(visible_field['photo_requirements'])
+        elif visible_field.get('options'):
+            # Multiple choice
+            self.options_selection.items = visible_field['options']
+            self.options_selection.style.visibility = 'visible'
         else:
-            # Check if survey has template fields
-            if self.template_fields and self.current_question_index < len(self.template_fields):
-                field = self.template_fields[self.current_question_index]
-                self.question_label.text = field['question']
-
-                # Handle different field types
-                field_type = field.get('field_type', 'text')
-                if field_type == 'yesno':
-                    self.yes_button.style.visibility = 'visible'
-                    self.no_button.style.visibility = 'visible'
-                elif field_type == 'photo':
-                    self.enhanced_photo_button.style.visibility = 'visible'
-                elif field.get('options'):
-                    # Multiple choice
-                    self.options_selection.items = field['options']
-                    self.options_selection.style.visibility = 'visible'
-                else:
-                    # Text input
-                    self.answer_input.placeholder = field.get('description', 'Enter your answer')
-                    self.answer_input.value = ''
-                    self.answer_input.style.visibility = 'visible'
+            # Text input
+            self.answer_input.placeholder = visible_field.get('description', 'Enter your answer')
+            self.answer_input.value = ''
+            self.answer_input.style.visibility = 'visible'
+    
+    def get_next_visible_field(self):
+        """Get the next visible field based on conditional logic"""
+        if not self.template_fields:
+            return None
+        
+        # Evaluate conditions for each field
+        for i in range(self.current_question_index, len(self.template_fields)):
+            field = self.template_fields[i]
+            
+            # Check if field has conditions
+            if field.get('conditions'):
+                if self.db.should_show_field(field['conditions'], self.current_responses):
+                    return field
             else:
-                # Fallback to basic questions
-                questions = [
-                    "What is the store's overall condition?",
-                    "Are there any maintenance issues?",
-                    "How is the store lighting?",
-                    "Describe the store layout",
-                    "Any additional notes?"
-                ]
-
-                if self.current_question_index < len(questions):
-                    self.question_label.text = questions[self.current_question_index]
-                    self.answer_input.placeholder = 'Enter your answer'
-                    self.answer_input.value = ''
-                    self.answer_input.style.visibility = 'visible'
-                else:
-                    self.finish_survey(None)
-                    return
+                # No conditions, always show
+                return field
+        
+        return None
+    
+    def show_photo_requirements(self, photo_requirements):
+        """Show photo requirements for current photo field"""
+        # This would show a small popup or label with photo requirements
+        # For now, just update status
+        req_text = photo_requirements.get('description', 'Photo required')
+        self.status_label.text = f"Photo requirement: {req_text}"
 
     def submit_answer(self, widget):
-        """Submit the current answer in enhanced UI"""
+        """Submit the current answer in enhanced UI with Phase 2 tracking"""
         answer = self.answer_input.value.strip()
         # Check if this is a multiple choice question with options selected
         if not answer and self.options_selection.value:
@@ -498,22 +541,31 @@ class SurveyApp(toga.App):
             self.status_label.text = "Please provide an answer"
             return
 
-        question = self.question_label.text
+        # Get current field for tracking
+        current_field = self.get_next_visible_field()
+        if not current_field:
+            return
+        
+        question = current_field['question']
         response = {
+            'question_id': current_field['id'],
             'question': question,
             'answer': answer,
             'response_type': response_type
         }
         self.responses.append(response)
+        self.current_responses.append(response)
 
         # Save response immediately to database
         if self.current_survey:
             response_data = {
                 'id': str(uuid.uuid4()),
                 'survey_id': self.current_survey['id'],
+                'question_id': current_field['id'],
                 'question': question,
                 'answer': answer,
-                'response_type': response_type
+                'response_type': response_type,
+                'field_type': current_field.get('field_type', 'text')
             }
             self.db.save_response(response_data)
 
@@ -554,23 +606,32 @@ class SurveyApp(toga.App):
             self.status_label.text = f"Saved response for: {question['question']}"
 
     def submit_yesno_answer(self, answer):
-        """Submit yes/no answer in enhanced UI"""
-        question = self.question_label.text
+        """Submit yes/no answer in enhanced UI with Phase 2 tracking"""
+        # Get current field for tracking
+        current_field = self.get_next_visible_field()
+        if not current_field:
+            return
+        
+        question = current_field['question']
         response = {
+            'question_id': current_field['id'],
             'question': question,
             'answer': answer,
             'response_type': 'yesno'
         }
         self.responses.append(response)
+        self.current_responses.append(response)
 
         # Save response immediately to database
         if self.current_survey:
             response_data = {
                 'id': str(uuid.uuid4()),
                 'survey_id': self.current_survey['id'],
+                'question_id': current_field['id'],
                 'question': question,
                 'answer': answer,
-                'response_type': 'yesno'
+                'response_type': 'yesno',
+                'field_type': 'yesno'
             }
             self.db.save_response(response_data)
 
@@ -585,6 +646,15 @@ class SurveyApp(toga.App):
         img_byte_arr = io.BytesIO()
         img.save(img_byte_arr, format='JPEG', quality=75)
         photo_data = img_byte_arr.getvalue()
+        
+        # Store photo ID for requirement tracking
+        self.last_photo_id = str(uuid.uuid4())
+
+        # Extract EXIF data
+        exif_dict = {}
+        if hasattr(img, '_getexif') and img._getexif():
+            exif_dict = {ExifTags.TAGS.get(tag, tag): value for tag, value in img._getexif().items()}
+        exif_json = json.dumps(exif_dict)
 
         # Get GPS location
         async def capture_with_location():
@@ -592,12 +662,14 @@ class SurveyApp(toga.App):
             if self.current_survey:
                 # Save photo to database
                 photo_record = {
-                    'id': str(uuid.uuid4()),
+                    'id': self.last_photo_id,
                     'survey_id': self.current_survey['id'],
                     'image_data': photo_data,
                     'latitude': lat,
                     'longitude': long,
-                    'description': f"Photo for: {self.question_label.text}"
+                    'description': f"Photo for: {self.question_label.text}",
+                    'category': 'general',
+                    'exif_data': exif_json
                 }
                 self.db.save_photo(photo_record)
 
@@ -660,6 +732,88 @@ class SurveyApp(toga.App):
             
             self.status_label.text = "Survey completed and saved!"
 
+    def show_projects_ui(self, widget):
+        """Show projects management UI"""
+        projects_window = toga.Window(title="Projects")
+
+        projects_label = toga.Label('Available Projects:', style=Pack(padding=(10, 5, 10, 5)))
+        self.projects_list = toga.Selection(items=['Loading...'], style=Pack(padding=(5, 5, 10, 5)))
+
+        load_projects_button = toga.Button('Load Projects', on_press=self.load_projects, style=Pack(padding=(5, 5, 5, 5)))
+        select_project_button = toga.Button('Select Project', on_press=lambda w: self.select_project(projects_window), style=Pack(padding=(5, 5, 10, 5)))
+
+        new_project_label = toga.Label('Create New Project:', style=Pack(padding=(10, 5, 10, 5)))
+        self.new_project_name_input = toga.TextInput(placeholder='Project Name', style=Pack(padding=(5, 5, 10, 5)))
+        self.new_project_description_input = toga.TextInput(placeholder='Project Description', style=Pack(padding=(5, 5, 10, 5)))
+        create_project_button = toga.Button('Create Project', on_press=self.create_project, style=Pack(padding=(5, 5, 10, 5)))
+
+        close_button = toga.Button('Close', on_press=lambda w: projects_window.close(), style=Pack(padding=(5, 5, 10, 5)))
+
+        projects_box = toga.Box(
+            children=[
+                projects_label,
+                self.projects_list,
+                load_projects_button,
+                select_project_button,
+                new_project_label,
+                self.new_project_name_input,
+                self.new_project_description_input,
+                create_project_button,
+                close_button
+            ],
+            style=Pack(direction=COLUMN, padding=20)
+        )
+
+        projects_window.content = projects_box
+        projects_window.show()
+        self.load_projects(None)
+
+    def load_projects(self, widget):
+        """Load projects from local db"""
+        projects = self.db.get_projects()
+        if projects:
+            project_names = [f"{p.id}: {p.name}" for p in projects]
+            self.projects_list.items = project_names
+            self.projects_data = projects
+            self.status_label.text = f"Loaded {len(projects)} projects"
+        else:
+            self.projects_list.items = ['No projects available']
+
+    def create_project(self, widget):
+        """Create a new project"""
+        project_name = self.new_project_name_input.value
+        project_description = self.new_project_description_input.value
+        if project_name:
+            project_data = {'name': project_name, 'description': project_description}
+            self.db.save_project(project_data)
+            self.status_label.text = f"Created project: {project_name}"
+            self.load_projects(None)
+        else:
+            self.status_label.text = "Please enter a project name"
+
+    def select_project(self, projects_window):
+        if self.projects_list.value and hasattr(self, 'projects_data'):
+            project_id = int(self.projects_list.value.split(':')[0])
+            self.current_project = next((p for p in self.projects_data if p.id == project_id), None)
+            if self.current_project:
+                self.load_sites_for_project(self.current_project.id)
+                projects_window.close()
+            else:
+                self.status_label.text = "Project not found"
+        else:
+            self.status_label.text = "Please select a project"
+
+    def load_sites_for_project(self, project_id):
+        """Load sites for the selected project"""
+        sites = self.db.get_sites_for_project(project_id)
+        if sites:
+            site_names = [f"{s.id}: {s.name}" for s in sites]
+            self.survey_selection.items = ['Select a site first...'] + site_names
+            self.status_label.text = f"Loaded {len(sites)} sites for project {self.current_project.name}"
+        else:
+            self.survey_selection.items = ['Select a site first...']
+            self.status_label.text = f"No sites available for project {self.current_project.name}"
+
     def show_sites_ui(self, widget):
         """Show sites management UI"""
         sites_window = toga.Window(title="Sites")
@@ -713,9 +867,13 @@ class SurveyApp(toga.App):
         site_address = self.new_site_address_input.value
         if site_name:
             site_data = {'name': site_name, 'address': site_address}
+            if self.current_project:
+                site_data['project_id'] = self.current_project.id
             self.db.save_site(site_data)
             self.status_label.text = f"Created site: {site_name}"
             self.load_sites(None)
+            if self.current_project:
+                self.load_sites_for_project(self.current_project.id)
         else:
             self.status_label.text = "Please enter a site name"
 
@@ -891,6 +1049,111 @@ class SurveyApp(toga.App):
         # In a real app, this would be a CRDT insert
         pass
 
+    def show_photos_ui(self, widget):
+        """Show photo gallery UI"""
+        photos_window = toga.Window(title="Photo Gallery")
+
+        # Search
+        self.search_input = toga.TextInput(placeholder='Search descriptions', style=Pack(padding=5, flex=1))
+        search_button = toga.Button('Search', on_press=lambda w: self.search_photos(photos_window), style=Pack(padding=5))
+        search_box = toga.Box(children=[self.search_input, search_button], style=Pack(direction=ROW, padding=5))
+
+        # Filter buttons
+        filter_label = toga.Label('Filter by Category:', style=Pack(padding=(10, 5, 5, 5)))
+        all_button = toga.Button('All', on_press=lambda w: self.filter_photos(photos_window, None), style=Pack(padding=5))
+        general_button = toga.Button('General', on_press=lambda w: self.filter_photos(photos_window, 'general'), style=Pack(padding=5))
+        interior_button = toga.Button('Interior', on_press=lambda w: self.filter_photos(photos_window, 'interior'), style=Pack(padding=5))
+        exterior_button = toga.Button('Exterior', on_press=lambda w: self.filter_photos(photos_window, 'exterior'), style=Pack(padding=5))
+        issues_button = toga.Button('Issues', on_press=lambda w: self.filter_photos(photos_window, 'issues'), style=Pack(padding=5))
+        progress_button = toga.Button('Progress', on_press=lambda w: self.filter_photos(photos_window, 'progress'), style=Pack(padding=5))
+        
+        # Add photo requirements button
+        requirements_button = toga.Button('Photo Requirements', on_press=lambda w: self.show_photo_requirements_ui(photos_window), style=Pack(padding=5))
+
+        filter_box = toga.Box(
+            children=[filter_label, all_button, general_button, interior_button, exterior_button, issues_button, progress_button, requirements_button],
+            style=Pack(direction=ROW, padding=5)
+        )
+
+        # Photos content
+        self.photos_scroll_container = toga.ScrollContainer(horizontal=False, vertical=True)
+        self.current_category = None
+        self.current_search = None
+        self.load_photos_content()  # Load all initially
+
+        close_button = toga.Button('Close', on_press=lambda w: photos_window.close(), style=Pack(padding=10))
+
+        main_photos_box = toga.Box(
+            children=[search_box, filter_box, self.photos_scroll_container, close_button],
+            style=Pack(direction=COLUMN)
+        )
+
+        photos_window.content = main_photos_box
+        photos_window.show()
+
+    def filter_photos(self, window, category):
+        """Filter photos by category"""
+        self.current_category = category
+        self.load_photos_content()
+
+    def search_photos(self, window):
+        """Search photos by description"""
+        self.current_search = self.search_input.value.strip() or None
+        self.load_photos_content()
+
+    def load_photos_content(self):
+        """Load and display photos content"""
+        photos = self.db.get_photos(category=self.current_category, search_term=self.current_search)
+
+        if not photos:
+            no_photos_label = toga.Label("No photos available", style=Pack(padding=20))
+            photos_box = toga.Box(children=[no_photos_label], style=Pack(direction=COLUMN))
+        else:
+            # Main box for photos
+            photos_box = toga.Box(style=Pack(direction=COLUMN, padding=10))
+
+            # Group photos into rows of 4
+            row_photos = []
+            for photo in photos:
+                row_photos.append(photo)
+                if len(row_photos) == 4:
+                    # Create row
+                    row_box = toga.Box(style=Pack(direction=ROW, padding=(5, 5, 5, 5)))
+                    for p in row_photos:
+                        # Create thumbnail
+                        img = Image.open(io.BytesIO(p.image_data))
+                        thumb = img.copy()
+                        thumb.thumbnail((100, 100))
+                        thumb_byte_arr = io.BytesIO()
+                        thumb.save(thumb_byte_arr, format='JPEG')
+                        thumb_data = thumb_byte_arr.getvalue()
+
+                        image_view = toga.ImageView(data=thumb_data, style=Pack(width=100, height=100, padding=5))
+                        desc_label = toga.Label(p.description or 'No description', style=Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
+                        photo_box = toga.Box(children=[image_view, desc_label], style=Pack(direction=COLUMN))
+                        row_box.add(photo_box)
+                    photos_box.add(row_box)
+                    row_photos = []
+
+            # Add remaining photos
+            if row_photos:
+                row_box = toga.Box(style=Pack(direction=ROW, padding=(5, 5, 5, 5)))
+                for p in row_photos:
+                    img = Image.open(io.BytesIO(p.image_data))
+                    thumb = img.copy()
+                    thumb.thumbnail((100, 100))
+                    thumb_byte_arr = io.BytesIO()
+                    thumb.save(thumb_byte_arr, format='JPEG')
+                    thumb_data = thumb_byte_arr.getvalue()
+
+                    image_view = toga.ImageView(data=thumb_data, style=Pack(width=100, height=100, padding=5))
+                    desc_label = toga.Label(p.description or 'No description', style=Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
+                    photo_box = toga.Box(children=[image_view, desc_label], style=Pack(direction=COLUMN))
+                    row_box.add(photo_box)
+                photos_box.add(row_box)
+
+        self.photos_scroll_container.content = photos_box
+
     def take_photo(self, widget):
         # In a real app, this would open the camera.
         # For now, we'll create a dummy image.
@@ -930,6 +1193,93 @@ class SurveyApp(toga.App):
             self.status_label.text = "Photo saved locally"
         else:
             self.status_label.text = "Please select a survey and take a photo first"
+    
+    def show_photo_requirements_ui(self, parent_window):
+        """Show photo requirements checklist UI"""
+        if not self.current_survey:
+            self.status_label.text = "Please select a survey first"
+            return
+        
+        requirements_window = toga.Window(title="Photo Requirements")
+        
+        # Get photo requirements
+        requirements_data = self.db.get_photo_requirements(self.current_survey['id'])
+        requirements_by_section = requirements_data.get('requirements_by_section', {})
+        
+        # Create requirements content
+        requirements_box = toga.Box(style=Pack(direction=COLUMN, padding=10))
+        
+        if not requirements_by_section:
+            no_requirements_label = toga.Label("No photo requirements for this survey", style=Pack(padding=20))
+            requirements_box.add(no_requirements_label)
+        else:
+            for section_name, section_requirements in requirements_by_section.items():
+                # Section header
+                section_label = toga.Label(
+                    f"{section_name} Section",
+                    style=Pack(font_size=16, font_weight='bold', padding=(10, 5, 5, 5))
+                )
+                requirements_box.add(section_label)
+                
+                # Requirements list
+                for req in section_requirements:
+                    req_item = self.create_requirement_item(req)
+                    requirements_box.add(req_item)
+        
+        close_button = toga.Button('Close', on_press=lambda w: requirements_window.close(), style=Pack(padding=10))
+        requirements_box.add(close_button)
+        
+        requirements_window.content = requirements_box
+        requirements_window.show()
+    
+    def create_requirement_item(self, requirement):
+        """Create UI item for a photo requirement"""
+        req_box = toga.Box(style=Pack(direction=ROW, padding=5))
+        
+        # Status indicator
+        status_color = 'red' if requirement.get('required', False) else 'gray'
+        if requirement.get('taken', False):
+            status_color = 'green'
+        
+        status_indicator = toga.Label(
+            '●',
+            style=Pack(color=status_color, padding=(0, 5, 0, 0))
+        )
+        
+        # Requirement text
+        req_text = requirement.get('title', 'Photo requirement')
+        if requirement.get('required', False):
+            req_text += " (Required)"
+        else:
+            req_text += " (Optional)"
+        
+        req_label = toga.Label(req_text, style=Pack(flex=1))
+        
+        # Take photo button
+        take_photo_btn = toga.Button(
+            '📷',
+            on_press=lambda w, req_id=requirement.get('field_id'): self.take_requirement_photo(req_id),
+            style=Pack(padding=(0, 0, 0, 5))
+        )
+        
+        req_box.add(status_indicator, req_label, take_photo_btn)
+        return req_box
+    
+    def take_requirement_photo(self, field_id):
+        """Take a photo for a specific requirement"""
+        # Find the field for this requirement
+        field = next((f for f in self.template_fields if f['id'] == field_id), None)
+        if not field:
+            self.status_label.text = "Requirement not found"
+            return
+        
+        # Use existing photo capture logic
+        self.take_photo_enhanced(None)
+        
+        # Mark photo as fulfilling requirement
+        if hasattr(self, 'last_photo_id'):
+            self.db.mark_requirement_fulfillment(self.last_photo_id, field_id, True)
+            self.status_label.text = f"Photo captured for requirement: {field['question']}"
 
 
 def main():

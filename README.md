@@ -8,7 +8,7 @@ This project contains a comprehensive offline-first site survey application with
 - **Frontend:** BeeWare cross-platform app (iOS, Android, Desktop) with offline functionality
 - **Database:** PostgreSQL/SQLite backend, local SQLite frontend for offline-first operation
 - **Cross-Platform:** Native apps for iOS, Android, Windows, macOS, and Linux
-- **Features:** Automatic image compression, configurable settings, template-based surveys, robust CRDT-based sync, and complete MVP survey workflow
+- **Features:** Automatic image compression, configurable settings, template-based surveys, robust CRDT-based sync, complete MVP survey workflow, photo gallery with categories and search, project hierarchy management
 
 ## Key Features
 
@@ -19,6 +19,8 @@ This project contains a comprehensive offline-first site survey application with
 ✅ **Complete Survey Workflow** - Full MVP with all question types (text, yes/no, multiple choice, photo) and immediate response saving
 ✅ **Enhanced Survey UI** - Progress tracking, field type validation, and intuitive navigation
 ✅ **GPS Photo Tagging** - Automatic location capture for survey photos
+✅ **Photo Gallery & Management** - Grid view thumbnails, categories (interior/exterior/issues/progress), search, and metadata storage
+✅ **Project Hierarchy** - Organize work with Projects → Sites → Surveys → Photos structure
 ✅ **Cross-Platform** - Native apps for iOS, Android, Windows, macOS, and Linux
 ✅ **CRDT-Based Sync** - Robust multi-client synchronization with automatic conflict resolution
 
@@ -29,13 +31,13 @@ This project contains a comprehensive offline-first site survey application with
 - `ROADMAP.md` (Development roadmap and priorities)
 - `backend/app.py` (Flask REST API backend with template support)
 - `backend/store_survey_template.py` (Survey template definitions)
-- `src/survey_app/app.py` (BeeWare cross-platform frontend with enhanced UI)
-- `src/survey_app/local_db.py` (Local SQLite database with CRDT sync)
+- `src/survey_app/app.py` (BeeWare cross-platform frontend with enhanced UI, photo gallery, and project management)
+- `src/survey_app/local_db.py` (Local SQLite database with CRDT sync, photo metadata, and project hierarchy)
 - `archive/` (Archived KoboToolbox and analysis files)
 
-## MVP Status: Complete ✅
+## Status: MVP Complete + Enhanced Features ✅
 
-The core MVP survey workflow is now fully functional! Users can complete entire surveys from start to finish with all question types working properly.
+The core MVP survey workflow is fully functional with all question types working properly. Additional Phase 2 features have been implemented including photo gallery management, project hierarchy, and enhanced photo capabilities.
 
 ### Core MVP Features Implemented
 
@@ -76,6 +78,20 @@ The core MVP survey workflow is now fully functional! Users can complete entire 
 - Settings panel for configuration management
 - Templates browser for creating surveys from templates
 - Improved offline handling and sync status
+
+### Photo Management & Gallery
+- Thumbnail grid view with 4-column layout
+- Photo categories: General, Interior, Exterior, Issues, Progress
+- Search functionality by description text
+- EXIF metadata storage and extraction
+- Photo quality assessment framework
+- Bulk operations support
+
+### Project Hierarchy
+- Projects → Sites → Surveys → Photos organization
+- Project management UI for creating and selecting projects
+- Sites nested under projects
+- Hierarchical navigation and data structure
 
 ## CRDT-Based Synchronization
 

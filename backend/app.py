@@ -71,6 +71,9 @@ class SurveyResponse(db.Model):
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    # Phase 2 additions
+    question_id = db.Column(db.Integer)  # Links to template field ID for conditional logic
+    field_type = db.Column(db.String(50))  # Stores the field type from template
 
 class AppConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -100,6 +103,10 @@ class TemplateField(db.Model):
     options = db.Column(db.Text)
     order_index = db.Column(db.Integer, default=0)
     section = db.Column(db.String(100))
+    # Phase 2 additions
+    conditions = db.Column(db.Text)  # JSON format for conditional logic
+    photo_requirements = db.Column(db.Text)  # JSON format for photo requirements
+    section_weight = db.Column(db.Integer, default=1)  # For weighted progress calculation
 
 class Photo(db.Model):
     id = db.Column(db.String, primary_key=True)
@@ -110,6 +117,9 @@ class Photo(db.Model):
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     crc = db.Column(db.Integer)
+    # Phase 2 additions
+    requirement_id = db.Column(db.String)  # Links to photo requirement
+    fulfills_requirement = db.Column(db.Boolean, default=False)  # Tracks if this fulfills a requirement
 
 
 def create_crr_tables(target, connection, **kw):
@@ -291,6 +301,223 @@ def get_changes():
     conn.close()
 
     return jsonify([dict(row) for row in changes])
+
+# Phase 2 API Endpoints
+
+@app.route('/api/templates/<int:template_id>/conditional-fields', methods=['GET'])
+def get_conditional_fields(template_id):
+    """Get template fields with conditional logic information"""
+    template = SurveyTemplate.query.get_or_404(template_id)
+    fields = []
+    
+    for field in sorted(template.fields, key=lambda x: x.order_index):
+        field_data = {
+            'id': field.id,
+            'field_type': field.field_type,
+            'question': field.question,
+            'description': field.description,
+            'required': field.required,
+            'options': field.options,
+            'order_index': field.order_index,
+            'section': field.section,
+            'section_weight': field.section_weight,
+            'conditions': json.loads(field.conditions) if field.conditions else None,
+            'photo_requirements': json.loads(field.photo_requirements) if field.photo_requirements else None
+        }
+        fields.append(field_data)
+    
+    return jsonify({
+        'template_id': template_id,
+        'fields': fields
+    })
+
+@app.route('/api/surveys/<int:survey_id>/evaluate-conditions', methods=['POST'])
+def evaluate_survey_conditions(survey_id):
+    """Evaluate which fields should be visible based on current responses"""
+    survey = Survey.query.get_or_404(survey_id)
+    data = request.get_json()
+    current_responses = data.get('responses', [])
+    
+    # Get template fields
+    if survey.template_id:
+        template = SurveyTemplate.query.get(survey.template_id)
+        all_fields = sorted(template.fields, key=lambda x: x.order_index)
+    else:
+        return jsonify({'error': 'Survey has no template'}), 400
+    
+    visible_fields = []
+    
+    for field in all_fields:
+        # Check if field has conditions
+        if field.conditions:
+            conditions = json.loads(field.conditions)
+            if should_show_field(conditions, current_responses):
+                visible_fields.append(field.id)
+        else:
+            # No conditions, always show
+            visible_fields.append(field.id)
+    
+    return jsonify({
+        'survey_id': survey_id,
+        'visible_fields': visible_fields
+    })
+
+@app.route('/api/surveys/<int:survey_id>/progress', methods=['GET'])
+def get_survey_progress(survey_id):
+    """Get detailed progress information for a survey"""
+    survey = Survey.query.get_or_404(survey_id)
+    
+    # Get all responses
+    responses = SurveyResponse.query.filter_by(survey_id=survey_id).all()
+    response_dict = {r.question_id: r.answer for r in responses if r.question_id}
+    
+    # Get all photos
+    photos = Photo.query.filter_by(survey_id=str(survey_id)).all()
+    
+    # Get template fields if available
+    if survey.template_id:
+        template = SurveyTemplate.query.get(survey.template_id)
+        fields = template.fields
+    else:
+        fields = []
+    
+    # Calculate progress by section
+    sections = {}
+    total_required = 0
+    total_completed = 0
+    
+    for field in fields:
+        section = field.section or 'General'
+        if section not in sections:
+            sections[section] = {
+                'required': 0,
+                'completed': 0,
+                'photos_required': 0,
+                'photos_taken': 0,
+                'weight': field.section_weight
+            }
+        
+        if field.required:
+            sections[section]['required'] += 1
+            total_required += 1
+            
+            # Check if this field has a response
+            if field.id in response_dict and response_dict[field.id]:
+                sections[section]['completed'] += 1
+                total_completed += 1
+        
+        # Handle photo requirements
+        if field.field_type == 'photo':
+            if field.required:
+                sections[section]['photos_required'] += 1
+            
+            # Check if photo exists for this field
+            photo_exists = any(p for p in photos if p.requirement_id and field.question in p.description)
+            if photo_exists:
+                sections[section]['photos_taken'] += 1
+    
+    # Calculate overall progress
+    overall_progress = (total_completed / total_required * 100) if total_required > 0 else 0
+    
+    # Calculate section progress
+    for section_name, section_data in sections.items():
+        section_total = section_data['required']
+        section_completed = section_data['completed']
+        section_data['progress'] = (section_completed / section_total * 100) if section_total > 0 else 0
+    
+    return jsonify({
+        'overall_progress': overall_progress,
+        'sections': sections,
+        'total_required': total_required,
+        'total_completed': total_completed
+    })
+
+@app.route('/api/surveys/<int:survey_id>/photo-requirements', methods=['GET'])
+def get_photo_requirements(survey_id):
+    """Get photo requirements for a survey"""
+    survey = Survey.query.get_or_404(survey_id)
+    
+    if not survey.template_id:
+        return jsonify({'error': 'Survey has no template'}), 400
+    
+    template = SurveyTemplate.query.get(survey.template_id)
+    
+    # Get existing photos
+    photos = Photo.query.filter_by(survey_id=str(survey_id)).all()
+    existing_photo_requirements = {p.requirement_id: p for p in photos if p.requirement_id}
+    
+    requirements_by_section = {}
+    
+    for field in sorted(template.fields, key=lambda x: x.order_index):
+        if field.field_type == 'photo' and field.photo_requirements:
+            section = field.section or 'General'
+            if section not in requirements_by_section:
+                requirements_by_section[section] = []
+            
+            photo_req_data = json.loads(field.photo_requirements)
+            photo_req_data['field_id'] = field.id
+            photo_req_data['field_question'] = field.question
+            photo_req_data['taken'] = field.id in existing_photo_requirements
+            
+            requirements_by_section[section].append(photo_req_data)
+    
+    return jsonify({
+        'survey_id': survey_id,
+        'requirements_by_section': requirements_by_section
+    })
+
+@app.route('/api/photos/requirement-fulfillment', methods=['POST'])
+def mark_requirement_fulfillment():
+    """Mark a photo as fulfilling a requirement"""
+    data = request.get_json()
+    photo_id = data.get('photo_id')
+    requirement_id = data.get('requirement_id')
+    fulfills = data.get('fulfills', True)
+    
+    photo = Photo.query.get_or_404(photo_id)
+    photo.requirement_id = requirement_id
+    photo.fulfills_requirement = fulfills
+    db.session.commit()
+    
+    return jsonify({
+        'photo_id': photo_id,
+        'requirement_id': requirement_id,
+        'fulfills': fulfills,
+        'message': 'Photo requirement fulfillment updated'
+    })
+
+def should_show_field(conditions, responses):
+    """Evaluate if a field should be shown based on current responses"""
+    if not conditions:
+        return True
+    
+    condition_list = conditions.get('conditions', [])
+    logic = conditions.get('logic', 'AND')
+    
+    results = []
+    for condition in condition_list:
+        question_id = condition['question_id']
+        operator = condition['operator']
+        expected_value = condition['value']
+        
+        # Find response for this question
+        response = next((r for r in responses if r.get('question_id') == question_id), None)
+        if not response:
+            results.append(False)
+            continue
+        
+        actual_value = response.get('answer')
+        
+        if operator == 'equals':
+            results.append(str(actual_value) == str(expected_value))
+        elif operator == 'not_equals':
+            results.append(str(actual_value) != str(expected_value))
+        elif operator == 'in':
+            results.append(str(actual_value) in [str(v) for v in expected_value])
+        elif operator == 'not_in':
+            results.append(str(actual_value) not in [str(v) for v in expected_value])
+    
+    return all(results) if logic == 'AND' else any(results)
 
 if __name__ == '__main__':
     app.run(debug=True)

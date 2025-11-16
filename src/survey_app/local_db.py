@@ -10,6 +10,14 @@ from appdirs import user_data_dir
 
 Base = declarative_base()
 
+class Project(Base):
+    __tablename__ = 'projects'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class Site(Base):
     __tablename__ = 'sites'
     id = Column(Integer, primary_key=True)
@@ -17,6 +25,7 @@ class Site(Base):
     address = Column(Text)
     latitude = Column(Float)
     longitude = Column(Float)
+    project_id = Column(Integer, ForeignKey('projects.id'))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -41,6 +50,9 @@ class SurveyResponse(Base):
     latitude = Column(Float)
     longitude = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Phase 2 additions
+    question_id = Column(Integer)  # Links to template field ID for conditional logic
+    field_type = Column(String(50))  # Stores field type from template
 
 class AppConfig(Base):
     __tablename__ = 'config'
@@ -72,6 +84,10 @@ class TemplateField(Base):
     options = Column(Text)
     order_index = Column(Integer, default=0)
     section = Column(String(100))
+    # Phase 2 additions
+    conditions = Column(Text)  # JSON format for conditional logic
+    photo_requirements = Column(Text)  # JSON format for photo requirements
+    section_weight = Column(Integer, default=1)  # For weighted progress calculation
 
 class Photo(Base):
     __tablename__ = 'photos'
@@ -81,8 +97,13 @@ class Photo(Base):
     latitude = Column(Float)
     longitude = Column(Float)
     description = Column(Text)
+    category = Column(String(50), default='general')
+    exif_data = Column(Text)  # JSON string of EXIF data
     created_at = Column(DateTime, default=datetime.utcnow)
     crc = Column(Integer)
+    # Phase 2 additions
+    requirement_id = Column(String)  # Links to photo requirement
+    fulfills_requirement = Column(Boolean, default=False)  # Tracks if this fulfills a requirement
 
 
 class LocalDatabase:
@@ -126,11 +147,30 @@ class LocalDatabase:
         session.close()
         return survey
 
+    def get_projects(self):
+        session = self.get_session()
+        projects = session.query(Project).all()
+        session.close()
+        return projects
+
     def get_sites(self):
         session = self.get_session()
         sites = session.query(Site).all()
         session.close()
         return sites
+
+    def get_sites_for_project(self, project_id):
+        session = self.get_session()
+        sites = session.query(Site).filter_by(project_id=project_id).all()
+        session.close()
+        return sites
+
+    def save_project(self, project_data):
+        session = self.get_session()
+        project = Project(**project_data)
+        session.add(project)
+        session.commit()
+        session.close()
 
     def save_site(self, site_data):
         session = self.get_session()
@@ -190,6 +230,25 @@ class LocalDatabase:
         session.commit()
         session.close()
 
+    def get_photos(self, survey_id=None, category=None, search_term=None):
+        session = self.get_session()
+        query = session.query(Photo)
+        if survey_id:
+            query = query.filter_by(survey_id=survey_id)
+        if category:
+            query = query.filter_by(category=category)
+        if search_term:
+            query = query.filter(Photo.description.contains(search_term))
+        photos = query.order_by(Photo.created_at.desc()).all()
+        session.close()
+        return photos
+
+    def get_photo_categories(self):
+        session = self.get_session()
+        categories = session.query(Photo.category).distinct().all()
+        session.close()
+        return [c[0] for c in categories if c[0]]
+
     def get_changes_since(self, version):
         session = self.get_session()
         conn = session.connection()
@@ -230,4 +289,213 @@ class LocalDatabase:
             )
 
         session.commit()
+        session.close()
+
+    # Phase 2 methods for conditional logic and progress tracking
+    
+    def get_conditional_fields(self, template_id):
+        """Get template fields with conditional logic information"""
+        session = self.get_session()
+        template = session.query(SurveyTemplate).get(template_id)
+        if not template:
+            session.close()
+            return []
+        
+        fields = []
+        for field in sorted(template.fields, key=lambda x: x.order_index):
+            field_data = {
+                'id': field.id,
+                'field_type': field.field_type,
+                'question': field.question,
+                'description': field.description,
+                'required': field.required,
+                'options': field.options,
+                'order_index': field.order_index,
+                'section': field.section,
+                'section_weight': field.section_weight,
+                'conditions': json.loads(field.conditions) if field.conditions else None,
+                'photo_requirements': json.loads(field.photo_requirements) if field.photo_requirements else None
+            }
+            fields.append(field_data)
+        
+        session.close()
+        return fields
+    
+    def evaluate_conditions(self, survey_id, current_responses):
+        """Evaluate which fields should be visible based on current responses"""
+        session = self.get_session()
+        survey = session.query(Survey).get(survey_id)
+        if not survey or not survey.template_id:
+            session.close()
+            return []
+        
+        template = session.query(SurveyTemplate).get(survey.template_id)
+        all_fields = sorted(template.fields, key=lambda x: x.order_index)
+        
+        visible_fields = []
+        
+        for field in all_fields:
+            # Check if field has conditions
+            if field.conditions:
+                conditions = json.loads(field.conditions)
+                if self.should_show_field(conditions, current_responses):
+                    visible_fields.append(field.id)
+            else:
+                # No conditions, always show
+                visible_fields.append(field.id)
+        
+        session.close()
+        return visible_fields
+    
+    def should_show_field(self, conditions, responses):
+        """Evaluate if a field should be shown based on current responses"""
+        if not conditions:
+            return True
+        
+        condition_list = conditions.get('conditions', [])
+        logic = conditions.get('logic', 'AND')
+        
+        results = []
+        for condition in condition_list:
+            question_id = condition['question_id']
+            operator = condition['operator']
+            expected_value = condition['value']
+            
+            # Find response for this question
+            response = next((r for r in responses if r.get('question_id') == question_id), None)
+            if not response:
+                results.append(False)
+                continue
+            
+            actual_value = response.get('answer')
+            
+            if operator == 'equals':
+                results.append(str(actual_value) == str(expected_value))
+            elif operator == 'not_equals':
+                results.append(str(actual_value) != str(expected_value))
+            elif operator == 'in':
+                results.append(str(actual_value) in [str(v) for v in expected_value])
+            elif operator == 'not_in':
+                results.append(str(actual_value) not in [str(v) for v in expected_value])
+        
+        return all(results) if logic == 'AND' else any(results)
+    
+    def get_survey_progress(self, survey_id):
+        """Get detailed progress information for a survey"""
+        session = self.get_session()
+        survey = session.query(Survey).get(survey_id)
+        if not survey:
+            session.close()
+            return {}
+        
+        # Get all responses
+        responses = session.query(SurveyResponse).filter_by(survey_id=survey_id).all()
+        response_dict = {r.question_id: r.answer for r in responses if r.question_id}
+        
+        # Get all photos
+        photos = session.query(Photo).filter_by(survey_id=str(survey_id)).all()
+        
+        # Get template fields if available
+        fields = []
+        if survey.template_id:
+            template = session.query(SurveyTemplate).get(survey.template_id)
+            fields = template.fields
+        
+        # Calculate progress by section
+        sections = {}
+        total_required = 0
+        total_completed = 0
+        
+        for field in fields:
+            section = field.section or 'General'
+            if section not in sections:
+                sections[section] = {
+                    'required': 0,
+                    'completed': 0,
+                    'photos_required': 0,
+                    'photos_taken': 0,
+                    'weight': field.section_weight
+                }
+            
+            if field.required:
+                sections[section]['required'] += 1
+                total_required += 1
+                
+                # Check if this field has a response
+                if field.id in response_dict and response_dict[field.id]:
+                    sections[section]['completed'] += 1
+                    total_completed += 1
+            
+            # Handle photo requirements
+            if field.field_type == 'photo':
+                if field.required:
+                    sections[section]['photos_required'] += 1
+                
+                # Check if photo exists for this field
+                photo_exists = any(p for p in photos if p.requirement_id and field.question in p.description)
+                if photo_exists:
+                    sections[section]['photos_taken'] += 1
+        
+        # Calculate overall progress
+        overall_progress = (total_completed / total_required * 100) if total_required > 0 else 0
+        
+        # Calculate section progress
+        for section_name, section_data in sections.items():
+            section_total = section_data['required']
+            section_completed = section_data['completed']
+            section_data['progress'] = (section_completed / section_total * 100) if section_total > 0 else 0
+        
+        session.close()
+        
+        return {
+            'overall_progress': overall_progress,
+            'sections': sections,
+            'total_required': total_required,
+            'total_completed': total_completed
+        }
+    
+    def get_photo_requirements(self, survey_id):
+        """Get photo requirements for a survey"""
+        session = self.get_session()
+        survey = session.query(Survey).get(survey_id)
+        if not survey or not survey.template_id:
+            session.close()
+            return {}
+        
+        template = session.query(SurveyTemplate).get(survey.template_id)
+        
+        # Get existing photos
+        photos = session.query(Photo).filter_by(survey_id=str(survey_id)).all()
+        existing_photo_requirements = {p.requirement_id: p for p in photos if p.requirement_id}
+        
+        requirements_by_section = {}
+        
+        for field in sorted(template.fields, key=lambda x: x.order_index):
+            if field.field_type == 'photo' and field.photo_requirements:
+                section = field.section or 'General'
+                if section not in requirements_by_section:
+                    requirements_by_section[section] = []
+                
+                photo_req_data = json.loads(field.photo_requirements)
+                photo_req_data['field_id'] = field.id
+                photo_req_data['field_question'] = field.question
+                photo_req_data['taken'] = field.id in existing_photo_requirements
+                
+                requirements_by_section[section].append(photo_req_data)
+        
+        session.close()
+        return {
+            'survey_id': survey_id,
+            'requirements_by_section': requirements_by_section
+        }
+    
+    def mark_requirement_fulfillment(self, photo_id, requirement_id, fulfills=True):
+        """Mark a photo as fulfilling a requirement"""
+        session = self.get_session()
+        photo = session.query(Photo).get(photo_id)
+        if photo:
+            photo.requirement_id = requirement_id
+            photo.fulfills_requirement = fulfills
+            session.commit()
+        
         session.close()

@@ -41,12 +41,20 @@ class SurveyStatus(enum.Enum):
     COMPLETED = 'completed'
     ARCHIVED = 'archived'
 
+class Site(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    address = db.Column(db.Text)
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
 class Survey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
-    store_name = db.Column(db.String(100))
-    store_address = db.Column(db.String(300))
+    site_id = db.Column(db.Integer, db.ForeignKey('site.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     status = db.Column(db.Enum(SurveyStatus), default=SurveyStatus.DRAFT)
@@ -104,6 +112,7 @@ class Photo(db.Model):
 
 
 def create_crr_tables(target, connection, **kw):
+    connection.execute(text("SELECT crsql_as_crr('site');"))
     connection.execute(text("SELECT crsql_as_crr('survey');"))
     connection.execute(text("SELECT crsql_as_crr('survey_response');"))
     connection.execute(text("SELECT crsql_as_crr('app_config');"))
@@ -152,6 +161,42 @@ def create_survey():
     db.session.add(survey)
     db.session.commit()
     return jsonify({'id': survey.id}), 201
+
+@app.route('/api/sites', methods=['GET'])
+def get_sites():
+    sites = Site.query.all()
+    return jsonify([{'id': s.id, 'name': s.name, 'address': s.address} for s in sites])
+
+@app.route('/api/sites/<int:site_id>', methods=['GET'])
+def get_site(site_id):
+    site = Site.query.get_or_404(site_id)
+    return jsonify({'id': site.id, 'name': site.name, 'address': site.address})
+
+@app.route('/api/sites', methods=['POST'])
+def create_site():
+    data = request.get_json()
+    site = Site(name=data['name'], address=data.get('address'), latitude=data.get('latitude'), longitude=data.get('longitude'))
+    db.session.add(site)
+    db.session.commit()
+    return jsonify({'id': site.id}), 201
+
+@app.route('/api/sites/<int:site_id>', methods=['PUT'])
+def update_site(site_id):
+    site = Site.query.get_or_404(site_id)
+    data = request.get_json()
+    site.name = data.get('name', site.name)
+    site.address = data.get('address', site.address)
+    site.latitude = data.get('latitude', site.latitude)
+    site.longitude = data.get('longitude', site.longitude)
+    db.session.commit()
+    return jsonify({'message': 'Site updated successfully'})
+
+@app.route('/api/sites/<int:site_id>', methods=['DELETE'])
+def delete_site(site_id):
+    site = Site.query.get_or_404(site_id)
+    db.session.delete(site)
+    db.session.commit()
+    return jsonify({'message': 'Site deleted successfully'})
 
 @app.route('/api/templates', methods=['GET'])
 def get_templates():

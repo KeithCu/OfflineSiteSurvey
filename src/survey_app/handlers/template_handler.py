@@ -1,4 +1,5 @@
 """Template management handlers for SurveyApp."""
+import json
 import toga
 
 
@@ -28,6 +29,11 @@ class TemplateHandler:
             'Create Survey from Template',
             on_press=self.create_survey_from_template,
             style=toga.Pack(padding=(5, 5, 10, 5))
+        )
+        edit_tags_button = toga.Button(
+            'Edit Section Tags',
+            on_press=self.open_section_tags_editor,
+            style=toga.Pack(padding=(5, 5, 5, 5))
         )
 
         close_button = toga.Button(

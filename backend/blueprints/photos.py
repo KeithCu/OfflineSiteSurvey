@@ -37,7 +37,8 @@ def get_photos():
         'category': p.category,
         'created_at': p.created_at.isoformat(),
         'hash_value': p.hash_value,
-        'size_bytes': p.size_bytes
+        'size_bytes': p.size_bytes,
+        'tags': json.loads(p.tags) if p.tags else []
     } for p in photos])
 
 
@@ -167,6 +168,17 @@ def upload_photo_to_survey(survey_id):
         category = request.form.get('category', 'general')
         latitude = float(request.form.get('latitude', 0.0))
         longitude = float(request.form.get('longitude', 0.0))
+        tags_payload = request.form.get('tags', '')
+        tags = []
+        if tags_payload:
+            try:
+                parsed = json.loads(tags_payload)
+                if isinstance(parsed, list):
+                    tags = parsed
+                else:
+                    tags = [str(parsed)]
+            except json.JSONDecodeError:
+                tags = [tag.strip() for tag in tags_payload.split(',') if tag.strip()]
 
         # Create photo record
         photo = Photo(
@@ -183,6 +195,7 @@ def upload_photo_to_survey(survey_id):
             hash_value=hash_value,
             size_bytes=size_bytes,
             hash_algo='sha256'
+            , tags=json.dumps(tags)
         )
 
         db.session.add(photo)
@@ -225,7 +238,8 @@ def get_photo(photo_id):
         'category': photo.category,
         'created_at': photo.created_at.isoformat(),
         'hash_value': photo.hash_value,
-        'size_bytes': photo.size_bytes
+        'size_bytes': photo.size_bytes,
+        'tags': json.loads(photo.tags) if photo.tags else []
     }
 
     # If requesting full image data, download from cloud

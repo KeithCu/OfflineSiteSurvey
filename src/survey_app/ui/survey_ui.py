@@ -185,6 +185,18 @@ class SurveyUI:
             self.app.photo_location_input,
             save_photo_button
         )
+        self.app.section_tag_label = toga.Label(
+            'Section Tags',
+            style=toga.Pack(font_size=12, padding=(5, 5, 5, 5))
+        )
+        self.app.section_tag_switches_box = toga.Box(
+            style=toga.Pack(direction=toga.COLUMN, padding=(0, 5, 5, 5))
+        )
+        self.app.section_tags_box = toga.Box(
+            children=[self.app.section_tag_label, self.app.section_tag_switches_box],
+            style=toga.Pack(direction=toga.COLUMN, padding=(5, 0, 5, 0), background_color='#f9f9f9')
+        )
+        self.app.photo_box.add(self.app.section_tags_box)
 
         # Status label
         self.app.status_label = toga.Label(
@@ -267,6 +279,10 @@ class SurveyUI:
             self.app.survey_handler.finish_survey(None)
             return
 
+        section = visible_field.get('section') or 'General'
+        self.app.current_section = section
+        self.update_section_tag_controls(section)
+
         # Update question label with required indicator
         required_indicator = " * " if visible_field.get('required', False) else " "
         self.app.question_label.text = f"{required_indicator}{visible_field['question']}"
@@ -297,6 +313,35 @@ class SurveyUI:
         # For now, just update status
         req_text = photo_requirements.get('description', 'Photo required')
         self.app.status_label.text = f"Photo requirement: {req_text}"
+
+    def update_section_tag_controls(self, section):
+        """Rebuild section-scoped tag toggles"""
+        section_name = section or 'General'
+        self.app.section_tag_label.text = f"{section_name} Tags"
+        self.app.clear_photo_tag_selection()
+        while self.app.section_tag_switches_box.children:
+            child = self.app.section_tag_switches_box.children[0]
+            self.app.section_tag_switches_box.remove(child)
+        self.app.section_tag_switches.clear()
+
+        tags = self.app.section_tags.get(section_name, []) if isinstance(self.app.section_tags, dict) else []
+        if not tags:
+            info_label = toga.Label(
+                "No tags defined for this section.",
+                style=toga.Pack(font_size=10, color='#666666', padding=(0, 5, 5, 5))
+            )
+            self.app.section_tag_switches_box.add(info_label)
+            return
+
+        for tag in tags:
+            switch = toga.Switch(
+                label=tag,
+                value=False,
+                on_toggle=lambda widget, tag=tag: self.app.toggle_photo_tag(tag, widget.is_on),
+                style=toga.Pack(padding=(0, 5, 5, 5))
+            )
+            self.app.section_tag_switches_box.add(switch)
+            self.app.section_tag_switches[tag] = switch
 
     def update_progress(self):
         """Update progress indicator with enhanced Phase 2 tracking"""

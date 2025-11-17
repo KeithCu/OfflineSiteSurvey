@@ -1,4 +1,6 @@
 """Photo management handlers for SurveyApp."""
+import json
+import uuid
 import toga
 from PIL import Image
 import io
@@ -171,7 +173,17 @@ class PhotoHandler:
                             image_view = toga.ImageView(style=toga.Pack(width=100, height=100, padding=5, background_color='#cccccc'))
 
                         desc_label = toga.Label(p.description or 'No description', style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
-                        photo_box = toga.Box(children=[image_view, desc_label], style=toga.Pack(direction=toga.COLUMN))
+                        photo_children = [image_view, desc_label]
+                        tags_value = []
+                        if getattr(p, 'tags', None):
+                            try:
+                                tags_value = json.loads(p.tags)
+                            except (json.JSONDecodeError, TypeError):
+                                tags_value = []
+                        if tags_value:
+                            tags_label = toga.Label(f"Tags: {', '.join(tags_value)}", style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5), color='#444444'))
+                            photo_children.append(tags_label)
+                        photo_box = toga.Box(children=photo_children, style=toga.Pack(direction=toga.COLUMN))
                         row_box.add(photo_box)
                     photos_box.add(row_box)
                     row_photos = []
@@ -196,7 +208,17 @@ class PhotoHandler:
                         image_view = toga.ImageView(style=toga.Pack(width=100, height=100, padding=5, background_color='#cccccc'))
 
                     desc_label = toga.Label(p.description or 'No description', style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
-                    photo_box = toga.Box(children=[image_view, desc_label], style=toga.Pack(direction=toga.COLUMN))
+                    photo_children = [image_view, desc_label]
+                    tags_value = []
+                    if getattr(p, 'tags', None):
+                        try:
+                            tags_value = json.loads(p.tags)
+                        except (json.JSONDecodeError, TypeError):
+                            tags_value = []
+                    if tags_value:
+                        tags_label = toga.Label(f"Tags: {', '.join(tags_value)}", style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5), color='#444444'))
+                        photo_children.append(tags_label)
+                    photo_box = toga.Box(children=photo_children, style=toga.Pack(direction=toga.COLUMN))
                     row_box.add(photo_box)
                 photos_box.add(row_box)
 
@@ -289,10 +311,12 @@ class PhotoHandler:
                 'image_data': self.app.current_photo_data,
                 'latitude': latitude,
                 'longitude': longitude,
-                'description': self.app.photo_description_input.value
+                'description': self.app.photo_description_input.value,
+                'tags': list(self.app.selected_photo_tags)
             }
             self.app.db.save_photo(photo_data)
             self.app.status_label.text = "Photo saved locally"
+            self.app.clear_photo_tag_selection()
         else:
             self.app.status_label.text = "Please select a survey and take a photo first"
 

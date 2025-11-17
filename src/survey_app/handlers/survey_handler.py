@@ -1,4 +1,5 @@
 """Survey management handlers for SurveyApp."""
+import json
 import toga
 import uuid
 import asyncio
@@ -50,24 +51,31 @@ class SurveyHandler:
                 # Load template fields if survey has a template_id
                 if survey_data.get('template_id'):
                     try:
-                        # Use new conditional fields API
-                        template_response = self.app.api_service.get(f'/templates/{survey_data["template_id"]}/conditional-fields', timeout=5)
+                        template_response = self.app.api_service.get(
+                            f'/templates/{survey_data["template_id"]}/conditional-fields',
+                            timeout=5
+                        )
                         if template_response.status_code == 200:
                             template_data = template_response.json()
-                            self.app.template_fields = template_data['fields']
-                            self.app.total_fields = len(self.app.template_fields)
                         else:
-                            self.app.template_fields = []
-                            self.app.total_fields = 0
+                            template_data = self.app.db.get_conditional_fields(survey_data["template_id"])
                     except Exception as e:
                         self.app.logger.warning(f"Failed to load template fields: {e}")
-                        self.app.template_fields = []
-                        self.app.total_fields = 0
+                        template_data = self.app.db.get_conditional_fields(survey_data["template_id"])
+
+                    if not template_data:
+                        template_data = {'fields': [], 'section_tags': {}}
+
+                    self.app.template_fields = template_data.get('fields', [])
+                    self.app.section_tags = template_data.get('section_tags', {})
+                    self.app.total_fields = len(self.app.template_fields)
                 elif hasattr(self.app, 'default_template_fields'):
                     self.app.template_fields = self.app.default_template_fields
                     self.app.total_fields = len(self.app.template_fields)
+                    self.app.section_tags = {}
                 else:
                     self.app.template_fields = []
+                    self.app.section_tags = {}
                     self.app.total_fields = 0
 
                 # Use enhanced UI if template fields are available, otherwise use legacy
@@ -247,9 +255,11 @@ class SurveyHandler:
                     'longitude': long,
                     'description': f"Photo for: {self.app.question_label.text}",
                     'category': self.app.enums.PhotoCategory.GENERAL.value,
-                    'exif_data': exif_json
+                    'exif_data': exif_json,
+                    'tags': list(self.app.selected_photo_tags)
                 }
                 self.app.db.save_photo(photo_record)
+                self.app.clear_photo_tag_selection()
 
                 # Save response
                 question = self.app.question_label.text

@@ -172,7 +172,10 @@ class LocalDatabase:
         session = self.get_session()
         try:
             fields = template_data.pop('fields', [])
+            section_tags = template_data.pop('section_tags', None)
             template = SurveyTemplate(**template_data)
+            if section_tags is not None:
+                template.section_tags = json.dumps(section_tags) if isinstance(section_tags, dict) else section_tags
             template = session.merge(template)
             for field_data in fields:
                 field = TemplateField(**field_data)
@@ -180,6 +183,21 @@ class LocalDatabase:
             session.commit()
             session.refresh(template)  # Refresh to load any generated fields
             return template
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def update_template_section_tags(self, template_id, section_tags):
+        session = self.get_session()
+        try:
+            template = session.get(SurveyTemplate, template_id)
+            if not template:
+                return False
+            template.section_tags = json.dumps(section_tags)
+            session.commit()
+            return True
         except Exception:
             session.rollback()
             raise
@@ -206,6 +224,16 @@ class LocalDatabase:
                 # Store photo locally for pending upload (frontend implementation)
                 # In a full implementation, this would save to local pending directory
                 # For now, we'll keep the thumbnail_data for local display
+
+            tags = photo_data.get('tags')
+            if tags is None:
+                tags = []
+            if isinstance(tags, (list, tuple)):
+                photo_data['tags'] = json.dumps(list(tags))
+            elif isinstance(tags, str):
+                photo_data['tags'] = tags
+            else:
+                photo_data['tags'] = json.dumps([])
 
             photo = Photo(**photo_data)
             session.add(photo)
@@ -477,7 +505,7 @@ class LocalDatabase:
         try:
             template = session.get(SurveyTemplate, template_id)
             if not template:
-                return []
+                return {'fields': [], 'section_tags': {}}
             fields = []
             for field in sorted(template.fields, key=lambda x: x.order_index):
                 field_data = {
@@ -488,7 +516,11 @@ class LocalDatabase:
                     'photo_requirements': json.loads(field.photo_requirements) if field.photo_requirements else None
                 }
                 fields.append(field_data)
-            return fields
+            try:
+                section_tags = json.loads(template.section_tags) if template.section_tags else {}
+            except json.JSONDecodeError:
+                section_tags = {}
+            return {'fields': fields, 'section_tags': section_tags}
         finally:
             session.close()
 

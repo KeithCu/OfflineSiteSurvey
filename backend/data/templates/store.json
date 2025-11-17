@@ -3,6 +3,15 @@
   "description": "Comprehensive survey template for retail stores covering electrical, structural, and safety aspects",
   "category": "store",
   "is_default": true,
+  "section_tags": {
+    "General": ["overview"],
+    "Electrical": ["panel", "breaker", "wiring"],
+    "Structural": ["roof", "foundation", "framing"],
+    "Safety": ["fire-safety", "egress"],
+    "Maintenance": ["hvac", "plumbing"],
+    "Photos": ["survey-wide"],
+    "Summary": ["final"]
+  },
   "fields": [
     {
       "field_type": "text",

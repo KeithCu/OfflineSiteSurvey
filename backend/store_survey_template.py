@@ -8,6 +8,15 @@ STORE_SURVEY_TEMPLATE = {
     'description': 'Comprehensive survey template for retail stores covering electrical, structural, and safety aspects',
     'category': 'store',
     'is_default': True,
+    'section_tags': {
+        'General': ['overview'],
+        'Electrical': ['panel', 'breaker', 'wiring'],
+        'Structural': ['roof', 'foundation', 'framing'],
+        'Safety': ['fire-safety', 'egress'],
+        'Maintenance': ['hvac', 'plumbing'],
+        'Photos': ['survey-wide'],
+        'Summary': ['final']
+    },
     'fields': [
         # General Information
         {

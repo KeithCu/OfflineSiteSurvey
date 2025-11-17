@@ -67,6 +67,10 @@ class SurveyApp(toga.App):
         self.visible_fields = []  # Track which fields are visible based on conditions
         self.section_progress = {}  # Track progress by section
         self.photo_requirements = {}  # Track photo requirements by section
+        self.section_tags = {}
+        self.current_section = 'General'
+        self.selected_photo_tags = set()
+        self.section_tag_switches = {}
         self.current_responses = []  # Track responses for conditional logic
         self.offline_queue = []  # Queue for operations when offline
         self.auto_save_timer = None
@@ -231,6 +235,22 @@ class SurveyApp(toga.App):
         else:
             self.ui_manager.status_label.text = "Please select a survey"
         self.update_progress()
+
+    def toggle_photo_tag(self, tag, enabled):
+        """Track photo tag selection toggles."""
+        if enabled:
+            self.selected_photo_tags.add(tag)
+        else:
+            self.selected_photo_tags.discard(tag)
+
+    def clear_photo_tag_selection(self):
+        """Reset tag toggles for the current section."""
+        self.selected_photo_tags.clear()
+        for switch in list(self.section_tag_switches.values()):
+            try:
+                switch.is_on = False
+            except AttributeError:
+                pass
 
     def load_questions(self):
         """Load questions for legacy UI"""

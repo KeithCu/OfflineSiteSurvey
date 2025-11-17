@@ -11,20 +11,37 @@ bp = Blueprint('templates', __name__, url_prefix='/api')
 @bp.route('/templates', methods=['GET'])
 def get_templates():
     templates = SurveyTemplate.query.all()
-    return jsonify([{'id': t.id, 'name': t.name, 'fields': [{'id': f.id, 'question': f.question} for f in t.fields]} for t in templates])
+    template_list = []
+    for t in templates:
+        try:
+            section_tags = json.loads(t.section_tags) if t.section_tags else {}
+        except json.JSONDecodeError:
+            section_tags = {}
+        template_list.append({
+            'id': t.id,
+            'name': t.name,
+            'fields': [{'id': f.id, 'question': f.question} for f in t.fields],
+            'section_tags': section_tags
+        })
+    return jsonify(template_list)
 
 
 @bp.route('/templates/<int:template_id>', methods=['GET'])
 def get_template(template_id):
     template = db.get_or_404(SurveyTemplate, template_id)
     fields = [{'id': f.id, 'field_type': f.field_type, 'question': f.question, 'description': f.description, 'required': f.required, 'options': f.options, 'order_index': f.order_index, 'section': f.section} for f in sorted(template.fields, key=lambda x: x.order_index)]
+    try:
+        section_tags = json.loads(template.section_tags) if template.section_tags else {}
+    except json.JSONDecodeError:
+        section_tags = {}
     return jsonify({
         'id': template.id,
         'name': template.name,
         'description': template.description,
         'category': template.category,
         'is_default': template.is_default,
-        'fields': fields
+        'fields': fields,
+        'section_tags': section_tags
     })
 
 
@@ -49,11 +66,50 @@ def get_conditional_fields(template_id):
             'photo_requirements': json.loads(field.photo_requirements) if field.photo_requirements else None
         }
         fields.append(field_data)
+    try:
+        section_tags = json.loads(template.section_tags) if template.section_tags else {}
+    except json.JSONDecodeError:
+        section_tags = {}
     
     return jsonify({
         'template_id': template_id,
-        'fields': fields
+        'fields': fields,
+        'section_tags': section_tags
     })
+
+
+@bp.route('/templates/<int:template_id>/section-tags', methods=['PUT'])
+def update_section_tags(template_id):
+    """Update section tag mappings for a template"""
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON payload'}), 400
+
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request payload must be a JSON object'}), 400
+
+    section_tags = data.get('section_tags')
+    if not isinstance(section_tags, dict):
+        return jsonify({'error': 'section_tags must be a JSON object'}), 400
+
+    cleaned = {}
+    for section, tags in section_tags.items():
+        if not isinstance(section, str):
+            continue
+        if not isinstance(tags, list):
+            return jsonify({'error': f'Tags for section {section} must be a list'}), 400
+        cleaned[section] = [str(tag).strip() for tag in tags if str(tag).strip()]
+
+    template = db.get_or_404(SurveyTemplate, template_id)
+    try:
+        template.section_tags = json.dumps(cleaned)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update section tags: {e}'}), 500
+
+    return jsonify({'template_id': template_id, 'section_tags': cleaned})
 
 
 @bp.route('/surveys/<int:survey_id>/evaluate-conditions', methods=['POST'])

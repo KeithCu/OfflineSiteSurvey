@@ -121,6 +121,7 @@ class SurveyTemplate(Base):
     created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
     fields = relationship('TemplateField', backref='template', cascade='all, delete-orphan', lazy=True)
+    section_tags = Column(Text, server_default="{}")
 
 
 class TemplateField(Base):
@@ -161,6 +162,7 @@ class Photo(Base):
     file_path = Column(String(500), server_default="")
     requirement_id = Column(String, index=True, server_default="")
     fulfills_requirement = Column(Boolean, default=False, server_default='0')
+    tags = Column(Text, server_default="[]")
 
 Index('idx_photo_survey_site', Photo.survey_id, Photo.site_id)
 Index('idx_photo_created_at', Photo.created_at)

@@ -53,6 +53,9 @@ def init_db_command():
             category=template_data['category'],
             is_default=True
         )
+        section_tags = template_data.get('section_tags')
+        if section_tags:
+            template.section_tags = json.dumps(section_tags)
         db.session.add(template)
         db.session.flush()
         for field_data in template_data['fields']:

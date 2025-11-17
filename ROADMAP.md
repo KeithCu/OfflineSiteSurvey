@@ -58,6 +58,9 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 
 ## Phase 4: User Experience & Reliability ⚡ (COMPLETED ✅)
 
+### **🚨 PROMINENT ROADMAP NOTE: Image Storage Migration (HIGH PRIORITY - SOON)**
+**URGENT**: Migrate photos/thumbnails from DB blobs to S3-compatible storage (e.g., libcloud). Store URLs/paths in Photo model instead of LargeBinary. Benefits: Scalability, perf, reduced DB size. Implement: Background upload queue, URL fallback for offline, integrity via signed URLs/hashes. **DO THIS SOON** - current blob storage will cause issues at scale.
+
 ### User Interface
 - [x] **Intuitive Navigation**: Clear project → site → survey → photo hierarchy
 - [x] **Offline Indicators**: Clear visual indicators of connectivity status

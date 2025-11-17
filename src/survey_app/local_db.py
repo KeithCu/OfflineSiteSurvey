@@ -18,20 +18,8 @@ from shared.models import (
 )
 # Keep local enums for now, can be moved to shared later if needed
 from .enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
-# Assuming a shared utils module exists or will be created
-# from shared.utils import compute_photo_hash, generate_thumbnail
-
-# These utility functions are needed but were missing from a shared module.
-# Defining them here temporarily to ensure functionality.
-def compute_photo_hash(image_data):
-    """Compute SHA-256 hash of image data."""
-    return hashlib.sha256(image_data).hexdigest()
-
-def generate_thumbnail(image_data, size=(200, 200)):
-    """Generate a thumbnail for an image."""
-    # This is a placeholder implementation. A real implementation
-    # would use a library like Pillow.
-    return image_data
+# Import shared utilities
+from shared.utils import compute_photo_hash, generate_thumbnail
 
 
 class LocalDatabase:
@@ -208,7 +196,7 @@ class LocalDatabase:
                 photo_data['size_bytes'] = len(image_data)
                 photo_data['hash_algo'] = 'sha256'
                 if not photo_data.get('thumbnail_data'):
-                    photo_data['thumbnail_data'] = generate_thumbnail(image_data)
+                    photo_data['thumbnail_data'] = generate_thumbnail(image_data, max_size=200)
             photo = Photo(**photo_data)
             session.add(photo)
             session.commit()
@@ -320,7 +308,7 @@ class LocalDatabase:
                                     'action': 'rejected'
                                 })
                                 continue
-                    except (json.JSONDecodeError, AttributeError):
+                    except (json.JSONDecodeError, AttributeError, TypeError):
                         pass
                 try:
                     cursor.execute(
@@ -346,7 +334,7 @@ class LocalDatabase:
         finally:
             session.close()
 
-    def backup(self, backup_dir=None, include_media=True):
+    def backup(self, backup_dir=None):
         if not backup_dir:
             backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
         os.makedirs(backup_dir, exist_ok=True)
@@ -361,18 +349,9 @@ class LocalDatabase:
                     if not db_filename.endswith('.db'):
                         db_filename = f"{db_filename}.db"
                     backup_zip.write(self.db_path, db_filename)
-                if include_media:
-                    media_dir = os.path.join(os.path.dirname(self.db_path), 'media')
-                    if os.path.exists(media_dir):
-                        for root, dirs, files in os.walk(media_dir):
-                            for file in files:
-                                file_path = os.path.join(root, file)
-                                arcname = os.path.relpath(file_path, os.path.dirname(media_dir))
-                                backup_zip.write(file_path, arcname)
                 metadata = {
                     'timestamp': timestamp,
                     'database_path': self.db_path,
-                    'include_media': include_media,
                     'version': '1.0'
                 }
                 backup_zip.writestr('backup_metadata.json', json.dumps(metadata, indent=2))
@@ -411,12 +390,6 @@ class LocalDatabase:
                     if hasattr(self, 'engine'):
                         self.engine.dispose()
                     shutil.copy2(backup_db_path, self.db_path)
-                    media_dir = os.path.join(os.path.dirname(self.db_path), 'media')
-                    backup_media_dir = os.path.join(temp_dir, 'media')
-                    if os.path.exists(backup_media_dir):
-                        if os.path.exists(media_dir):
-                            shutil.rmtree(media_dir)
-                        shutil.copytree(backup_media_dir, media_dir)
                     self.engine = create_engine(f'sqlite:///{self.db_path}')
                     Base.metadata.create_all(self.engine)
                     self.Session = sessionmaker(bind=self.engine)

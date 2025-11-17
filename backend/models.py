@@ -12,7 +12,7 @@ def create_crr_tables(target, connection, **kw):
     connection.execute(text("PRAGMA foreign_keys = OFF;"))
     crr_tables = [
         'projects', 'sites', 'survey', 'survey_response',
-        'survey_template', 'template_field', 'photo', 'app_config'
+        'survey_template', 'template_field', 'photo'
     ]
     for table_name in crr_tables:
         try:

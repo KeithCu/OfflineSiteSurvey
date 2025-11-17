@@ -145,7 +145,7 @@ Index('idx_template_field_order', TemplateField.template_id, TemplateField.order
 class Photo(Base):
     __tablename__ = 'photo'
     id = Column(String, primary_key=True, nullable=False, server_default="")
-    survey_id = Column(String, ForeignKey('survey.id', ondelete='CASCADE'), index=True, server_default="")
+    survey_id = Column(Integer, ForeignKey('survey.id', ondelete='CASCADE'), index=True, server_default="0")
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), index=True, server_default="1")
     image_data = Column(LargeBinary)
     latitude = Column(Float, server_default="0.0")

@@ -45,7 +45,7 @@ def apply_changes():
                     existing_photo = db.session.get(Photo, photo_id)
                     if existing_photo and existing_photo.hash_value:
                         # Verify the incoming data matches expected hash
-                        incoming_hash = compute_photo_hash(change['val'], existing_photo.hash_algo)
+                        incoming_hash = compute_photo_hash(change['val'])
                         if incoming_hash != existing_photo.hash_value:
                             integrity_issues.append({
                                 'photo_id': photo_id,
@@ -54,7 +54,7 @@ def apply_changes():
                                 'action': 'rejected'
                             })
                             continue  # Skip this change
-                except (json.JSONDecodeError, AttributeError):
+                except (json.JSONDecodeError, AttributeError, TypeError):
                     pass  # Continue with change if we can't parse
 
             cursor.execute(

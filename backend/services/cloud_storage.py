@@ -109,9 +109,9 @@ class CloudStorageService:
 
         # Upload main photo - organize by site_id directory if provided
         if site_id is not None:
-            photo_object_name = f"photos/{site_id}/{photo_id}.jpg"
+            photo_object_name = f"{site_id}/{photo_id}.jpg"
         else:
-            photo_object_name = f"photos/{photo_id}.jpg"
+            photo_object_name = f"{photo_id}.jpg"
 
         photo_url = self._upload_and_verify(photo_path, photo_object_name, expected_hash)
 
@@ -120,7 +120,7 @@ class CloudStorageService:
         thumbnail_object_name = None
         if thumbnail_path and os.path.exists(thumbnail_path):
             if site_id is not None:
-                thumbnail_object_name = f"thumbnails/{site_id}/{photo_id}_thumb.jpg"
+                thumbnail_object_name = f"{site_id}/thumbnails/{photo_id}_thumb.jpg"
             else:
                 thumbnail_object_name = f"thumbnails/{photo_id}_thumb.jpg"
             thumbnail_url = self._upload_and_verify(thumbnail_path, thumbnail_object_name)

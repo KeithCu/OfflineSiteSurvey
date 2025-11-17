@@ -59,10 +59,20 @@ def get_conditional_fields(template_id):
 @bp.route('/surveys/<int:survey_id>/evaluate-conditions', methods=['POST'])
 def evaluate_survey_conditions(survey_id):
     """Evaluate which fields should be visible based on current responses"""
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON data'}), 400
+
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request data must be a JSON object'}), 400
+
+    current_responses = data.get('responses', [])
+    if not isinstance(current_responses, list):
+        return jsonify({'error': 'responses must be a list'}), 400
+
     from ..models import Survey
     survey = Survey.query.get_or_404(survey_id)
-    data = request.get_json()
-    current_responses = data.get('responses', [])
     
     # Get template fields
     if survey.template_id:

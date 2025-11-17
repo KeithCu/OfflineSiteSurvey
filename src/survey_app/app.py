@@ -21,6 +21,12 @@ from .services.db_service import DBService
 from .logging_config import setup_logging
 import asyncio
 import logging
+import uuid
+import time
+import threading
+import json
+import io
+from PIL import Image, ExifTags
 
 
 class SurveyApp(toga.App):
@@ -395,8 +401,9 @@ class SurveyApp(toga.App):
                         else:
                             self.status_label.text = "Survey not found"
                             return
-                except:
+                except Exception as e:
                     # Try local cache if server unavailable
+                    self.logger.warning(f"Server request failed, trying local cache: {e}")
                     survey_data = self.db.get_survey(survey_id)
                     if survey_data:
                         self.current_survey = survey_data
@@ -419,7 +426,8 @@ class SurveyApp(toga.App):
                         else:
                             self.template_fields = []
                             self.total_fields = 0
-                    except:
+                    except Exception as e:
+                        self.logger.warning(f"Failed to load template fields: {e}")
                         self.template_fields = []
                         self.total_fields = 0
                 elif hasattr(self, 'default_template_fields'):

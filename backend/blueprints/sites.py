@@ -38,30 +38,128 @@ def get_site(site_id):
 
 @bp.route('/sites', methods=['POST'])
 def create_site():
-    data = request.get_json()
-    site = Site(
-        name=data['name'],
-        address=data.get('address'),
-        latitude=data.get('latitude'),
-        longitude=data.get('longitude'),
-        notes=data.get('notes')
-    )
-    db.session.add(site)
-    db.session.commit()
-    return jsonify({'id': site.id}), 201
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON data'}), 400
+
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request data must be a JSON object'}), 400
+
+    # Validate required fields
+    if 'name' not in data:
+        return jsonify({'error': 'name field is required'}), 400
+
+    name = data['name']
+    if not isinstance(name, str) or not name.strip():
+        return jsonify({'error': 'name must be a non-empty string'}), 400
+
+    # Validate optional fields
+    address = data.get('address')
+    if address is not None and not isinstance(address, str):
+        return jsonify({'error': 'address must be a string'}), 400
+
+    latitude = data.get('latitude')
+    if latitude is not None:
+        try:
+            latitude = float(latitude)
+            if not (-90 <= latitude <= 90):
+                return jsonify({'error': 'latitude must be between -90 and 90'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'latitude must be a number'}), 400
+
+    longitude = data.get('longitude')
+    if longitude is not None:
+        try:
+            longitude = float(longitude)
+            if not (-180 <= longitude <= 180):
+                return jsonify({'error': 'longitude must be between -180 and 180'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'longitude must be a number'}), 400
+
+    notes = data.get('notes')
+    if notes is not None and not isinstance(notes, str):
+        return jsonify({'error': 'notes must be a string'}), 400
+
+    try:
+        site = Site(
+            name=name.strip(),
+            address=address.strip() if address else None,
+            latitude=latitude,
+            longitude=longitude,
+            notes=notes.strip() if notes else None
+        )
+        db.session.add(site)
+        db.session.commit()
+        return jsonify({'id': site.id}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to create site: {str(e)}'}), 500
 
 
 @bp.route('/sites/<int:site_id>', methods=['PUT'])
 def update_site(site_id):
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON data'}), 400
+
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request data must be a JSON object'}), 400
+
     site = Site.query.get_or_404(site_id)
-    data = request.get_json()
-    site.name = data.get('name', site.name)
-    site.address = data.get('address', site.address)
-    site.latitude = data.get('latitude', site.latitude)
-    site.longitude = data.get('longitude', site.longitude)
-    site.notes = data.get('notes', site.notes)
-    db.session.commit()
-    return jsonify({'message': 'Site updated successfully'})
+
+    # Validate and update name
+    if 'name' in data:
+        name = data['name']
+        if not isinstance(name, str) or not name.strip():
+            return jsonify({'error': 'name must be a non-empty string'}), 400
+        site.name = name.strip()
+
+    # Validate and update address
+    if 'address' in data:
+        address = data['address']
+        if address is not None and not isinstance(address, str):
+            return jsonify({'error': 'address must be a string'}), 400
+        site.address = address.strip() if address else None
+
+    # Validate and update latitude
+    if 'latitude' in data:
+        latitude = data['latitude']
+        if latitude is not None:
+            try:
+                latitude = float(latitude)
+                if not (-90 <= latitude <= 90):
+                    return jsonify({'error': 'latitude must be between -90 and 90'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'latitude must be a number'}), 400
+        site.latitude = latitude
+
+    # Validate and update longitude
+    if 'longitude' in data:
+        longitude = data['longitude']
+        if longitude is not None:
+            try:
+                longitude = float(longitude)
+                if not (-180 <= longitude <= 180):
+                    return jsonify({'error': 'longitude must be between -180 and 180'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'longitude must be a number'}), 400
+        site.longitude = longitude
+
+    # Validate and update notes
+    if 'notes' in data:
+        notes = data['notes']
+        if notes is not None and not isinstance(notes, str):
+            return jsonify({'error': 'notes must be a string'}), 400
+        site.notes = notes.strip() if notes else None
+
+    try:
+        db.session.commit()
+        return jsonify({'message': 'Site updated successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update site: {str(e)}'}), 500
 
 
 @bp.route('/sites/<int:site_id>', methods=['DELETE'])

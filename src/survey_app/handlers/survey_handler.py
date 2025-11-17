@@ -34,8 +34,9 @@ class SurveyHandler:
                         else:
                             self.app.status_label.text = "Survey not found"
                             return
-                except:
+                except Exception as e:
                     # Try local cache if server unavailable
+                    self.app.logger.warning(f"Server request failed, trying local cache: {e}")
                     survey_data = self.app.db.get_survey(survey_id)
                     if survey_data:
                         self.app.current_survey = survey_data
@@ -58,7 +59,8 @@ class SurveyHandler:
                         else:
                             self.app.template_fields = []
                             self.app.total_fields = 0
-                    except:
+                    except Exception as e:
+                        self.app.logger.warning(f"Failed to load template fields: {e}")
                         self.app.template_fields = []
                         self.app.total_fields = 0
                 elif hasattr(self.app, 'default_template_fields'):

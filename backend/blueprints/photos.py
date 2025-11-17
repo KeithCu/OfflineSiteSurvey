@@ -11,22 +11,46 @@ bp = Blueprint('photos', __name__, url_prefix='/api')
 @bp.route('/photos/requirement-fulfillment', methods=['POST'])
 def mark_requirement_fulfillment():
     """Mark a photo as fulfilling a requirement"""
-    data = request.get_json()
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON data'}), 400
+
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request data must be a JSON object'}), 400
+
+    # Validate photo_id
     photo_id = data.get('photo_id')
+    if photo_id is None:
+        return jsonify({'error': 'photo_id field is required'}), 400
+    if not isinstance(photo_id, str) or not photo_id.strip():
+        return jsonify({'error': 'photo_id must be a non-empty string'}), 400
+
+    # Validate requirement_id (can be None to clear)
     requirement_id = data.get('requirement_id')
+    if requirement_id is not None and not isinstance(requirement_id, str):
+        return jsonify({'error': 'requirement_id must be a string or null'}), 400
+
+    # Validate fulfills
     fulfills = data.get('fulfills', True)
+    if not isinstance(fulfills, bool):
+        return jsonify({'error': 'fulfills must be a boolean'}), 400
 
-    photo = Photo.query.get_or_404(photo_id)
-    photo.requirement_id = requirement_id
-    photo.fulfills_requirement = fulfills
-    db.session.commit()
+    try:
+        photo = Photo.query.get_or_404(photo_id)
+        photo.requirement_id = requirement_id
+        photo.fulfills_requirement = fulfills
+        db.session.commit()
 
-    return jsonify({
-        'photo_id': photo_id,
-        'requirement_id': requirement_id,
-        'fulfills': fulfills,
-        'message': 'Photo requirement fulfillment updated'
-    })
+        return jsonify({
+            'photo_id': photo_id,
+            'requirement_id': requirement_id,
+            'fulfills': fulfills,
+            'message': 'Photo requirement fulfillment updated'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update photo requirement: {str(e)}'}), 500
 
 
 @bp.route('/photos/<photo_id>/integrity', methods=['GET'])

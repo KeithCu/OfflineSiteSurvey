@@ -16,7 +16,7 @@ def get_projects():
         'id': p.id,
         'name': p.name,
         'description': p.description,
-        'status': p.status.value if p.status else None,
+        'status': p.status,
         'client_info': p.client_info,
         'due_date': p.due_date.isoformat() if p.due_date else None,
         'priority': p.priority,

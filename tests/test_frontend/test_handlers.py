@@ -17,10 +17,15 @@ class MockApp:
         self.current_project = None
         self.current_site = None
         self.current_survey = None
+        self.current_search = None
+        self.last_sync_version = 0
         self.status_label = Mock()
         self.status_label.text = ""
         self.responses = []
         self.offline_queue = []
+        self.enums = Mock()
+        self.enums.ProjectStatus = [Mock(value='draft'), Mock(value='in_progress'), Mock(value='completed')]
+        self.enums.PhotoCategory = [Mock(value='general'), Mock(value='interior'), Mock(value='exterior')]
 
 
 @pytest.fixture

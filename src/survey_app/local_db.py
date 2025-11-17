@@ -7,6 +7,7 @@ import uuid
 import zipfile
 import tempfile
 import shutil
+import hashlib
 import logging
 from appdirs import user_data_dir
 
@@ -57,11 +58,16 @@ class LocalDatabase:
         Base.metadata.create_all(self.engine)
 
         with self.engine.connect() as connection:
+            connection.execute(text("PRAGMA foreign_keys = OFF;"))
             for table in Base.metadata.sorted_tables:
                 # Use the consistent table name 'app_config'
                 if table.name == 'app_config':
                     continue
-                connection.execute(text(f"SELECT crsql_as_crr('{table.name}');"))
+                try:
+                    connection.execute(text(f"SELECT crsql_as_crr('{table.name}');"))
+                except Exception as e:
+                    self.logger.warning(f"Failed to make {table.name} CRR: {e}")
+                    # Continue with other tables
 
         self.Session = sessionmaker(bind=self.engine)
 

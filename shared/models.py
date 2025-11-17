@@ -52,7 +52,7 @@ class Site(Base):
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
     notes = Column(Text, server_default="")
-    project_id = Column(Integer, ForeignKey('projects.id'), index=True, server_default="1")
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), index=True, server_default="1")
     created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
     surveys = relationship('Survey', backref='site', lazy=True)
@@ -65,11 +65,11 @@ class Survey(Base):
     id = Column(Integer, primary_key=True, nullable=False, server_default="0")
     title = Column(String(200), nullable=False, server_default="Untitled Survey")
     description = Column(Text, server_default="")
-    site_id = Column(Integer, ForeignKey('sites.id'), nullable=False, server_default="1")
+    site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False, server_default="1")
     created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
     status = Column(String(20), default='draft', server_default='draft')
-    template_id = Column(Integer, ForeignKey('survey_template.id'), server_default=None)
+    template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'), server_default=None)
     template = relationship('SurveyTemplate', backref='surveys')
     responses = relationship('SurveyResponse', backref='survey')
 
@@ -82,7 +82,7 @@ Index('idx_survey_created_at', Survey.created_at)
 class SurveyResponse(Base):
     __tablename__ = 'survey_response'
     id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    survey_id = Column(Integer, ForeignKey('survey.id'), nullable=False, index=True, server_default="1")
+    survey_id = Column(Integer, ForeignKey('survey.id', ondelete='CASCADE'), nullable=False, index=True, server_default="1")
     question = Column(String(500), nullable=False, server_default="")
     answer = Column(Text, server_default="")
     response_type = Column(String(50), index=True, server_default="")
@@ -121,7 +121,7 @@ class SurveyTemplate(Base):
 class TemplateField(Base):
     __tablename__ = 'template_field'
     id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    template_id = Column(Integer, ForeignKey('survey_template.id'), nullable=False, index=True, server_default="1")
+    template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='CASCADE'), nullable=False, index=True, server_default="1")
     field_type = Column(String(50), server_default="")
     question = Column(String(500), nullable=False, server_default="")
     description = Column(Text, server_default="")
@@ -140,8 +140,8 @@ Index('idx_template_field_order', TemplateField.template_id, TemplateField.order
 class Photo(Base):
     __tablename__ = 'photo'
     id = Column(String, primary_key=True, nullable=False, server_default="")
-    survey_id = Column(String, ForeignKey('survey.id'), index=True, server_default="")
-    site_id = Column(Integer, ForeignKey('sites.id'), index=True, server_default="1")
+    survey_id = Column(String, ForeignKey('survey.id', ondelete='CASCADE'), index=True, server_default="")
+    site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), index=True, server_default="1")
     image_data = Column(LargeBinary)
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")

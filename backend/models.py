@@ -9,9 +9,14 @@ db = SQLAlchemy(model_class=Base)
 
 def create_crr_tables(target, connection, **kw):
     """Make tables CRR for cr-sqlite sync."""
+    connection.execute(text("PRAGMA foreign_keys = OFF;"))
     crr_tables = [
         'projects', 'sites', 'survey', 'survey_response',
         'survey_template', 'template_field', 'photo', 'app_config'
     ]
     for table_name in crr_tables:
-        connection.execute(text(f"SELECT crsql_as_crr('{table_name}');"))
+        try:
+            connection.execute(text(f"SELECT crsql_as_crr('{table_name}');"))
+        except Exception as e:
+            print(f"Warning: Failed to make {table_name} CRR: {e}")
+            # Continue with other tables

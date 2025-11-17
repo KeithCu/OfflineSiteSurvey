@@ -14,7 +14,7 @@ def get_surveys():
         'title': s.title,
         'description': s.description,
         'template_id': s.template_id,
-        'status': s.status.value,
+        'status': s.status,
         'created_at': s.created_at.isoformat(),
         'updated_at': s.updated_at.isoformat()
     } for s in surveys])
@@ -38,7 +38,7 @@ def get_survey(survey_id):
         'title': survey.title,
         'description': survey.description,
         'template_id': survey.template_id,
-        'status': survey.status.value,
+        'status': survey.status,
         'created_at': survey.created_at.isoformat(),
         'updated_at': survey.updated_at.isoformat(),
         'responses': responses

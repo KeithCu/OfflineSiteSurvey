@@ -7,6 +7,24 @@ from shared.utils import compute_photo_hash
 
 bp = Blueprint('photos', __name__, url_prefix='/api')
 
+@bp.route('/photos', methods=['GET'])
+def get_photos():
+    """Get all photos."""
+    photos = Photo.query.all()
+    return jsonify([{
+        'id': p.id,
+        'survey_id': p.survey_id,
+        'site_id': p.site_id,
+        'latitude': p.latitude,
+        'longitude': p.longitude,
+        'description': p.description,
+        'category': p.category,
+        'created_at': p.created_at.isoformat(),
+        'hash_value': p.hash_value,
+        'size_bytes': p.size_bytes
+    } for p in photos])
+
+
 
 @bp.route('/photos/requirement-fulfillment', methods=['POST'])
 def mark_requirement_fulfillment():

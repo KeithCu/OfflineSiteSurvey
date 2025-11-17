@@ -7,6 +7,7 @@ except (ImportError, RuntimeError):
     from .toga_mock import Pack, COLUMN, ROW
 
 from .local_db import LocalDatabase
+from .enums import ProjectStatus, PriorityLevel, PhotoCategory
 import requests
 import json
 import asyncio
@@ -796,7 +797,7 @@ class SurveyApp(toga.App):
                     'latitude': lat,
                     'longitude': long,
                     'description': f"Photo for: {self.question_label.text}",
-                    'category': 'general',
+                    'category': PhotoCategory.GENERAL.value,
                     'exif_data': exif_json
                 }
                 self.db.save_photo(photo_record)
@@ -869,7 +870,7 @@ class SurveyApp(toga.App):
 
         # Project status and metadata inputs
         self.project_status_selection = toga.Selection(
-            items=['draft', 'in_progress', 'completed', 'archived'],
+            items=[s.value for s in ProjectStatus],
             style=Pack(padding=(5, 5, 10, 5))
         )
         self.project_client_info_input = toga.TextInput(
@@ -881,7 +882,7 @@ class SurveyApp(toga.App):
             style=Pack(padding=(5, 5, 10, 5))
         )
         self.project_priority_selection = toga.Selection(
-            items=['low', 'medium', 'high', 'urgent'],
+            items=[p.value for p in PriorityLevel],
             style=Pack(padding=(5, 5, 10, 5))
         )
 
@@ -948,10 +949,10 @@ class SurveyApp(toga.App):
             project_data = {
                 'name': project_name,
                 'description': project_description,
-                'status': self.project_status_selection.value or 'draft',
+                'status': self.project_status_selection.value or ProjectStatus.DRAFT.value,
                 'client_info': self.project_client_info_input.value,
                 'due_date': self.project_due_date_input.value,
-                'priority': self.project_priority_selection.value or 'medium'
+                'priority': self.project_priority_selection.value or PriorityLevel.MEDIUM.value
             }
             self.db.save_project(project_data)
             self.status_label.text = f"Created project: {project_name}"
@@ -1235,17 +1236,17 @@ class SurveyApp(toga.App):
         # Filter buttons
         filter_label = toga.Label('Filter by Category:', style=Pack(padding=(10, 5, 5, 5)))
         all_button = toga.Button('All', on_press=lambda w: self.filter_photos(photos_window, None), style=Pack(padding=5))
-        general_button = toga.Button('General', on_press=lambda w: self.filter_photos(photos_window, 'general'), style=Pack(padding=5))
-        interior_button = toga.Button('Interior', on_press=lambda w: self.filter_photos(photos_window, 'interior'), style=Pack(padding=5))
-        exterior_button = toga.Button('Exterior', on_press=lambda w: self.filter_photos(photos_window, 'exterior'), style=Pack(padding=5))
-        issues_button = toga.Button('Issues', on_press=lambda w: self.filter_photos(photos_window, 'issues'), style=Pack(padding=5))
-        progress_button = toga.Button('Progress', on_press=lambda w: self.filter_photos(photos_window, 'progress'), style=Pack(padding=5))
+        buttons = [all_button]
+        for category in PhotoCategory:
+            button = toga.Button(category.value.title(), on_press=lambda w, c=category: self.filter_photos(photos_window, c), style=Pack(padding=5))
+            buttons.append(button)
         
         # Add photo requirements button
         requirements_button = toga.Button('Photo Requirements', on_press=lambda w: self.show_photo_requirements_ui(photos_window), style=Pack(padding=5))
+        buttons.append(requirements_button)
 
         filter_box = toga.Box(
-            children=[filter_label, all_button, general_button, interior_button, exterior_button, issues_button, progress_button, requirements_button],
+            children=[filter_label] + buttons,
             style=Pack(direction=ROW, padding=5)
         )
 
@@ -1267,7 +1268,7 @@ class SurveyApp(toga.App):
 
     def filter_photos(self, window, category):
         """Filter photos by category"""
-        self.current_category = category
+        self.current_category = category.value if category else None
         self.load_photos_content(page=1)
 
     def search_photos(self, window):

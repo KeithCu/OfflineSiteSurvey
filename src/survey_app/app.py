@@ -867,12 +867,37 @@ class SurveyApp(toga.App):
         projects_label = toga.Label('Available Projects:', style=Pack(padding=(10, 5, 10, 5)))
         self.projects_list = toga.Selection(items=['Loading...'], style=Pack(padding=(5, 5, 10, 5)))
 
+        # Project status and metadata inputs
+        self.project_status_selection = toga.Selection(
+            items=['draft', 'in_progress', 'completed', 'archived'],
+            style=Pack(padding=(5, 5, 10, 5))
+        )
+        self.project_client_info_input = toga.TextInput(
+            placeholder='Client information',
+            style=Pack(padding=(5, 5, 10, 5))
+        )
+        self.project_due_date_input = toga.TextInput(
+            placeholder='Due date (YYYY-MM-DD)',
+            style=Pack(padding=(5, 5, 10, 5))
+        )
+        self.project_priority_selection = toga.Selection(
+            items=['low', 'medium', 'high', 'urgent'],
+            style=Pack(padding=(5, 5, 10, 5))
+        )
+
         load_projects_button = toga.Button('Load Projects', on_press=self.load_projects, style=Pack(padding=(5, 5, 5, 5)))
         select_project_button = toga.Button('Select Project', on_press=lambda w: self.select_project(projects_window), style=Pack(padding=(5, 5, 10, 5)))
 
         new_project_label = toga.Label('Create New Project:', style=Pack(padding=(10, 5, 10, 5)))
         self.new_project_name_input = toga.TextInput(placeholder='Project Name', style=Pack(padding=(5, 5, 10, 5)))
         self.new_project_description_input = toga.TextInput(placeholder='Project Description', style=Pack(padding=(5, 5, 10, 5)))
+
+        # Project metadata fields
+        project_status_label = toga.Label('Status:', style=Pack(padding=(5, 5, 5, 5)))
+        project_client_label = toga.Label('Client Info:', style=Pack(padding=(5, 5, 5, 5)))
+        project_due_date_label = toga.Label('Due Date:', style=Pack(padding=(5, 5, 5, 5)))
+        project_priority_label = toga.Label('Priority:', style=Pack(padding=(5, 5, 5, 5)))
+
         create_project_button = toga.Button('Create Project', on_press=self.create_project, style=Pack(padding=(5, 5, 10, 5)))
 
         close_button = toga.Button('Close', on_press=lambda w: projects_window.close(), style=Pack(padding=(5, 5, 10, 5)))
@@ -886,6 +911,14 @@ class SurveyApp(toga.App):
                 new_project_label,
                 self.new_project_name_input,
                 self.new_project_description_input,
+                project_status_label,
+                self.project_status_selection,
+                project_client_label,
+                self.project_client_info_input,
+                project_due_date_label,
+                self.project_due_date_input,
+                project_priority_label,
+                self.project_priority_selection,
                 create_project_button,
                 close_button
             ],
@@ -912,7 +945,14 @@ class SurveyApp(toga.App):
         project_name = self.new_project_name_input.value
         project_description = self.new_project_description_input.value
         if project_name:
-            project_data = {'name': project_name, 'description': project_description}
+            project_data = {
+                'name': project_name,
+                'description': project_description,
+                'status': self.project_status_selection.value or 'draft',
+                'client_info': self.project_client_info_input.value,
+                'due_date': self.project_due_date_input.value,
+                'priority': self.project_priority_selection.value or 'medium'
+            }
             self.db.save_project(project_data)
             self.status_label.text = f"Created project: {project_name}"
             self.load_projects(None)
@@ -955,6 +995,7 @@ class SurveyApp(toga.App):
         new_site_label = toga.Label('Create New Site:', style=Pack(padding=(10, 5, 10, 5)))
         self.new_site_name_input = toga.TextInput(placeholder='Site Name', style=Pack(padding=(5, 5, 10, 5)))
         self.new_site_address_input = toga.TextInput(placeholder='Site Address', style=Pack(padding=(5, 5, 10, 5)))
+        self.new_site_notes_input = toga.TextInput(placeholder='Site Notes', style=Pack(padding=(5, 5, 10, 5)))
         create_site_button = toga.Button('Create Site', on_press=self.create_site, style=Pack(padding=(5, 5, 10, 5)))
 
         close_button = toga.Button('Close', on_press=lambda w: sites_window.close(), style=Pack(padding=(5, 5, 10, 5)))
@@ -968,6 +1009,7 @@ class SurveyApp(toga.App):
                 new_site_label,
                 self.new_site_name_input,
                 self.new_site_address_input,
+                self.new_site_notes_input,
                 create_site_button,
                 close_button
             ],
@@ -994,7 +1036,11 @@ class SurveyApp(toga.App):
         site_name = self.new_site_name_input.value
         site_address = self.new_site_address_input.value
         if site_name:
-            site_data = {'name': site_name, 'address': site_address}
+            site_data = {
+                'name': site_name,
+                'address': site_address,
+                'notes': self.new_site_notes_input.value
+            }
             if self.current_project:
                 site_data['project_id'] = self.current_project.id
             self.db.save_site(site_data)

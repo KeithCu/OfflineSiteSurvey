@@ -19,6 +19,10 @@ class Project(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(200), nullable=False)
     description = Column(Text)
+    status = Column(String(50), default='draft')
+    client_info = Column(Text)
+    due_date = Column(DateTime)
+    priority = Column(String(50), default='medium')
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -29,6 +33,7 @@ class Site(Base):
     address = Column(Text)
     latitude = Column(Float)
     longitude = Column(Float)
+    notes = Column(Text)
     project_id = Column(Integer, ForeignKey('projects.id'))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -97,6 +102,7 @@ class Photo(Base):
     __tablename__ = 'photos'
     id = Column(String, primary_key=True)
     survey_id = Column(String, ForeignKey('surveys.id'))
+    site_id = Column(Integer, ForeignKey('sites.id'))  # For site overview photos
     image_data = Column(LargeBinary)
     latitude = Column(Float)
     longitude = Column(Float)

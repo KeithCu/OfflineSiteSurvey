@@ -2,9 +2,20 @@
 from flask import Blueprint, jsonify, request
 import json
 import uuid
+from urllib.parse import urlparse
 from ..models import db, Photo
 from shared.utils import compute_photo_hash, generate_thumbnail
 from ..services.upload_queue import get_upload_queue
+
+
+def extract_object_name_from_url(url):
+    """Extract object name from cloud storage URL."""
+    if not url:
+        return None
+    # Parse URL and extract path, removing leading slash
+    parsed = urlparse(url)
+    path = parsed.path.lstrip('/')
+    return path if path else None
 
 
 bp = Blueprint('photos', __name__, url_prefix='/api')
@@ -86,7 +97,13 @@ def get_photo_integrity(photo_id):
         try:
             from ..services.cloud_storage import get_cloud_storage
             cloud_storage = get_cloud_storage()
-            image_data = cloud_storage.download_photo(photo.cloud_object_name)
+            object_name = extract_object_name_from_url(photo.cloud_url)
+            if not object_name:
+                return jsonify({
+                    'photo_id': photo_id,
+                    'error': 'Invalid cloud URL format'
+                }), 500
+            image_data = cloud_storage.download_photo(object_name)
             current_hash = compute_photo_hash(image_data, photo.hash_algo)
             actual_size = len(image_data)
         except Exception as e:
@@ -217,8 +234,12 @@ def get_photo(photo_id):
             try:
                 from ..services.cloud_storage import get_cloud_storage
                 cloud_storage = get_cloud_storage()
-                image_data = cloud_storage.download_photo(photo.cloud_object_name)
-                response_data['image_data'] = image_data.hex()  # Return as hex string
+                object_name = extract_object_name_from_url(photo.cloud_url)
+                if not object_name:
+                    response_data['error'] = 'Invalid cloud URL format'
+                else:
+                    image_data = cloud_storage.download_photo(object_name)
+                    response_data['image_data'] = image_data.hex()  # Return as hex string
             except Exception as e:
                 response_data['error'] = f'Failed to download image data: {str(e)}'
         else:
@@ -237,7 +258,10 @@ def delete_photo(photo_id):
         if photo.cloud_url and photo.upload_status == 'completed':
             from ..services.cloud_storage import get_cloud_storage
             cloud_storage = get_cloud_storage()
-            cloud_storage.delete_photo(photo.cloud_object_name, photo.thumbnail_object_name)
+            object_name = extract_object_name_from_url(photo.cloud_url)
+            thumbnail_object_name = extract_object_name_from_url(photo.thumbnail_url) if photo.thumbnail_url else None
+            if object_name:
+                cloud_storage.delete_photo(object_name, thumbnail_object_name)
 
         # Delete from database
         db.session.delete(photo)

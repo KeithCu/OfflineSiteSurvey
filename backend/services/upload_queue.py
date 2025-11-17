@@ -106,9 +106,6 @@ class UploadQueueService:
             # Update photo record with cloud URLs
             photo.cloud_url = result['photo_url']
             photo.thumbnail_url = result['thumbnail_url']
-            photo.cloud_provider = self.cloud_storage.provider_name
-            photo.cloud_object_name = result['object_name']
-            photo.thumbnail_object_name = result['thumbnail_object_name']
             photo.upload_status = 'completed'
 
             session.commit()

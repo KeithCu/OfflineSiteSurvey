@@ -48,10 +48,18 @@ def apply_changes():
                         try:
                             from ..services.cloud_storage import get_cloud_storage
                             cloud_storage = get_cloud_storage()
-                            # Extract object name from URL or use cloud_object_name if available
-                            # For now, assume cloud_object_name is synced too
-                            if existing_photo.cloud_object_name:
-                                downloaded_data = cloud_storage.download_photo(existing_photo.cloud_object_name)
+                            # Extract object name from cloud URL
+                            from urllib.parse import urlparse
+                            def extract_object_name_from_url(url):
+                                if not url:
+                                    return None
+                                parsed = urlparse(url)
+                                path = parsed.path.lstrip('/')
+                                return path if path else None
+
+                            object_name = extract_object_name_from_url(change['val'])
+                            if object_name:
+                                downloaded_data = cloud_storage.download_photo(object_name)
                                 downloaded_hash = compute_photo_hash(downloaded_data)
                                 if downloaded_hash != existing_photo.hash_value:
                                     integrity_issues.append({

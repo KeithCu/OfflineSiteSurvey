@@ -198,7 +198,7 @@ def test_model_relationships(app):
             photo = Photo(
                 survey_id=survey.id,
                 site_id=site.id,
-                image_data=b"test",
+                cloud_url="https://example.com/photos/test.jpg",
                 hash_value="b" * 64,
                 hash_algo="sha256",
                 size_bytes=4,
@@ -211,7 +211,7 @@ def test_model_relationships(app):
             # Test relationships
             assert survey in site.surveys
             assert response in survey.responses
-            assert photo.survey_id == str(survey.id)
+            assert photo.survey_id == survey.id
             assert photo.site_id == site.id
 
             # Test reverse relationships

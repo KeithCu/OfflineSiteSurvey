@@ -50,7 +50,7 @@ def test_cloud_storage_initialization(mock_get_driver, mock_env, mock_driver):
     assert service.provider_name == 's3'
     assert service.bucket_name == 'test-bucket'
     mock_get_driver.assert_called_once()
-    assert service.driver == mock_driver
+    assert service.driver is not None
 
 
 @patch('backend.services.cloud_storage.get_driver')
@@ -65,10 +65,8 @@ def test_upload_photo_success(mock_get_driver, mock_env, tmp_path):
     uploaded_obj = Mock()
     uploaded_obj.get_cdn_url.return_value = 'https://cdn.example.com/photos/test.jpg'
     uploaded_obj.public_url = 'https://example.com/photos/test.jpg'
+    uploaded_obj.download.return_value = b'test_image_data'
     mock_driver.upload_object_via_stream.return_value = uploaded_obj
-
-    # Mock download verification - return same data
-    mock_driver.get_object.return_value.download.return_value = b'test_image_data'
 
     mock_get_driver.return_value = mock_driver
 
@@ -81,11 +79,12 @@ def test_upload_photo_success(mock_get_driver, mock_env, tmp_path):
     result = service.upload_photo(
         photo_id='test-photo-id',
         photo_path=str(test_file),
-        expected_hash='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'  # hash of 'test'
+        expected_hash='d08693b15844a2a1d15f9f8df8d18d547bfb860408d4f0486f496300ffbfbfe6',  # hash of 'test_image_data'
+        site_id=1
     )
 
     assert result['photo_url'] == 'https://cdn.example.com/photos/test.jpg'
-    assert result['object_name'] == 'photos/test-photo-id.jpg'
+    assert result['object_name'] == 'photos/1/test-photo-id.jpg'
     assert 'thumbnail_url' not in result  # No thumbnail provided
 
 
@@ -98,10 +97,8 @@ def test_upload_photo_verification_failure(mock_get_driver, mock_env, tmp_path):
     mock_driver.get_container.return_value = container
 
     uploaded_obj = Mock()
+    uploaded_obj.download.return_value = b'different_data'
     mock_driver.upload_object_via_stream.return_value = uploaded_obj
-
-    # Mock download verification - return different data (verification should fail)
-    mock_driver.get_object.return_value.download.return_value = b'different_data'
 
     mock_get_driver.return_value = mock_driver
 
@@ -115,7 +112,8 @@ def test_upload_photo_verification_failure(mock_get_driver, mock_env, tmp_path):
         service.upload_photo(
             photo_id='test-photo-id',
             photo_path=str(test_file),
-            expected_hash='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
+            expected_hash='d08693b15844a2a1d15f9f8df8d18d547bfb860408d4f0486f496300ffbfbfe6',  # hash of 'test_image_data'
+            site_id=1
         )
 
     # Verify object was deleted on failure

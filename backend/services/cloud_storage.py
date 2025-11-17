@@ -80,7 +80,7 @@ class CloudStorageService:
             logger.info(f"Creating container: {self.bucket_name}")
             return self.driver.create_container(container_name=self.bucket_name)
 
-    def upload_photo(self, photo_id, photo_path, thumbnail_path=None, expected_hash=None):
+    def upload_photo(self, photo_id, photo_path, thumbnail_path=None, expected_hash=None, site_id=None):
         """
         Upload photo to cloud storage with verification.
 
@@ -89,6 +89,7 @@ class CloudStorageService:
             photo_path: Local path to photo file
             thumbnail_path: Local path to thumbnail file (optional)
             expected_hash: Expected SHA256 hash of the photo
+            site_id: Site identifier for directory organization (integer)
 
         Returns:
             dict: {'photo_url': str, 'thumbnail_url': str|None, 'object_name': str, 'thumbnail_object_name': str|None}
@@ -99,15 +100,29 @@ class CloudStorageService:
         if not os.path.exists(photo_path):
             raise FileNotFoundError(f"Photo file not found: {photo_path}")
 
-        # Upload main photo
-        photo_object_name = f"photos/{photo_id}.jpg"
+        # Validate site_id is an integer
+        if site_id is not None:
+            try:
+                site_id = int(site_id)
+            except (ValueError, TypeError):
+                raise ValueError(f"site_id must be an integer, got: {site_id}")
+
+        # Upload main photo - organize by site_id directory if provided
+        if site_id is not None:
+            photo_object_name = f"photos/{site_id}/{photo_id}.jpg"
+        else:
+            photo_object_name = f"photos/{photo_id}.jpg"
+
         photo_url = self._upload_and_verify(photo_path, photo_object_name, expected_hash)
 
         # Upload thumbnail if provided
         thumbnail_url = None
         thumbnail_object_name = None
         if thumbnail_path and os.path.exists(thumbnail_path):
-            thumbnail_object_name = f"thumbnails/{photo_id}_thumb.jpg"
+            if site_id is not None:
+                thumbnail_object_name = f"thumbnails/{site_id}/{photo_id}_thumb.jpg"
+            else:
+                thumbnail_object_name = f"thumbnails/{photo_id}_thumb.jpg"
             thumbnail_url = self._upload_and_verify(thumbnail_path, thumbnail_object_name)
 
         return {

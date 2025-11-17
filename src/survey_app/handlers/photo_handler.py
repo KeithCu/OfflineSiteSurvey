@@ -1,4 +1,5 @@
 """Photo management handlers for SurveyApp."""
+import asyncio
 import json
 import uuid
 import toga

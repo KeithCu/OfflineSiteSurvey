@@ -132,12 +132,23 @@ def test_templates_api_endpoints(client, app):
         assert response.status_code == 200
         data = json.loads(response.data)
         assert data['name'] == "Test Template"
+        assert 'section_tags' in data
 
         # Test GET /api/templates/<id>/conditional-fields
         response = client.get(f'/api/templates/{template.id}/conditional-fields')
         assert response.status_code == 200
         data = json.loads(response.data)
         assert 'fields' in data
+        assert 'section_tags' in data
+
+        # Test PUT /api/templates/<id>/section-tags
+        response = client.put(
+            f'/api/templates/{template.id}/section-tags',
+            json={'section_tags': {'General': ['overview', 'entry']}}
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['section_tags']['General'] == ['overview', 'entry']
 
 
 def test_photos_api_endpoints(client, app):

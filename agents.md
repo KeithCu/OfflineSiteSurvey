@@ -428,6 +428,7 @@ db_conn.load_extension(lib_path)
 - **Thumbnails**: Generated automatically, stored in cloud alongside full images
 - **GPS Tagging**: Latitude/longitude captured and stored with each photo
 - **Categories**: Photos tagged with: general, interior, exterior, issues, progress
+- **Section-Scoped Tags**: Templates define tag sets per section and UI only shows tags relevant to the active section during capture
 - **Upload Queue**: Background service processes pending uploads when online
 - **Integrity**: Photo data validated against hash during upload and CRDT sync
 - **Offline-First**: Photos stored locally first, uploaded to cloud when connectivity available
@@ -499,6 +500,7 @@ db_conn.load_extension(lib_path)
 - ✅ Photo Categories: Tag photos (interior, exterior, issues, progress, etc.)
 - ✅ Photo Captions: Add notes and descriptions to individual photos
 - ✅ Photo Search: Filter by location, date, tags, or survey section
+- ✅ Section-Scoped Photo Tags: Section-specific tag sets defined in templates and enforced during capture
 - ✅ Progress Tracking: Visual progress indicators for survey completion
 - ✅ Required Field Validation: Clear indicators for required vs. optional fields
 - ✅ Conditional Logic: Show/hide fields based on previous answers

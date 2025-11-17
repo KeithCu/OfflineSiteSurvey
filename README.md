@@ -137,6 +137,8 @@ The core MVP survey workflow is fully functional with all question types working
 - Bulk operations support
 - **Photo Requirements Tracking**: Visual checklists showing required vs. taken photos
 - **Fulfillment Status**: Track which photos fulfill specific survey requirements
+- **Section-Scoped Tags**: Assign tags defined per survey section and surface only relevant tags during capture
+- **Template Tag Editor**: Define per-section tag sets inside the template editor for consistent tagging
 
 ### Project Hierarchy & Management
 - Projects → Sites → Surveys → Photos organization

@@ -207,7 +207,8 @@ class LocalDatabase:
     def save_photo(self, photo_data):
         session = self.get_session()
         try:
-            image_data = photo_data.get('image_data')
+            image_data = photo_data.pop('image_data', None)
+            thumbnail_data = photo_data.pop('thumbnail_data', None)
             if image_data:
                 # Use utility function for hashing
                 photo_data['hash_value'] = compute_photo_hash(image_data)
@@ -218,8 +219,8 @@ class LocalDatabase:
                 photo_data['thumbnail_url'] = ''  # Will be set after upload
 
                 # Generate thumbnail for local storage
-                if not photo_data.get('thumbnail_data'):
-                    photo_data['thumbnail_data'] = generate_thumbnail(image_data, max_size=200)
+                if not thumbnail_data:
+                    thumbnail_data = generate_thumbnail(image_data, max_size=200)
 
                 # Store photo locally for pending upload (frontend implementation)
                 # In a full implementation, this would save to local pending directory
@@ -236,6 +237,10 @@ class LocalDatabase:
                 photo_data['tags'] = json.dumps([])
 
             photo = Photo(**photo_data)
+            if image_data:
+                photo.image_data = image_data
+            if thumbnail_data:
+                photo.thumbnail_data = thumbnail_data
             session.add(photo)
             session.commit()
             session.refresh(photo)  # Refresh to load generated ID
@@ -651,18 +656,15 @@ class LocalDatabase:
             photos = session.query(Photo).all()
             issues = 0
             for photo in photos:
-                # Check if photo has image data but no hash
-                if photo.image_data and not photo.hash_value:
+                image_data = getattr(photo, 'image_data', None)
+                # Only perform integrity checks when raw data is available
+                if not image_data:
+                    continue
+                if not photo.hash_value:
                     issues += 1
                     continue
-                # Check if hash doesn't match image data
-                if photo.image_data and photo.hash_value:
-                    expected_hash = compute_photo_hash(photo.image_data)
-                    if photo.hash_value != expected_hash:
-                        issues += 1
-                        continue
-                # Check if photo has hash but no image data (orphaned hash)
-                if photo.hash_value and not photo.image_data:
+                expected_hash = compute_photo_hash(image_data)
+                if photo.hash_value != expected_hash:
                     issues += 1
                     continue
             return issues

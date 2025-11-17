@@ -1,4 +1,5 @@
 """Tests for frontend local database operations."""
+import json
 import pytest
 import os
 from unittest.mock import patch
@@ -120,7 +121,8 @@ def test_photo_operations(test_db):
     created_photo = test_db.save_photo(photo_data)
     assert created_photo.id is not None
     assert created_photo.description == 'Test photo'
-    assert created_photo.survey_id == str(survey.id)
+    assert created_photo.survey_id == survey.id
+    assert json.loads(created_photo.tags) == []
 
     # Verify hash was computed
     assert created_photo.hash_value is not None

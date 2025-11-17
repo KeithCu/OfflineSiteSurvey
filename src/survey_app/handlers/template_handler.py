@@ -49,6 +49,7 @@ class TemplateHandler:
                 self.app.templates_list,
                 load_templates_button,
                 create_survey_button,
+                edit_tags_button,
                 close_button
             ],
             style=toga.Pack(direction=toga.COLUMN, padding=20)
@@ -102,3 +103,80 @@ class TemplateHandler:
                 self.app.status_label.text = "Template not found"
         else:
             self.app.status_label.text = "Please select a template first"
+
+    def open_section_tags_editor(self, widget):
+        if not self.app.templates_list.value or not hasattr(self.app, 'templates_data'):
+            self.app.status_label.text = "Please select a template first"
+            return
+
+        template_id = int(self.app.templates_list.value.split(':')[0])
+        template = next((t for t in self.app.templates_data if t.id == template_id), None)
+        if not template:
+            self.app.status_label.text = "Template not found"
+            return
+
+        sections = sorted({field.section or 'General' for field in template.fields})
+        if not sections:
+            sections = ['General']
+
+        try:
+            existing_tags = json.loads(template.section_tags) if template.section_tags else {}
+        except json.JSONDecodeError:
+            existing_tags = {}
+
+        self.section_tag_inputs = {}
+        editor_window = toga.Window(title="Section Tags")
+        editor_box = toga.Box(style=toga.Pack(direction=toga.COLUMN, padding=10))
+
+        for section in sections:
+            section_label = toga.Label(section, style=toga.Pack(font_weight='bold', padding=(5, 0, 0, 0)))
+            editor_box.add(section_label)
+
+            tag_input = toga.TextInput(
+                value=", ".join(existing_tags.get(section, [])),
+                style=toga.Pack(padding=(0, 5, 5, 5))
+            )
+            self.section_tag_inputs[section] = tag_input
+            editor_box.add(tag_input)
+
+        save_button = toga.Button(
+            'Save Section Tags',
+            on_press=lambda w: self.save_section_tags(template_id, editor_window),
+            style=toga.Pack(padding=(5, 5, 5, 5))
+        )
+        close_button = toga.Button(
+            'Cancel',
+            on_press=lambda w: editor_window.close(),
+            style=toga.Pack(padding=(5, 5, 5, 5))
+        )
+        editor_box.add(save_button, close_button)
+
+        editor_window.content = editor_box
+        editor_window.show()
+
+    def save_section_tags(self, template_id, window):
+        if not hasattr(self, 'section_tag_inputs'):
+            self.app.status_label.text = "No metadata to save"
+            return
+
+        section_tags = {}
+        for section, widget in self.section_tag_inputs.items():
+            raw_value = widget.value or ''
+            tags = [tag.strip() for tag in raw_value.split(',') if tag.strip()]
+            section_tags[section] = tags
+
+        try:
+            response = self.app.api_service.put(
+                f'/templates/{template_id}/section-tags',
+                json={'section_tags': section_tags},
+                timeout=5
+            )
+            if response.status_code == 200:
+                self.app.db.update_template_section_tags(template_id, section_tags)
+                self.load_templates(None)
+                self.app.status_label.text = "Section tags saved"
+                window.close()
+            else:
+                self.app.status_label.text = f"Failed to save tags ({response.status_code})"
+        except Exception as e:
+            self.app.status_label.text = f"Failed to save tags: {e}"

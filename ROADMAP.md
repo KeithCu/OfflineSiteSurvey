@@ -30,6 +30,7 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 - [x] **Photo Categories**: Tag photos (interior, exterior, issues, progress, etc.)
 - [x] **Photo Captions**: Add notes and descriptions to individual photos
 - [x] **Photo Search**: Filter by location, date, tags, or survey section
+- [x] **Section-Scoped Photo Tags**: Define tag sets per survey section via template editor and show them only when capturing photos for that section
 
 ### Survey UI Improvements
 - [x] **Progress Tracking**: Visual progress indicators for survey completion

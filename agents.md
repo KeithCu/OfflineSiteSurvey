@@ -207,10 +207,22 @@ Configurable parameters:
 - `auto_sync_interval`: Auto-sync frequency in seconds (default 300)
 - `max_offline_days`: Maximum offline data retention (default 30)
 
+### Cloud Storage Configuration
+Environment variables for cloud storage (Apache Libcloud):
+- `CLOUD_STORAGE_PROVIDER`: Storage provider (s3, gcs, azure)
+- `CLOUD_STORAGE_ACCESS_KEY`: Provider access key
+- `CLOUD_STORAGE_SECRET_KEY`: Provider secret key
+- `CLOUD_STORAGE_BUCKET`: Bucket/container name
+- `CLOUD_STORAGE_REGION`: Region for S3/GCS
+- `CLOUD_STORAGE_LOCAL_PATH`: Local directory for pending uploads
+
 API endpoints:
 - `GET /api/config` - Get all configuration
 - `GET /api/config/<key>` - Get specific config value
 - `PUT /api/config/<key>` - Update configuration
+- `GET /api/config/cloud-storage` - Get cloud storage configuration (masked)
+- `POST /api/config/cloud-storage/test` - Test cloud storage connection
+- `GET /api/config/cloud-storage/status` - Get upload queue status
 
 ## CRDT Synchronization
 Uses cr-sqlite for conflict-free replicated data types. Hub-and-spoke architecture:
@@ -269,6 +281,27 @@ During sync, photos are validated by:
 - Foreign keys are **disabled** during CRR table creation (`PRAGMA foreign_keys = OFF`)
 - Referential integrity maintained at application level
 - Required for CRDT merge operations to work properly
+
+### Cloud Storage Integration
+- **Local-First Architecture**: Photos stored locally first, uploaded to cloud when online
+- **Upload Queue**: Background service processes pending uploads with retry logic
+- **Verification**: Uploaded photos are downloaded and hash-verified before database update
+- **CRDT Sync**: Syncs cloud URLs instead of binary data, downloads on demand
+- **Caching**: Local caching of downloaded photos for offline viewing
+
+#### Upload Flow
+1. Photo captured → stored locally in pending directory
+2. Database record created with `upload_status='pending'`
+3. Background queue uploads to cloud storage
+4. **CRITICAL**: Downloads uploaded photo and verifies hash matches original
+5. Only after verification passes → updates database with cloud URLs and `upload_status='completed'`
+6. Local file cleaned up (optional, can keep as additional cache)
+
+#### Supported Cloud Providers
+- **Amazon S3** (recommended, most tested)
+- **Google Cloud Storage**
+- **Azure Blob Storage**
+- **MinIO** (S3-compatible)
 
 ## Validation & Constraints
 
@@ -391,10 +424,13 @@ db_conn.load_extension(lib_path)
 ### Photo Management
 - **SHA-256 Hashing**: All photos hashed at capture time, exactly 64 hex characters
 - **Compression**: JPEG quality defaults to 75%, configurable via `image_compression_quality`
-- **Thumbnails**: Generated automatically, stored as separate binary data
+- **Cloud Storage**: Photos stored in cloud storage (S3, GCS, Azure) using Apache Libcloud
+- **Thumbnails**: Generated automatically, stored in cloud alongside full images
 - **GPS Tagging**: Latitude/longitude captured and stored with each photo
 - **Categories**: Photos tagged with: general, interior, exterior, issues, progress
-- **Integrity**: Photo data validated against hash during CRDT sync
+- **Upload Queue**: Background service processes pending uploads when online
+- **Integrity**: Photo data validated against hash during upload and CRDT sync
+- **Offline-First**: Photos stored locally first, uploaded to cloud when connectivity available
 
 ### Auto-Save Protection
 - **Debounced Save**: Triggers after 2 seconds of user inactivity
@@ -601,13 +637,14 @@ db_conn.load_extension(lib_path)
   - Returns: Array of photo metadata (no image_data)
 - `POST /api/surveys/<survey_id>/photos`
   - Body: Form data with `image` file, `description`, `category`, `latitude`, `longitude`
-  - Returns: Created photo metadata object
+  - Returns: Created photo metadata object (initially with upload_status='pending')
 - `GET /api/photos/<id>`
-  - Returns: Photo metadata including `image_data` (large!)
+  - Returns: Photo metadata including cloud URLs and upload_status
+  - Query param `include_data=true`: Downloads and returns image_data from cloud
 - `DELETE /api/photos/<id>`
-  - Returns: 204 No Content
+  - Returns: 204 No Content (deletes from cloud if uploaded)
 - `GET /api/photos/<id>/integrity`
-  - Returns: `{"valid": true, "hash": "...", "size_bytes": 12345}` or error details
+  - Returns: Integrity status (downloads from cloud for verification if needed)
 
 ### CRDT Sync
 - `POST /api/changes`

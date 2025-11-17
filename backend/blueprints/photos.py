@@ -1,8 +1,10 @@
 """Photos blueprint for Flask API."""
 from flask import Blueprint, jsonify, request
 import json
+import uuid
 from ..models import db, Photo
-from shared.utils import compute_photo_hash
+from shared.utils import compute_photo_hash, generate_thumbnail
+from ..services.upload_queue import get_upload_queue
 
 
 bp = Blueprint('photos', __name__, url_prefix='/api')
@@ -15,6 +17,9 @@ def get_photos():
         'id': p.id,
         'survey_id': p.survey_id,
         'site_id': p.site_id,
+        'cloud_url': p.cloud_url,
+        'thumbnail_url': p.thumbnail_url,
+        'upload_status': p.upload_status,
         'latitude': p.latitude,
         'longitude': p.longitude,
         'description': p.description,
@@ -76,17 +81,170 @@ def get_photo_integrity(photo_id):
     """Get integrity information for a photo"""
     photo = Photo.query.get_or_404(photo_id)
 
-    # Compute current hash of stored image data
-    current_hash = compute_photo_hash(photo.image_data, photo.hash_algo)
+    # For cloud-stored photos, download and verify
+    if photo.cloud_url:
+        try:
+            from ..services.cloud_storage import get_cloud_storage
+            cloud_storage = get_cloud_storage()
+            image_data = cloud_storage.download_photo(photo.cloud_object_name)
+            current_hash = compute_photo_hash(image_data, photo.hash_algo)
+            actual_size = len(image_data)
+        except Exception as e:
+            return jsonify({
+                'photo_id': photo_id,
+                'error': f'Failed to download and verify cloud photo: {str(e)}'
+            }), 500
+    else:
+        # Legacy: check local data (shouldn't happen with new system)
+        current_hash = None
+        actual_size = 0
 
     integrity_status = {
         'photo_id': photo_id,
         'stored_hash': photo.hash_value,
         'current_hash': current_hash,
-        'hash_matches': photo.hash_value == current_hash,
+        'hash_matches': photo.hash_value == current_hash if current_hash else False,
         'size_bytes': photo.size_bytes,
-        'actual_size': len(photo.image_data) if photo.image_data else 0,
-        'size_matches': photo.size_bytes == len(photo.image_data) if photo.image_data else False
+        'actual_size': actual_size,
+        'size_matches': photo.size_bytes == actual_size if actual_size else False,
+        'upload_status': photo.upload_status,
+        'cloud_url': photo.cloud_url
     }
 
     return jsonify(integrity_status)
+
+
+@bp.route('/surveys/<int:survey_id>/photos', methods=['POST'])
+def upload_photo_to_survey(survey_id):
+    """Upload a photo to a survey."""
+    try:
+        # Validate survey exists
+        from ..models import Survey
+        survey = Survey.query.get_or_404(survey_id)
+
+        # Check if image file is provided
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file provided'}), 400
+
+        image_file = request.files['image']
+        if image_file.filename == '':
+            return jsonify({'error': 'No image file selected'}), 400
+
+        # Read image data
+        image_data = image_file.read()
+        if not image_data:
+            return jsonify({'error': 'Empty image file'}), 400
+
+        # Generate unique photo ID
+        photo_id = str(uuid.uuid4())
+
+        # Compute hash and size
+        hash_value = compute_photo_hash(image_data)
+        size_bytes = len(image_data)
+
+        # Generate thumbnail
+        thumbnail_data = generate_thumbnail(image_data, max_size=200)
+
+        # Get form data
+        description = request.form.get('description', '')
+        category = request.form.get('category', 'general')
+        latitude = float(request.form.get('latitude', 0.0))
+        longitude = float(request.form.get('longitude', 0.0))
+
+        # Create photo record
+        photo = Photo(
+            id=photo_id,
+            survey_id=survey_id,
+            site_id=survey.site_id,  # Get site_id from survey
+            cloud_url='',  # Will be set after upload
+            thumbnail_url='',  # Will be set after upload
+            upload_status='pending',  # Initially pending
+            latitude=latitude,
+            longitude=longitude,
+            description=description,
+            category=category,
+            hash_value=hash_value,
+            size_bytes=size_bytes,
+            hash_algo='sha256'
+        )
+
+        db.session.add(photo)
+        db.session.commit()
+
+        # Queue for cloud upload
+        upload_queue = get_upload_queue()
+        upload_queue.queue_photo_for_upload(photo_id, image_data, thumbnail_data)
+
+        # Start upload queue if not already running
+        upload_queue.start()
+
+        return jsonify({
+            'id': photo_id,
+            'survey_id': survey_id,
+            'upload_status': 'pending',
+            'message': 'Photo uploaded and queued for cloud storage'
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to upload photo: {str(e)}'}), 500
+
+
+@bp.route('/photos/<photo_id>', methods=['GET'])
+def get_photo(photo_id):
+    """Get photo metadata and optionally download image data."""
+    photo = Photo.query.get_or_404(photo_id)
+
+    response_data = {
+        'id': photo.id,
+        'survey_id': photo.survey_id,
+        'site_id': photo.site_id,
+        'cloud_url': photo.cloud_url,
+        'thumbnail_url': photo.thumbnail_url,
+        'upload_status': photo.upload_status,
+        'latitude': photo.latitude,
+        'longitude': photo.longitude,
+        'description': photo.description,
+        'category': photo.category,
+        'created_at': photo.created_at.isoformat(),
+        'hash_value': photo.hash_value,
+        'size_bytes': photo.size_bytes
+    }
+
+    # If requesting full image data, download from cloud
+    if request.args.get('include_data') == 'true':
+        if photo.cloud_url and photo.upload_status == 'completed':
+            try:
+                from ..services.cloud_storage import get_cloud_storage
+                cloud_storage = get_cloud_storage()
+                image_data = cloud_storage.download_photo(photo.cloud_object_name)
+                response_data['image_data'] = image_data.hex()  # Return as hex string
+            except Exception as e:
+                response_data['error'] = f'Failed to download image data: {str(e)}'
+        else:
+            response_data['error'] = 'Image data not available (not uploaded or still pending)'
+
+    return jsonify(response_data)
+
+
+@bp.route('/photos/<photo_id>', methods=['DELETE'])
+def delete_photo(photo_id):
+    """Delete a photo."""
+    photo = Photo.query.get_or_404(photo_id)
+
+    try:
+        # Delete from cloud storage if uploaded
+        if photo.cloud_url and photo.upload_status == 'completed':
+            from ..services.cloud_storage import get_cloud_storage
+            cloud_storage = get_cloud_storage()
+            cloud_storage.delete_photo(photo.cloud_object_name, photo.thumbnail_object_name)
+
+        # Delete from database
+        db.session.delete(photo)
+        db.session.commit()
+
+        return jsonify({'message': 'Photo deleted successfully'}), 204
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete photo: {str(e)}'}), 500

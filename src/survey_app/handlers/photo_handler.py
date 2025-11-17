@@ -3,6 +3,9 @@ import toga
 from PIL import Image
 import io
 import logging
+import os
+import requests
+import hashlib
 
 
 class PhotoHandler:
@@ -135,16 +138,31 @@ class PhotoHandler:
                     # Create row
                     row_box = toga.Box(style=toga.Pack(direction=toga.ROW, padding=(5, 5, 5, 5)))
                     for p in row_photos:
-                        # Use cached thumbnail if available, otherwise generate on-the-fly
+                        # Use cached thumbnail if available, otherwise try to load from cloud
                         thumb_data = p.thumbnail_data
-                        if not thumb_data and p.image_data:
-                            # Fallback: generate thumbnail on-the-fly (shouldn't happen with new photos)
-                            img = Image.open(io.BytesIO(p.image_data))
-                            thumb = img.copy()
-                            thumb.thumbnail((100, 100))
-                            thumb_byte_arr = io.BytesIO()
-                            thumb.save(thumb_byte_arr, format='JPEG')
-                            thumb_data = thumb_byte_arr.getvalue()
+                        if not thumb_data:
+                            # Try to load thumbnail from cloud URL
+                            if p.thumbnail_url and p.upload_status == 'completed':
+                                try:
+                                    thumb_data = self._load_image_from_url(p.thumbnail_url, cache_key=f"{p.id}_thumb")
+                                except Exception as e:
+                                    self.logger.warning(f"Failed to load thumbnail from {p.thumbnail_url}: {e}")
+
+                        if not thumb_data and p.cloud_url and p.upload_status == 'completed':
+                            # Fallback: load full image from cloud and generate thumbnail
+                            try:
+                                full_image_data = self._load_image_from_url(p.cloud_url, cache_key=p.id)
+                                if full_image_data:
+                                    img = Image.open(io.BytesIO(full_image_data))
+                                    thumb = img.copy()
+                                    thumb.thumbnail((100, 100))
+                                    thumb_byte_arr = io.BytesIO()
+                                    thumb.save(thumb_byte_arr, format='JPEG')
+                                    thumb_data = thumb_byte_arr.getvalue()
+                                    # Cache the generated thumbnail
+                                    p.thumbnail_data = thumb_data
+                            except Exception as e:
+                                self.logger.warning(f"Failed to generate thumbnail from cloud image: {e}")
 
                         if thumb_data:
                             image_view = toga.ImageView(data=thumb_data, style=toga.Pack(width=100, height=100, padding=5))
@@ -183,6 +201,58 @@ class PhotoHandler:
                 photos_box.add(row_box)
 
         self.app.photos_scroll_container.content = photos_box
+
+    def _load_image_from_url(self, url, cache_key=None):
+        """
+        Load image data from URL with local caching.
+
+        Args:
+            url: Cloud storage URL
+            cache_key: Cache key for local storage (optional)
+
+        Returns:
+            bytes: Image data
+        """
+        # Create cache directory if it doesn't exist
+        cache_dir = os.path.join(os.path.dirname(self.app.db.db_path), 'image_cache')
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # Generate cache filename
+        if cache_key:
+            cache_filename = f"{cache_key}.jpg"
+        else:
+            # Use hash of URL as cache key
+            url_hash = hashlib.md5(url.encode()).hexdigest()
+            cache_filename = f"{url_hash}.jpg"
+
+        cache_path = os.path.join(cache_dir, cache_filename)
+
+        # Check if cached
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, 'rb') as f:
+                    return f.read()
+            except Exception as e:
+                self.logger.warning(f"Failed to read cached image {cache_path}: {e}")
+
+        # Download from URL
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            image_data = response.content
+
+            # Cache locally
+            try:
+                with open(cache_path, 'wb') as f:
+                    f.write(image_data)
+            except Exception as e:
+                self.logger.warning(f"Failed to cache image {cache_path}: {e}")
+
+            return image_data
+
+        except Exception as e:
+            self.logger.error(f"Failed to load image from {url}: {e}")
+            raise
 
     def take_photo(self, widget):
         """Take a photo (legacy method)"""

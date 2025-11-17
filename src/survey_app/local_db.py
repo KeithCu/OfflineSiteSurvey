@@ -195,8 +195,18 @@ class LocalDatabase:
                 photo_data['hash_value'] = compute_photo_hash(image_data)
                 photo_data['size_bytes'] = len(image_data)
                 photo_data['hash_algo'] = 'sha256'
+                photo_data['upload_status'] = 'pending'  # Initially pending upload
+                photo_data['cloud_url'] = ''  # Will be set after upload
+                photo_data['thumbnail_url'] = ''  # Will be set after upload
+
+                # Generate thumbnail for local storage
                 if not photo_data.get('thumbnail_data'):
                     photo_data['thumbnail_data'] = generate_thumbnail(image_data, max_size=200)
+
+                # Store photo locally for pending upload (frontend implementation)
+                # In a full implementation, this would save to local pending directory
+                # For now, we'll keep the thumbnail_data for local display
+
             photo = Photo(**photo_data)
             session.add(photo)
             session.commit()
@@ -293,18 +303,45 @@ class LocalDatabase:
                 last_applied = self.last_applied_changes.get(table_name, 0)
                 if change_version <= last_applied:
                     continue
-                if table_name == 'photo' and change['cid'] == 'image_data' and change['val']:
+                if table_name == 'photo' and change['cid'] == 'cloud_url' and change['val']:
                     try:
                         pk_data = json.loads(change['pk'])
                         photo_id = pk_data.get('id')
                         existing_photo = session.get(Photo, photo_id)
-                        if existing_photo and existing_photo.hash_value:
-                            incoming_hash = compute_photo_hash(change['val'])
-                            if incoming_hash != existing_photo.hash_value:
+                        if existing_photo and existing_photo.hash_value and existing_photo.upload_status == 'completed':
+                            # Download photo from cloud and verify hash
+                            try:
+                                import requests
+                                response = requests.get(change['val'], timeout=30)
+                                response.raise_for_status()
+                                downloaded_data = response.content
+                                downloaded_hash = compute_photo_hash(downloaded_data)
+
+                                if downloaded_hash != existing_photo.hash_value:
+                                    integrity_issues.append({
+                                        'photo_id': photo_id,
+                                        'expected_hash': existing_photo.hash_value,
+                                        'received_hash': downloaded_hash,
+                                        'action': 'rejected'
+                                    })
+                                    continue
+
+                                # Cache downloaded image locally for offline viewing
+                                existing_photo.image_data = downloaded_data
+
+                                # Also try to download and cache thumbnail
+                                if existing_photo.thumbnail_url:
+                                    try:
+                                        thumb_response = requests.get(existing_photo.thumbnail_url, timeout=30)
+                                        thumb_response.raise_for_status()
+                                        existing_photo.thumbnail_data = thumb_response.content
+                                    except Exception as e:
+                                        self.logger.warning(f"Failed to download thumbnail for {photo_id}: {e}")
+
+                            except Exception as e:
                                 integrity_issues.append({
                                     'photo_id': photo_id,
-                                    'expected_hash': existing_photo.hash_value,
-                                    'received_hash': incoming_hash,
+                                    'error': f'Failed to download and verify cloud photo: {str(e)}',
                                     'action': 'rejected'
                                 })
                                 continue

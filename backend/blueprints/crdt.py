@@ -34,23 +34,37 @@ def apply_changes():
             if not all(field in change for field in required_fields):
                 return jsonify({'error': f'Change missing required fields: {required_fields}'}), 400
 
-            # Verify photo integrity if this is a photo table change
-            if change['table'] == 'photo' and change['cid'] == 'image_data' and change['val']:
+            # Handle photo table changes - verify cloud URLs instead of image data
+            if change['table'] == 'photo' and change['cid'] == 'cloud_url' and change['val']:
                 # Extract photo ID from pk (format: '{"id":"photo_id"}')
                 try:
                     pk_data = json.loads(change['pk'])
                     photo_id = pk_data.get('id')
 
-                    # Check if we have existing photo data to compare
+                    # Check if we have existing photo record
                     existing_photo = db.session.get(Photo, photo_id)
                     if existing_photo and existing_photo.hash_value:
-                        # Verify the incoming data matches expected hash
-                        incoming_hash = compute_photo_hash(change['val'])
-                        if incoming_hash != existing_photo.hash_value:
+                        # Download photo from cloud URL and verify hash
+                        try:
+                            from ..services.cloud_storage import get_cloud_storage
+                            cloud_storage = get_cloud_storage()
+                            # Extract object name from URL or use cloud_object_name if available
+                            # For now, assume cloud_object_name is synced too
+                            if existing_photo.cloud_object_name:
+                                downloaded_data = cloud_storage.download_photo(existing_photo.cloud_object_name)
+                                downloaded_hash = compute_photo_hash(downloaded_data)
+                                if downloaded_hash != existing_photo.hash_value:
+                                    integrity_issues.append({
+                                        'photo_id': photo_id,
+                                        'expected_hash': existing_photo.hash_value,
+                                        'received_hash': downloaded_hash,
+                                        'action': 'rejected'
+                                    })
+                                    continue  # Skip this change
+                        except Exception as e:
                             integrity_issues.append({
                                 'photo_id': photo_id,
-                                'expected_hash': existing_photo.hash_value,
-                                'received_hash': incoming_hash,
+                                'error': f'Failed to verify cloud photo: {str(e)}',
                                 'action': 'rejected'
                             })
                             continue  # Skip this change

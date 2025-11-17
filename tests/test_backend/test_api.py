@@ -150,7 +150,12 @@ def test_photos_api_endpoints(client, app):
         photo = Photo(
             survey_id=survey.id,
             site_id=site.id,
-            image_data=b"test_image_data",
+            cloud_url="https://example.com/photos/test.jpg",
+            thumbnail_url="https://example.com/thumbnails/test_thumb.jpg",
+            upload_status="completed",
+            cloud_provider="test",
+            cloud_object_name="photos/test.jpg",
+            thumbnail_object_name="thumbnails/test_thumb.jpg",
             hash_value="c" * 64,
             hash_algo="sha256",
             size_bytes=16,

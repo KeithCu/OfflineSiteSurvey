@@ -12,6 +12,8 @@ This project contains a comprehensive offline-first site survey application with
 
 ✅ **Dual Database System** - PostgreSQL/SQLite backend with local SQLite frontend for offline operation
 
+✅ **Cloud Photo Storage** - Photos stored in cloud storage (S3, GCS, Azure) using Apache Libcloud with integrity verification
+
 ✅ **Automatic Image Compression** - Photos reduced to 75% quality to optimize storage while maintaining usability
 
 ✅ **GPS Photo Tagging** - Automatic location capture and metadata storage for all survey photos
@@ -36,6 +38,7 @@ This project contains a comprehensive offline-first site survey application with
 - `README.md` (Main project documentation)
 - `ROADMAP.md` (Development roadmap and priorities)
 - `backend/app.py` (Flask REST API backend with template support)
+- `backend/services/` (Cloud storage services and upload queue)
 - `backend/store_survey_template.py` (Survey template definitions)
 - `src/survey_app/app.py` (BeeWare cross-platform frontend with enhanced UI, photo gallery, and project management)
 - `src/survey_app/local_db.py` (Local SQLite database with CRDT sync, photo metadata, and project hierarchy)
@@ -82,6 +85,10 @@ The core MVP survey workflow is fully functional with all question types working
 #### Photo Management
 - ✅ Automatic image compression (75% JPEG quality)
 - ✅ GPS location tagging for photos
+- ✅ Cloud storage with Apache Libcloud (S3, GCS, Azure, MinIO)
+- ✅ Upload queue with background processing and verification
+- ✅ Photo integrity verification via cryptographic hashing
+- ✅ Local caching for offline viewing
 - ✅ Photo storage with metadata
 - ✅ Photo capture in survey workflow
 
@@ -92,6 +99,15 @@ The core MVP survey workflow is fully functional with all question types working
   - `image_compression_quality`: JPEG quality (1-100)
   - `auto_sync_interval`: Auto-sync frequency in seconds
   - `max_offline_days`: Maximum offline data retention
+
+### Cloud Storage Configuration
+- Environment variables for cloud storage (Apache Libcloud):
+  - `CLOUD_STORAGE_PROVIDER`: Storage provider (s3, gcs, azure)
+  - `CLOUD_STORAGE_ACCESS_KEY`: Provider access key
+  - `CLOUD_STORAGE_SECRET_KEY`: Provider secret key
+  - `CLOUD_STORAGE_BUCKET`: Bucket/container name
+  - `CLOUD_STORAGE_REGION`: Region for S3/GCS
+  - `CLOUD_STORAGE_LOCAL_PATH`: Local directory for pending uploads
 
 ### Survey Templates
 - Default comprehensive store survey template included
@@ -176,10 +192,34 @@ PostgreSQL can serve as a read-only analytics and reporting database, populated 
 - **Scalable**: Easy to add more clients without architectural changes
 - **Reliable**: Sync failures don't block other operations
 
+## Cloud Storage Architecture
+
+The application uses Apache Libcloud for scalable, cloud-based photo storage with offline-first operation.
+
+### Local-First Upload Flow
+1. **Photo Capture**: Photo stored locally in pending directory
+2. **Database Record**: Created with `upload_status='pending'` (no cloud URLs yet)
+3. **Background Upload**: Queue service uploads to cloud when online
+4. **Verification**: Downloads uploaded photo and verifies hash matches original
+5. **Database Update**: Only after verification passes → updates with cloud URLs and `upload_status='completed'`
+
+### Supported Providers
+- **Amazon S3** (recommended, most tested)
+- **Google Cloud Storage**
+- **Azure Blob Storage**
+- **MinIO** (S3-compatible)
+
+### Key Features
+- **Integrity Verification**: Cryptographic hash verification after upload
+- **Offline Caching**: Local caching of downloaded photos for offline viewing
+- **Upload Queue**: Background processing with retry logic and exponential backoff
+- **Provider Agnostic**: Single API supports multiple cloud providers
+
 ## Prerequisites
 
 - **Python**: 3.11+ with uv
 - **Database**: PostgreSQL (recommended) or SQLite
+- **Cloud Storage**: Apache Libcloud for cloud photo storage (S3, GCS, Azure, MinIO)
 - **Mobile Development**: Android SDK (for Android), Xcode (for iOS, macOS only)
 - **GUI Framework**: GTK+ development libraries (for Linux desktop development)
 
@@ -189,6 +229,9 @@ PostgreSQL can serve as a read-only analytics and reporting database, populated 
 - `GET /api/config` - Get all configuration
 - `GET /api/config/<key>` - Get specific config value
 - `PUT /api/config/<key>` - Update configuration
+- `GET /api/config/cloud-storage` - Get cloud storage configuration (masked)
+- `POST /api/config/cloud-storage/test` - Test cloud storage connection
+- `GET /api/config/cloud-storage/status` - Get upload queue status
 
 ### Templates
 - `GET /api/templates` - List all templates
@@ -238,10 +281,11 @@ uv run pytest tests/test_backend/ -v
 uv run pytest tests/test_backend/ --cov=backend --cov-report=html
 
 # Run specific test categories
-uv run pytest tests/test_backend/test_models.py  # Database models
-uv run pytest tests/test_backend/test_api.py     # API endpoints
-uv run pytest tests/test_backend/test_utils.py   # Utility functions
-uv run pytest tests/test_backend/test_crdt_sync.py  # CRDT sync logic
+uv run pytest tests/test_backend/test_models.py       # Database models
+uv run pytest tests/test_backend/test_api.py         # API endpoints
+uv run pytest tests/test_backend/test_utils.py       # Utility functions
+uv run pytest tests/test_backend/test_crdt_sync.py   # CRDT sync logic
+uv run pytest tests/test_backend/test_cloud_storage.py  # Cloud storage
 ```
 
 ### Frontend Testing

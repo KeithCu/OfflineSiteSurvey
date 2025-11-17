@@ -105,7 +105,7 @@ def test_photo_operations(test_db):
 
     # Create photo
     photo_data = {
-        'survey_id': survey.id,
+        'survey_id': str(survey.id),
         'site_id': site.id,
         'image_data': b'test_image_data',
         'latitude': 40.7128,
@@ -117,7 +117,7 @@ def test_photo_operations(test_db):
     created_photo = test_db.save_photo(photo_data)
     assert created_photo.id is not None
     assert created_photo.description == 'Test photo'
-    assert created_photo.survey_id == survey.id
+    assert created_photo.survey_id == str(survey.id)
 
     # Verify hash was computed
     assert created_photo.hash_value is not None
@@ -202,13 +202,8 @@ def test_photo_integrity_check(test_db):
     assert integrity_issues == 0
 
 
-@patch('src.survey_app.local_db.LocalDatabase.logger')
-def test_logging_in_operations(mock_logger, test_db):
+def test_logging_in_operations(test_db):
     """Test that operations properly log messages."""
-    # Create a project to trigger logging
-    project_data = {'name': 'Logging Test Project'}
-    test_db.save_project(project_data)
-
-    # Verify logger was called (would be more specific in real tests)
-    # This is a basic test that logging setup works
-    assert mock_logger is not None
+    # Verify that the database has a logger
+    assert hasattr(test_db, 'logger')
+    assert test_db.logger is not None

@@ -2,6 +2,7 @@
 import toga
 from PIL import Image
 import io
+import logging
 
 
 class PhotoHandler:
@@ -9,6 +10,9 @@ class PhotoHandler:
 
     def __init__(self, app):
         self.app = app
+        self.logger = logging.getLogger(self.__class__.__name__)
+        # Config will be set by the app during initialization
+        self.config = None
 
     def show_photos_ui(self, widget):
         """Show photo gallery UI"""

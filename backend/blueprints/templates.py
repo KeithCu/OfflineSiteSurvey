@@ -16,7 +16,7 @@ def get_templates():
 
 @bp.route('/templates/<int:template_id>', methods=['GET'])
 def get_template(template_id):
-    template = SurveyTemplate.query.get_or_404(template_id)
+    template = db.get_or_404(SurveyTemplate, template_id)
     fields = [{'id': f.id, 'field_type': f.field_type, 'question': f.question, 'description': f.description, 'required': f.required, 'options': f.options, 'order_index': f.order_index, 'section': f.section} for f in sorted(template.fields, key=lambda x: x.order_index)]
     return jsonify({
         'id': template.id,
@@ -31,7 +31,7 @@ def get_template(template_id):
 @bp.route('/templates/<int:template_id>/conditional-fields', methods=['GET'])
 def get_conditional_fields(template_id):
     """Get template fields with conditional logic information"""
-    template = SurveyTemplate.query.get_or_404(template_id)
+    template = db.get_or_404(SurveyTemplate, template_id)
     fields = []
     
     for field in sorted(template.fields, key=lambda x: x.order_index):
@@ -76,7 +76,7 @@ def evaluate_survey_conditions(survey_id):
     
     # Get template fields
     if survey.template_id:
-        template = SurveyTemplate.query.get(survey.template_id)
+        template = db.session.get(SurveyTemplate, survey.template_id)
         all_fields = sorted(template.fields, key=lambda x: x.order_index)
     else:
         return jsonify({'error': 'Survey has no template'}), 400
@@ -115,7 +115,7 @@ def get_survey_progress(survey_id):
     # Get template fields if available
     fields = []
     if survey.template_id:
-        template = SurveyTemplate.query.get(survey.template_id)
+        template = db.session.get(SurveyTemplate, survey.template_id)
         fields = template.fields
     
     # Calculate progress by section
@@ -179,7 +179,7 @@ def get_photo_requirements(survey_id):
     if not survey.template_id:
         return jsonify({'error': 'Survey has no template'}), 400
     
-    template = SurveyTemplate.query.get(survey.template_id)
+    template = db.session.get(SurveyTemplate, survey.template_id)
     
     # Get existing photos
     photos = Photo.query.filter_by(survey_id=str(survey_id)).all()

@@ -42,7 +42,7 @@ def apply_changes():
                     photo_id = pk_data.get('id')
 
                     # Check if we have existing photo data to compare
-                    existing_photo = Photo.query.get(photo_id)
+                    existing_photo = db.session.get(Photo, photo_id)
                     if existing_photo and existing_photo.hash_value:
                         # Verify the incoming data matches expected hash
                         incoming_hash = compute_photo_hash(change['val'], existing_photo.hash_algo)

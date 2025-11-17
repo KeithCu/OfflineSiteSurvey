@@ -1,5 +1,6 @@
 """Site management handlers for SurveyApp."""
 import toga
+import logging
 
 
 class SiteHandler:
@@ -7,6 +8,7 @@ class SiteHandler:
 
     def __init__(self, app):
         self.app = app
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def show_sites_ui(self, widget):
         """Show sites management UI"""

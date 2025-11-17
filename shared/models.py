@@ -1,9 +1,14 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey, Index, text
 from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
+
+
+def utc_now():
+    """Return current UTC datetime (timezone-aware)."""
+    return datetime.now(timezone.utc)
 
 class SurveyStatus(enum.Enum):
     DRAFT = 'draft'
@@ -39,8 +44,8 @@ class Project(Base):
     client_info = Column(Text, server_default="")
     due_date = Column(DateTime)
     priority = Column(String(50), default='medium', server_default='medium')
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
     sites = relationship('Site', backref='project', lazy=True)
 
 
@@ -53,8 +58,8 @@ class Site(Base):
     longitude = Column(Float, server_default="0.0")
     notes = Column(Text, server_default="")
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), index=True, server_default="1")
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
     surveys = relationship('Survey', backref='site', lazy=True)
 
 Index('idx_site_project_id', Site.project_id)
@@ -66,8 +71,8 @@ class Survey(Base):
     title = Column(String(200), nullable=False, server_default="Untitled Survey")
     description = Column(Text, server_default="")
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False, server_default="1")
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
     status = Column(String(20), default='draft', server_default='draft')
     template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'), server_default=None)
     template = relationship('SurveyTemplate', backref='surveys')
@@ -88,7 +93,7 @@ class SurveyResponse(Base):
     response_type = Column(String(50), index=True, server_default="")
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
     question_id = Column(Integer, index=True, server_default="0")
     field_type = Column(String(50), server_default="")
 
@@ -103,7 +108,7 @@ class AppConfig(Base):
     value = Column(Text, server_default="")
     description = Column(String(300), server_default="")
     category = Column(String(50), server_default="")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
 
 
 class SurveyTemplate(Base):
@@ -113,8 +118,8 @@ class SurveyTemplate(Base):
     description = Column(Text, server_default="")
     category = Column(String(50), server_default="")
     is_default = Column(Boolean, default=False, server_default='0')
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
     fields = relationship('TemplateField', backref='template', cascade='all, delete-orphan', lazy=True)
 
 
@@ -147,7 +152,7 @@ class Photo(Base):
     longitude = Column(Float, server_default="0.0")
     description = Column(Text, server_default="")
     category = Column(String(20), default='general', server_default='general')
-    created_at = Column(DateTime, default=datetime.utcnow, index=True, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now, index=True, server_default="1970-01-01 00:00:00")
     hash_algo = Column(String(10), default='sha256', server_default='sha256')
     hash_value = Column(String(128), index=True, unique=True, server_default="")
     size_bytes = Column(Integer, server_default="0")

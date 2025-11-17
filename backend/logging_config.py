@@ -3,7 +3,7 @@ import logging
 import os
 import json
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class StructuredFormatter(logging.Formatter):
@@ -12,7 +12,7 @@ class StructuredFormatter(logging.Formatter):
     def format(self, record):
         # Add structured fields
         log_entry = {
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'timestamp': datetime.now(timezone.utc).isoformat() + 'Z',
             'level': record.levelname,
             'logger': record.name,
             'message': record.getMessage(),

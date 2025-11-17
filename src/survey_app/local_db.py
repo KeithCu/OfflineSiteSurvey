@@ -85,7 +85,7 @@ class LocalDatabase:
     def get_survey(self, survey_id):
         session = self.get_session()
         try:
-            survey = session.query(Survey).get(survey_id)
+            survey = session.get(Survey, survey_id)
             return survey
         finally:
             session.close()
@@ -120,6 +120,8 @@ class LocalDatabase:
             project = Project(**project_data)
             session.add(project)
             session.commit()
+            session.refresh(project)  # Refresh to load generated ID
+            return project
         except Exception:
             session.rollback()
             raise
@@ -132,6 +134,8 @@ class LocalDatabase:
             site = Site(**site_data)
             session.add(site)
             session.commit()
+            session.refresh(site)  # Refresh to load generated ID
+            return site
         except Exception:
             session.rollback()
             raise
@@ -152,6 +156,8 @@ class LocalDatabase:
             survey = Survey(**survey_data)
             session.add(survey)
             session.commit()
+            session.refresh(survey)  # Refresh to load generated ID
+            return survey
         except Exception:
             session.rollback()
             raise
@@ -179,11 +185,13 @@ class LocalDatabase:
         try:
             fields = template_data.pop('fields', [])
             template = SurveyTemplate(**template_data)
-            session.merge(template)
+            template = session.merge(template)
             for field_data in fields:
                 field = TemplateField(**field_data)
                 session.merge(field)
             session.commit()
+            session.refresh(template)  # Refresh to load any generated fields
+            return template
         except Exception:
             session.rollback()
             raise
@@ -204,6 +212,8 @@ class LocalDatabase:
             photo = Photo(**photo_data)
             session.add(photo)
             session.commit()
+            session.refresh(photo)  # Refresh to load generated ID
+            return photo
         except Exception:
             session.rollback()
             raise
@@ -216,6 +226,8 @@ class LocalDatabase:
             response = SurveyResponse(**response_data)
             session.add(response)
             session.commit()
+            session.refresh(response)  # Refresh to load generated ID
+            return response
         except Exception:
             session.rollback()
             raise
@@ -297,7 +309,7 @@ class LocalDatabase:
                     try:
                         pk_data = json.loads(change['pk'])
                         photo_id = pk_data.get('id')
-                        existing_photo = session.query(Photo).get(photo_id)
+                        existing_photo = session.get(Photo, photo_id)
                         if existing_photo and existing_photo.hash_value:
                             incoming_hash = compute_photo_hash(change['val'])
                             if incoming_hash != existing_photo.hash_value:
@@ -344,7 +356,11 @@ class LocalDatabase:
         try:
             with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
                 if os.path.exists(self.db_path):
-                    backup_zip.write(self.db_path, os.path.basename(self.db_path))
+                    # Ensure the database file has .db extension in the backup
+                    db_filename = os.path.basename(self.db_path)
+                    if not db_filename.endswith('.db'):
+                        db_filename = f"{db_filename}.db"
+                    backup_zip.write(self.db_path, db_filename)
                 if include_media:
                     media_dir = os.path.join(os.path.dirname(self.db_path), 'media')
                     if os.path.exists(media_dir):
@@ -449,7 +465,7 @@ class LocalDatabase:
     def get_conditional_fields(self, template_id):
         session = self.get_session()
         try:
-            template = session.query(SurveyTemplate).get(template_id)
+            template = session.get(SurveyTemplate, template_id)
             if not template:
                 return []
             fields = []
@@ -469,10 +485,10 @@ class LocalDatabase:
     def evaluate_conditions(self, survey_id, current_responses):
         session = self.get_session()
         try:
-            survey = session.query(Survey).get(survey_id)
+            survey = session.get(Survey, survey_id)
             if not survey or not survey.template_id:
                 return []
-            template = session.query(SurveyTemplate).get(survey.template_id)
+            template = session.get(SurveyTemplate, survey.template_id)
             all_fields = sorted(template.fields, key=lambda x: x.order_index)
             visible_fields = []
             for field in all_fields:
@@ -514,7 +530,7 @@ class LocalDatabase:
     def get_survey_progress(self, survey_id):
         session = self.get_session()
         try:
-            survey = session.query(Survey).get(survey_id)
+            survey = session.get(Survey, survey_id)
             if not survey:
                 return {}
             responses = session.query(SurveyResponse).filter_by(survey_id=survey_id).all()
@@ -522,7 +538,7 @@ class LocalDatabase:
             photos = session.query(Photo).filter_by(survey_id=str(survey_id)).all()
             fields = []
             if survey.template_id:
-                template = session.query(SurveyTemplate).get(survey.template_id)
+                template = session.get(SurveyTemplate, survey.template_id)
                 fields = template.fields
             sections = {}
             total_required = 0
@@ -561,10 +577,10 @@ class LocalDatabase:
     def get_photo_requirements(self, survey_id):
         session = self.get_session()
         try:
-            survey = session.query(Survey).get(survey_id)
+            survey = session.get(Survey, survey_id)
             if not survey or not survey.template_id:
                 return {}
-            template = session.query(SurveyTemplate).get(survey.template_id)
+            template = session.get(SurveyTemplate, survey.template_id)
             photos = session.query(Photo).filter_by(survey_id=str(survey_id)).all()
             existing_photo_requirements = {p.requirement_id: p for p in photos if p.requirement_id}
             requirements_by_section = {}
@@ -585,10 +601,36 @@ class LocalDatabase:
         finally:
             session.close()
 
+    def check_photo_integrity(self):
+        """Check integrity of all photos in the database.
+        Returns the number of integrity issues found."""
+        session = self.get_session()
+        try:
+            photos = session.query(Photo).all()
+            issues = 0
+            for photo in photos:
+                # Check if photo has image data but no hash
+                if photo.image_data and not photo.hash_value:
+                    issues += 1
+                    continue
+                # Check if hash doesn't match image data
+                if photo.image_data and photo.hash_value:
+                    expected_hash = compute_photo_hash(photo.image_data)
+                    if photo.hash_value != expected_hash:
+                        issues += 1
+                        continue
+                # Check if photo has hash but no image data (orphaned hash)
+                if photo.hash_value and not photo.image_data:
+                    issues += 1
+                    continue
+            return issues
+        finally:
+            session.close()
+
     def mark_requirement_fulfillment(self, photo_id, requirement_id, fulfills=True):
         session = self.get_session()
         try:
-            photo = session.query(Photo).get(photo_id)
+            photo = session.get(Photo, photo_id)
             if photo:
                 photo.requirement_id = requirement_id
                 photo.fulfills_requirement = fulfills

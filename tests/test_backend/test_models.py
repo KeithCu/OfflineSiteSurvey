@@ -159,7 +159,12 @@ def test_photo_model_creation(app):
         photo = Photo(
             survey_id=survey.id,
             site_id=site.id,
-            image_data=b"fake_image_data",
+            cloud_url="https://example.com/photos/test.jpg",
+            thumbnail_url="https://example.com/thumbnails/test_thumb.jpg",
+            upload_status="completed",
+            cloud_provider="test",
+            cloud_object_name="photos/test.jpg",
+            thumbnail_object_name="thumbnails/test_thumb.jpg",
             latitude=40.7128,
             longitude=-74.0060,
             description="Test photo",

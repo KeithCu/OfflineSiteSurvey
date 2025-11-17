@@ -6,6 +6,10 @@ import os
 from datetime import datetime
 import uuid
 import zlib
+import hashlib
+import zipfile
+import tempfile
+import shutil
 from appdirs import user_data_dir
 
 Base = declarative_base()
@@ -100,7 +104,13 @@ class Photo(Base):
     category = Column(String(50), default='general')
     exif_data = Column(Text)  # JSON string of EXIF data
     created_at = Column(DateTime, default=datetime.utcnow)
-    crc = Column(Integer)
+    # Phase 4: Enhanced photo integrity
+    hash_algo = Column(String(10), default='sha256')  # Hash algorithm used
+    hash_value = Column(String(128))  # Cryptographic hash of image data
+    size_bytes = Column(Integer)  # Size of image data in bytes
+    # Phase 4: Performance optimizations
+    thumbnail_data = Column(LargeBinary)  # Cached 200px thumbnail
+    file_path = Column(String(500))  # File path for large photos (future use)
     # Phase 2 additions
     requirement_id = Column(String)  # Links to photo requirement
     fulfills_requirement = Column(Boolean, default=False)  # Tracks if this fulfills a requirement
@@ -112,6 +122,8 @@ class LocalDatabase:
         self.db_path = db_path
         self.site_id = str(uuid.uuid4())
         self.engine = create_engine(f'sqlite:///{self.db_path}')
+        # Phase 4: Track last applied changes per table for retry logic
+        self.last_applied_changes = {}  # table -> db_version
 
         @event.listens_for(self.engine, "connect")
         def load_crsqlite_extension(db_conn, conn_record):
@@ -133,6 +145,35 @@ class LocalDatabase:
                 connection.execute(text(f"SELECT crsql_as_crr('{table.name}');"))
 
         self.Session = sessionmaker(bind=self.engine)
+
+    def _compute_photo_hash(self, image_data):
+        """Compute SHA-256 hash of image data for integrity verification"""
+        if isinstance(image_data, bytes):
+            return hashlib.sha256(image_data).hexdigest()
+        return None
+
+    def _generate_thumbnail(self, image_data, max_size=200):
+        """Generate a thumbnail from image data, maintaining aspect ratio"""
+        if not image_data:
+            return None
+
+        try:
+            from PIL import Image
+            import io
+
+            # Open image from bytes
+            img = Image.open(io.BytesIO(image_data))
+
+            # Calculate thumbnail size maintaining aspect ratio
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
+            # Save thumbnail to bytes
+            thumb_buffer = io.BytesIO()
+            img.save(thumb_buffer, format='JPEG', quality=85)
+            return thumb_buffer.getvalue()
+        except Exception as e:
+            print(f"Error generating thumbnail: {e}")
+            return None
 
     def get_session(self):
         return self.Session()
@@ -220,6 +261,18 @@ class LocalDatabase:
 
     def save_photo(self, photo_data):
         session = self.get_session()
+
+        # Compute hash and size for photo integrity
+        image_data = photo_data.get('image_data')
+        if image_data:
+            photo_data['hash_value'] = self._compute_photo_hash(image_data)
+            photo_data['size_bytes'] = len(image_data)
+            photo_data['hash_algo'] = 'sha256'
+
+            # Generate and cache thumbnail for performance
+            if not photo_data.get('thumbnail_data'):
+                photo_data['thumbnail_data'] = self._generate_thumbnail(image_data)
+
         photo = Photo(**photo_data)
         session.add(photo)
         session.commit()
@@ -232,18 +285,33 @@ class LocalDatabase:
         session.commit()
         session.close()
 
-    def get_photos(self, survey_id=None, category=None, search_term=None):
+    def get_photos(self, survey_id=None, category=None, search_term=None, page=1, per_page=40):
+        """Get photos with pagination support for performance"""
         session = self.get_session()
         query = session.query(Photo)
+
         if survey_id:
             query = query.filter_by(survey_id=survey_id)
         if category:
             query = query.filter_by(category=category)
         if search_term:
             query = query.filter(Photo.description.contains(search_term))
-        photos = query.order_by(Photo.created_at.desc()).all()
+
+        # Get total count for pagination info
+        total_count = query.count()
+
+        # Apply pagination
+        photos = query.order_by(Photo.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+
         session.close()
-        return photos
+
+        return {
+            'photos': photos,
+            'total_count': total_count,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (total_count + per_page - 1) // per_page
+        }
 
     def get_photo_categories(self):
         session = self.get_session()
@@ -279,19 +347,241 @@ class LocalDatabase:
         return version
 
     def apply_changes(self, changes):
+        """Apply changes with integrity verification and retry tracking"""
         session = self.get_session()
         conn = session.connection()
         raw_conn = conn.connection
         cursor = raw_conn.cursor()
 
+        integrity_issues = []
+        applied_changes = {}
+
         for change in changes:
-            cursor.execute(
-                "INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (change['table'], change['pk'], change['cid'], change['val'], change['col_version'], change['db_version'], change['site_id'])
-            )
+            table_name = change['table']
+            change_version = change['db_version']
+
+            # Check if we've already applied this change (idempotent retry)
+            last_applied = self.last_applied_changes.get(table_name, 0)
+            if change_version <= last_applied:
+                continue  # Already applied, skip
+
+            # Verify photo integrity if this is a photo table change
+            if table_name == 'photos' and change['cid'] == 'image_data' and change['val']:
+                # Extract photo ID from pk (format: '{"id":"photo_id"}')
+                import json
+                try:
+                    pk_data = json.loads(change['pk'])
+                    photo_id = pk_data.get('id')
+
+                    # Check if we have existing photo data to compare
+                    existing_photo = session.query(Photo).get(photo_id)
+                    if existing_photo and existing_photo.hash_value:
+                        # Verify the incoming data matches expected hash
+                        incoming_hash = self._compute_photo_hash(change['val'])
+                        if incoming_hash != existing_photo.hash_value:
+                            integrity_issues.append({
+                                'photo_id': photo_id,
+                                'expected_hash': existing_photo.hash_value,
+                                'received_hash': incoming_hash,
+                                'action': 'rejected'
+                            })
+                            continue  # Skip this change
+                except (json.JSONDecodeError, AttributeError):
+                    pass  # Continue with change if we can't parse
+
+            try:
+                cursor.execute(
+                    "INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (table_name, change['pk'], change['cid'], change['val'], change['col_version'], change_version, change['site_id'])
+                )
+
+                # Track successful application
+                if table_name not in applied_changes or change_version > applied_changes[table_name]:
+                    applied_changes[table_name] = change_version
+
+            except Exception as e:
+                print(f"Failed to apply change for table {table_name}: {e}")
+                # In production, would queue for retry
+                continue
 
         session.commit()
         session.close()
+
+        # Update tracking of last applied changes
+        for table_name, version in applied_changes.items():
+            self.last_applied_changes[table_name] = max(
+                self.last_applied_changes.get(table_name, 0),
+                version
+            )
+
+        # Log integrity issues if any
+        if integrity_issues:
+            print(f"Photo integrity issues detected: {integrity_issues}")
+            # In a production system, this would trigger re-sync or alert
+
+    def backup(self, backup_dir=None, include_media=True):
+        """Create a timestamped backup of the database and media files"""
+        if not backup_dir:
+            backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
+
+        os.makedirs(backup_dir, exist_ok=True)
+
+        # Create timestamped backup filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f'backup_{timestamp}.zip'
+        backup_path = os.path.join(backup_dir, backup_filename)
+
+        try:
+            with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
+                # Add database file
+                if os.path.exists(self.db_path):
+                    backup_zip.write(self.db_path, os.path.basename(self.db_path))
+
+                # Add media directory if requested
+                if include_media:
+                    media_dir = os.path.join(os.path.dirname(self.db_path), 'media')
+                    if os.path.exists(media_dir):
+                        for root, dirs, files in os.walk(media_dir):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path, os.path.dirname(media_dir))
+                                backup_zip.write(file_path, arcname)
+
+                # Add backup metadata
+                metadata = {
+                    'timestamp': timestamp,
+                    'database_path': self.db_path,
+                    'include_media': include_media,
+                    'version': '1.0'
+                }
+                backup_zip.writestr('backup_metadata.json', json.dumps(metadata, indent=2))
+
+            print(f"Backup created: {backup_path}")
+            return backup_path
+
+        except Exception as e:
+            print(f"Backup failed: {e}")
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+            return None
+
+    def restore(self, backup_path, validate_hashes=True):
+        """Restore from a backup archive with optional hash validation"""
+        if not os.path.exists(backup_path):
+            raise FileNotFoundError(f"Backup file not found: {backup_path}")
+
+        # Create temporary directory for extraction
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                # Extract backup
+                with zipfile.ZipFile(backup_path, 'r') as backup_zip:
+                    backup_zip.extractall(temp_dir)
+
+                    # Read metadata
+                    metadata_file = os.path.join(temp_dir, 'backup_metadata.json')
+                    if os.path.exists(metadata_file):
+                        with open(metadata_file, 'r') as f:
+                            metadata = json.load(f)
+                    else:
+                        metadata = {}
+
+                    # Validate backup age (refuse backups older than 30 days)
+                    if 'timestamp' in metadata:
+                        backup_time = datetime.strptime(metadata['timestamp'], '%Y%m%d_%H%M%S')
+                        age_days = (datetime.now() - backup_time).days
+                        if age_days > 30:
+                            raise ValueError(f"Backup is too old ({age_days} days). Maximum allowed age is 30 days.")
+
+                    # Find database file in backup
+                    db_files = [f for f in os.listdir(temp_dir) if f.endswith('.db')]
+                    if not db_files:
+                        raise ValueError("No database file found in backup")
+
+                    backup_db_path = os.path.join(temp_dir, db_files[0])
+
+                    # Validate photo integrity if requested
+                    if validate_hashes:
+                        self._validate_backup_integrity(backup_db_path)
+
+                    # Close current database connections
+                    if hasattr(self, 'engine'):
+                        self.engine.dispose()
+
+                    # Replace current database with backup
+                    shutil.copy2(backup_db_path, self.db_path)
+
+                    # Restore media files if present
+                    media_dir = os.path.join(os.path.dirname(self.db_path), 'media')
+                    backup_media_dir = os.path.join(temp_dir, 'media')
+                    if os.path.exists(backup_media_dir):
+                        if os.path.exists(media_dir):
+                            shutil.rmtree(media_dir)
+                        shutil.copytree(backup_media_dir, media_dir)
+
+                    # Reinitialize database connection
+                    self.engine = create_engine(f'sqlite:///{self.db_path}')
+                    Base.metadata.create_all(self.engine)
+                    self.Session = sessionmaker(bind=self.engine)
+
+                    print(f"Successfully restored from backup: {backup_path}")
+                    return True
+
+            except Exception as e:
+                print(f"Restore failed: {e}")
+                raise
+
+    def _validate_backup_integrity(self, backup_db_path):
+        """Validate photo integrity in backup database"""
+        backup_engine = create_engine(f'sqlite:///{backup_db_path}')
+
+        try:
+            from sqlalchemy.orm import sessionmaker
+            BackupSession = sessionmaker(bind=backup_engine)
+            backup_session = BackupSession()
+
+            # Get all photos from backup
+            backup_photos = backup_session.query(Photo).all()
+            integrity_issues = []
+
+            for photo in backup_photos:
+                if photo.image_data and photo.hash_value:
+                    current_hash = self._compute_photo_hash(photo.image_data)
+                    if current_hash != photo.hash_value:
+                        integrity_issues.append(f"Photo {photo.id}: hash mismatch")
+
+            backup_session.close()
+
+            if integrity_issues:
+                raise ValueError(f"Backup integrity validation failed: {integrity_issues}")
+
+        finally:
+            backup_engine.dispose()
+
+    def cleanup_old_backups(self, backup_dir=None, max_backups=10):
+        """Clean up old backups, keeping only the most recent ones"""
+        if not backup_dir:
+            backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
+
+        if not os.path.exists(backup_dir):
+            return
+
+        # Get all backup files
+        backup_files = [f for f in os.listdir(backup_dir) if f.startswith('backup_') and f.endswith('.zip')]
+
+        if len(backup_files) <= max_backups:
+            return
+
+        # Sort by timestamp (newest first)
+        backup_files.sort(key=lambda x: x.split('_')[1].split('.')[0], reverse=True)
+
+        # Remove old backups
+        for old_backup in backup_files[max_backups:]:
+            backup_path = os.path.join(backup_dir, old_backup)
+            try:
+                os.remove(backup_path)
+                print(f"Removed old backup: {old_backup}")
+            except Exception as e:
+                print(f"Failed to remove old backup {old_backup}: {e}")
 
     # Phase 2 methods for conditional logic and progress tracking
     

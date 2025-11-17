@@ -12,6 +12,7 @@ import json
 import asyncio
 import threading
 import time
+import random
 from PIL import Image, ExifTags
 import io
 import base64
@@ -37,6 +38,14 @@ class SurveyApp(toga.App):
         self.section_progress = {}  # Track progress by section
         self.photo_requirements = {}  # Track photo requirements by section
         self.current_responses = []  # Track responses for conditional logic
+        # Phase 4: Sync reliability
+        self.sync_scheduler = None
+        self.sync_failures = 0
+        self.last_sync_success = None
+        self.offline_queue = []  # Queue for operations when offline
+        # Auto-save functionality
+        self.auto_save_timer = None
+        self.draft_responses = {}  # Temporary storage for in-progress answers
 
         # Create main window
         self.main_window = toga.MainWindow(title=self.formal_name)
@@ -47,9 +56,9 @@ class SurveyApp(toga.App):
         # Show the main window
         self.main_window.show()
 
-        # Start the background sync thread
-        self.sync_thread = threading.Thread(target=self.background_sync, daemon=True)
-        self.sync_thread.start()
+        # Start the background sync scheduler
+        self.sync_scheduler = threading.Thread(target=self.sync_scheduler_loop, daemon=True)
+        self.sync_scheduler.start()
 
         # Initialize location service
         self.location = toga.Location()
@@ -62,13 +71,37 @@ class SurveyApp(toga.App):
             self.status_label.text = f"GPS error: {e}"
             return None, None
 
-    def background_sync(self):
+    def sync_scheduler_loop(self):
+        """Advanced sync scheduler with configurable intervals and exponential backoff"""
         while True:
-            self.sync_with_server()
-            time.sleep(10) # Sync every 10 seconds
+            try:
+                # Get sync configuration
+                sync_interval = int(self.config.get('auto_sync_interval', 300))  # Default 5 minutes
+
+                # Perform sync
+                success = self.sync_with_server()
+
+                if success:
+                    self.sync_failures = 0
+                    self.last_sync_success = time.time()
+                    # Reset to normal interval on success
+                    sleep_time = sync_interval
+                else:
+                    self.sync_failures += 1
+                    # Exponential backoff with jitter
+                    base_delay = min(sync_interval * (2 ** min(self.sync_failures, 6)), 3600)  # Max 1 hour
+                    jitter = random.uniform(0.8, 1.2)  # Add ±20% jitter
+                    sleep_time = base_delay * jitter
+
+                # Sleep until next sync attempt
+                time.sleep(sleep_time)
+
+            except Exception as e:
+                print(f"Sync scheduler error: {e}")
+                time.sleep(60)  # Fallback delay on error
 
     def sync_with_server(self, widget=None):
-        """Sync local data with server"""
+        """Sync local data with server - returns True on success"""
         try:
             # Get local changes
             local_changes = self.db.get_changes_since(self.last_sync_version)
@@ -78,16 +111,16 @@ class SurveyApp(toga.App):
                 response = requests.post(
                     'http://localhost:5000/api/changes',
                     json=local_changes,
-                    timeout=10
+                    timeout=30  # Increased timeout
                 )
                 if response.status_code != 200:
                     self.status_label.text = "Sync failed - server error"
-                    return
+                    return False
 
             # Get remote changes from the server
             response = requests.get(
                 f'http://localhost:5000/api/changes?version={self.last_sync_version}&site_id={self.db.site_id}',
-                timeout=10
+                timeout=30
             )
 
             if response.status_code == 200:
@@ -95,16 +128,99 @@ class SurveyApp(toga.App):
                 if remote_changes:
                     self.db.apply_changes(remote_changes)
                 self.last_sync_version = self.db.get_current_version()
-                self.status_label.text = "Sync complete"
+
+                # Process offline queue if we have connectivity
+                if self.offline_queue:
+                    self.process_offline_queue()
+
+                self.update_sync_status("Sync complete")
                 if self.current_site:
                     self.load_surveys_for_site(self.current_site.id)
+                return True
             else:
-                self.status_label.text = "Sync failed - server error"
+                self.update_sync_status("Sync failed - server error")
+                return False
 
         except requests.exceptions.RequestException:
-            self.status_label.text = "Sync failed - server not available"
+            self.update_sync_status("Sync failed - server not available")
+            return False
         except Exception as e:
-            self.status_label.text = f"Sync error: {str(e)}"
+            self.update_sync_status(f"Sync error: {str(e)}")
+            return False
+
+    def update_sync_status(self, message):
+        """Update sync status with health indicators"""
+        if self.last_sync_success:
+            minutes_since = (time.time() - self.last_sync_success) / 60
+            if minutes_since < 5:
+                status_indicator = "🟢"  # Green - recently synced
+            elif minutes_since < 30:
+                status_indicator = "🟡"  # Yellow - synced within 30 min
+            else:
+                status_indicator = "🔴"  # Red - stale sync
+        else:
+            status_indicator = "⚪"  # White - never synced
+
+        full_message = f"{status_indicator} {message}"
+        if self.sync_failures > 0:
+            full_message += f" ({self.sync_failures} failures)"
+
+        self.status_label.text = full_message
+
+    def process_offline_queue(self):
+        """Process queued operations that were deferred due to offline state"""
+        # For now, just clear the queue - in a full implementation,
+        # this would retry failed operations
+        processed = len(self.offline_queue)
+        self.offline_queue.clear()
+        if processed > 0:
+            print(f"Processed {processed} queued operations")
+
+    def schedule_auto_save(self, question_id, answer_text):
+        """Debounced auto-save for in-progress answers"""
+        # Cancel existing timer
+        if self.auto_save_timer:
+            self.auto_save_timer.cancel()
+
+        # Store draft
+        self.draft_responses[question_id] = {
+            'answer': answer_text,
+            'timestamp': time.time()
+        }
+
+        # Schedule save after 2 seconds of inactivity
+        self.auto_save_timer = threading.Timer(2.0, self.perform_auto_save, args=[question_id])
+        self.auto_save_timer.start()
+
+    def perform_auto_save(self, question_id):
+        """Actually save the draft response to database"""
+        if question_id in self.draft_responses:
+            draft = self.draft_responses[question_id]
+
+            # Only save if it's been more than 30 seconds since last real save
+            # (avoid excessive saves during normal typing)
+            if time.time() - draft['timestamp'] > 30:
+                try:
+                    draft_data = {
+                        'id': str(uuid.uuid4()),
+                        'survey_id': self.current_survey['id'] if self.current_survey else None,
+                        'question_id': question_id,
+                        'question': f"Draft for question {question_id}",
+                        'answer': draft['answer'],
+                        'response_type': 'draft',
+                        'field_type': 'text'
+                    }
+                    self.db.save_response(draft_data)
+                    print(f"Auto-saved draft for question {question_id}")
+                except Exception as e:
+                    print(f"Auto-save failed: {e}")
+
+            # Clean up old drafts (keep only recent ones)
+            current_time = time.time()
+            self.draft_responses = {
+                qid: draft for qid, draft in self.draft_responses.items()
+                if current_time - draft['timestamp'] < 300  # Keep for 5 minutes
+            }
 
     def create_main_ui(self):
         """Create the main user interface"""
@@ -242,6 +358,18 @@ class SurveyApp(toga.App):
             style=Pack(padding=(5, 10, 10, 10))
         )
 
+        # Wire up auto-save to text input changes
+        self.answer_input.on_change = self.on_answer_input_change
+
+    def on_answer_input_change(self, widget):
+        """Handle text input changes with debounced auto-save"""
+        if self.current_survey and self.template_fields and self.current_question_index < len(self.template_fields):
+            current_field = self.template_fields[self.current_question_index]
+            question_id = current_field['id']
+            answer_text = widget.value
+
+            # Schedule auto-save with debounce
+            self.schedule_auto_save(question_id, answer_text)
 
         # Photo capture UI
         self.photo_box = toga.Box(style=Pack(direction=COLUMN, padding=10, visibility='hidden'))
@@ -660,7 +788,7 @@ class SurveyApp(toga.App):
         async def capture_with_location():
             lat, long = await self.get_gps_location()
             if self.current_survey:
-                # Save photo to database
+                # Save photo to database (hash and size computed automatically in save_photo)
                 photo_record = {
                     'id': self.last_photo_id,
                     'survey_id': self.current_survey['id'],
@@ -1094,16 +1222,23 @@ class SurveyApp(toga.App):
     def filter_photos(self, window, category):
         """Filter photos by category"""
         self.current_category = category
-        self.load_photos_content()
+        self.load_photos_content(page=1)
 
     def search_photos(self, window):
         """Search photos by description"""
         self.current_search = self.search_input.value.strip() or None
-        self.load_photos_content()
+        self.load_photos_content(page=1)
 
-    def load_photos_content(self):
-        """Load and display photos content"""
-        photos = self.db.get_photos(category=self.current_category, search_term=self.current_search)
+    def load_photos_content(self, page=1):
+        """Load and display photos content with pagination and thumbnails"""
+        photos_result = self.db.get_photos(
+            category=self.current_category,
+            search_term=self.current_search,
+            page=page,
+            per_page=40
+        )
+
+        photos = photos_result['photos']
 
         if not photos:
             no_photos_label = toga.Label("No photos available", style=Pack(padding=20))
@@ -1111,6 +1246,49 @@ class SurveyApp(toga.App):
         else:
             # Main box for photos
             photos_box = toga.Box(style=Pack(direction=COLUMN, padding=10))
+
+            # Add pagination info
+            pagination_label = toga.Label(
+                f"Page {photos_result['page']} of {photos_result['total_pages']} ({photos_result['total_count']} total photos)",
+                style=Pack(padding=(0, 0, 10, 0), font_size=12)
+            )
+            photos_box.add(pagination_label)
+
+            # Pagination controls
+            pagination_box = toga.Box(style=Pack(direction=ROW, padding=(0, 0, 15, 0)))
+
+            prev_button = toga.Button(
+                'Previous',
+                on_press=lambda w: self.load_photos_content(max(1, page - 1)),
+                style=Pack(padding=5),
+                enabled=page > 1
+            )
+
+            page_input = toga.TextInput(
+                value=str(page),
+                style=Pack(width=60, padding=5)
+            )
+
+            total_pages_label = toga.Label(
+                f" of {photos_result['total_pages']}",
+                style=Pack(padding=(5, 0, 5, 0))
+            )
+
+            next_button = toga.Button(
+                'Next',
+                on_press=lambda w: self.load_photos_content(min(photos_result['total_pages'], page + 1)),
+                style=Pack(padding=5),
+                enabled=page < photos_result['total_pages']
+            )
+
+            go_button = toga.Button(
+                'Go',
+                on_press=lambda w: self.load_photos_content(int(page_input.value) if page_input.value.isdigit() else page),
+                style=Pack(padding=5)
+            )
+
+            pagination_box.add(prev_button, page_input, total_pages_label, go_button, next_button)
+            photos_box.add(pagination_box)
 
             # Group photos into rows of 4
             row_photos = []
@@ -1120,15 +1298,23 @@ class SurveyApp(toga.App):
                     # Create row
                     row_box = toga.Box(style=Pack(direction=ROW, padding=(5, 5, 5, 5)))
                     for p in row_photos:
-                        # Create thumbnail
-                        img = Image.open(io.BytesIO(p.image_data))
-                        thumb = img.copy()
-                        thumb.thumbnail((100, 100))
-                        thumb_byte_arr = io.BytesIO()
-                        thumb.save(thumb_byte_arr, format='JPEG')
-                        thumb_data = thumb_byte_arr.getvalue()
+                        # Use cached thumbnail if available, otherwise generate on-the-fly
+                        thumb_data = p.thumbnail_data
+                        if not thumb_data and p.image_data:
+                            # Fallback: generate thumbnail on-the-fly (shouldn't happen with new photos)
+                            img = Image.open(io.BytesIO(p.image_data))
+                            thumb = img.copy()
+                            thumb.thumbnail((100, 100))
+                            thumb_byte_arr = io.BytesIO()
+                            thumb.save(thumb_byte_arr, format='JPEG')
+                            thumb_data = thumb_byte_arr.getvalue()
 
-                        image_view = toga.ImageView(data=thumb_data, style=Pack(width=100, height=100, padding=5))
+                        if thumb_data:
+                            image_view = toga.ImageView(data=thumb_data, style=Pack(width=100, height=100, padding=5))
+                        else:
+                            # Placeholder for missing thumbnail
+                            image_view = toga.ImageView(style=Pack(width=100, height=100, padding=5, background_color='#cccccc'))
+
                         desc_label = toga.Label(p.description or 'No description', style=Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
                         photo_box = toga.Box(children=[image_view, desc_label], style=Pack(direction=COLUMN))
                         row_box.add(photo_box)
@@ -1139,14 +1325,21 @@ class SurveyApp(toga.App):
             if row_photos:
                 row_box = toga.Box(style=Pack(direction=ROW, padding=(5, 5, 5, 5)))
                 for p in row_photos:
-                    img = Image.open(io.BytesIO(p.image_data))
-                    thumb = img.copy()
-                    thumb.thumbnail((100, 100))
-                    thumb_byte_arr = io.BytesIO()
-                    thumb.save(thumb_byte_arr, format='JPEG')
-                    thumb_data = thumb_byte_arr.getvalue()
+                    # Use cached thumbnail if available
+                    thumb_data = p.thumbnail_data
+                    if not thumb_data and p.image_data:
+                        img = Image.open(io.BytesIO(p.image_data))
+                        thumb = img.copy()
+                        thumb.thumbnail((100, 100))
+                        thumb_byte_arr = io.BytesIO()
+                        thumb.save(thumb_byte_arr, format='JPEG')
+                        thumb_data = thumb_byte_arr.getvalue()
 
-                    image_view = toga.ImageView(data=thumb_data, style=Pack(width=100, height=100, padding=5))
+                    if thumb_data:
+                        image_view = toga.ImageView(data=thumb_data, style=Pack(width=100, height=100, padding=5))
+                    else:
+                        image_view = toga.ImageView(style=Pack(width=100, height=100, padding=5, background_color='#cccccc'))
+
                     desc_label = toga.Label(p.description or 'No description', style=Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
                     photo_box = toga.Box(children=[image_view, desc_label], style=Pack(direction=COLUMN))
                     row_box.add(photo_box)

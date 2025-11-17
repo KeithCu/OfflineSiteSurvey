@@ -4,6 +4,7 @@ import json
 import datetime
 import enum
 import os
+import hashlib
 from appdirs import user_data_dir
 from store_survey_template import STORE_SURVEY_TEMPLATE
 from flask_sqlalchemy import SQLAlchemy
@@ -116,7 +117,13 @@ class Photo(db.Model):
     longitude = db.Column(db.Float)
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    crc = db.Column(db.Integer)
+    # Phase 4: Enhanced photo integrity
+    hash_algo = db.Column(db.String(10), default='sha256')  # Hash algorithm used
+    hash_value = db.Column(db.String(128))  # Cryptographic hash of image data
+    size_bytes = db.Column(db.Integer)  # Size of image data in bytes
+    # Phase 4: Performance optimizations
+    thumbnail_data = db.Column(db.LargeBinary)  # Cached 200px thumbnail
+    file_path = db.Column(db.String(500))  # File path for large photos (future use)
     # Phase 2 additions
     requirement_id = db.Column(db.String)  # Links to photo requirement
     fulfills_requirement = db.Column(db.Boolean, default=False)  # Tracks if this fulfills a requirement
@@ -128,6 +135,12 @@ def create_crr_tables(target, connection, **kw):
         connection.execute(text(f"SELECT crsql_as_crr('{table_name}');"))
 
 event.listen(db.metadata, 'after_create', create_crr_tables)
+
+def compute_photo_hash(image_data, algo='sha256'):
+    """Compute cryptographic hash of image data"""
+    if isinstance(image_data, bytes):
+        return hashlib.new(algo, image_data).hexdigest()
+    return None
 
 @app.cli.command('init-db')
 def init_db_command():
@@ -150,6 +163,44 @@ def init_db_command():
 
         db.session.commit()
     click.echo('Initialized the database.')
+
+@app.cli.command('check-photo-integrity')
+@click.option('--fix', is_flag=True, help='Attempt to fix integrity issues by re-computing hashes')
+def check_photo_integrity_command(fix):
+    """Check integrity of all photos in the database"""
+    with app.app_context():
+        photos = Photo.query.all()
+        issues_found = 0
+        fixed = 0
+
+        for photo in photos:
+            if not photo.image_data:
+                continue
+
+            current_hash = compute_photo_hash(photo.image_data, photo.hash_algo)
+            size_matches = photo.size_bytes == len(photo.image_data)
+
+            if photo.hash_value != current_hash or not size_matches:
+                issues_found += 1
+                click.echo(f"Integrity issue with photo {photo.id}:")
+                if photo.hash_value != current_hash:
+                    click.echo(f"  Hash mismatch: stored={photo.hash_value}, computed={current_hash}")
+                if not size_matches:
+                    click.echo(f"  Size mismatch: stored={photo.size_bytes}, actual={len(photo.image_data)}")
+
+                if fix:
+                    photo.hash_value = current_hash
+                    photo.size_bytes = len(photo.image_data)
+                    db.session.commit()
+                    fixed += 1
+                    click.echo(f"  Fixed photo {photo.id}")
+
+        if issues_found == 0:
+            click.echo("All photos passed integrity check")
+        else:
+            click.echo(f"Found {issues_found} integrity issues")
+            if fix:
+                click.echo(f"Fixed {fixed} photos")
 
 @app.route('/api/surveys', methods=['GET'])
 def get_surveys():
@@ -268,7 +319,32 @@ def apply_changes():
     conn = db.engine.raw_connection()
     cursor = conn.cursor()
 
+    integrity_issues = []
+
     for change in changes:
+        # Verify photo integrity if this is a photo table change
+        if change['table'] == 'photo' and change['cid'] == 'image_data' and change['val']:
+            # Extract photo ID from pk (format: '{"id":"photo_id"}')
+            try:
+                pk_data = json.loads(change['pk'])
+                photo_id = pk_data.get('id')
+
+                # Check if we have existing photo data to compare
+                existing_photo = Photo.query.get(photo_id)
+                if existing_photo and existing_photo.hash_value:
+                    # Verify the incoming data matches expected hash
+                    incoming_hash = compute_photo_hash(change['val'], existing_photo.hash_algo)
+                    if incoming_hash != existing_photo.hash_value:
+                        integrity_issues.append({
+                            'photo_id': photo_id,
+                            'expected_hash': existing_photo.hash_value,
+                            'received_hash': incoming_hash,
+                            'action': 'rejected'
+                        })
+                        continue  # Skip this change
+            except (json.JSONDecodeError, AttributeError):
+                pass  # Continue with change if we can't parse
+
         cursor.execute(
             "INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (change['table'], change['pk'], change['cid'], change['val'], change['col_version'], change['db_version'], change['site_id'])
@@ -277,7 +353,12 @@ def apply_changes():
     conn.commit()
     conn.close()
 
-    return jsonify({'message': 'Changes applied successfully'})
+    response = {'message': 'Changes applied successfully'}
+    if integrity_issues:
+        response['integrity_issues'] = integrity_issues
+        response['message'] = 'Changes applied with integrity issues'
+
+    return jsonify(response)
 
 @app.route('/api/changes', methods=['GET'])
 def get_changes():
@@ -469,18 +550,38 @@ def mark_requirement_fulfillment():
     photo_id = data.get('photo_id')
     requirement_id = data.get('requirement_id')
     fulfills = data.get('fulfills', True)
-    
+
     photo = Photo.query.get_or_404(photo_id)
     photo.requirement_id = requirement_id
     photo.fulfills_requirement = fulfills
     db.session.commit()
-    
+
     return jsonify({
         'photo_id': photo_id,
         'requirement_id': requirement_id,
         'fulfills': fulfills,
         'message': 'Photo requirement fulfillment updated'
     })
+
+@app.route('/api/photos/<photo_id>/integrity', methods=['GET'])
+def get_photo_integrity(photo_id):
+    """Get integrity information for a photo"""
+    photo = Photo.query.get_or_404(photo_id)
+
+    # Compute current hash of stored image data
+    current_hash = compute_photo_hash(photo.image_data, photo.hash_algo)
+
+    integrity_status = {
+        'photo_id': photo_id,
+        'stored_hash': photo.hash_value,
+        'current_hash': current_hash,
+        'hash_matches': photo.hash_value == current_hash,
+        'size_bytes': photo.size_bytes,
+        'actual_size': len(photo.image_data) if photo.image_data else 0,
+        'size_matches': photo.size_bytes == len(photo.image_data) if photo.image_data else False
+    }
+
+    return jsonify(integrity_status)
 
 def should_show_field(conditions, responses):
     """Evaluate if a field should be shown based on current responses"""

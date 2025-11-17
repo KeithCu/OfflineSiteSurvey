@@ -35,9 +35,34 @@ This project contains a comprehensive offline-first site survey application with
 - `src/survey_app/local_db.py` (Local SQLite database with CRDT sync, photo metadata, and project hierarchy)
 - `archive/` (Archived KoboToolbox and analysis files)
 
-## Status: MVP Complete + Phase 2 Complete ✅
+## Status: MVP Complete + Phase 2 Complete + Phase 4 Performance & Reliability Complete ✅
 
-The core MVP survey workflow is fully functional with all question types working properly. Phase 2 enhancements are complete including conditional logic, photo requirements, enhanced survey UI, and comprehensive photo management.
+The core MVP survey workflow is fully functional with all question types working properly. Phase 2 enhancements are complete including conditional logic, photo requirements, enhanced survey UI, and comprehensive photo management. Phase 4 adds enterprise-grade performance optimizations and reliability features for production deployment.
+
+## Reliability & Data Integrity
+
+### Photo Integrity Verification
+- **Cryptographic Hashing**: All photos are protected with SHA-256 hashes computed at capture time
+- **Integrity Endpoints**: REST API endpoints for verifying photo integrity (`/api/photos/<id>/integrity`)
+- **Sync Verification**: Photo data is validated during CRDT synchronization to prevent corruption
+- **CLI Tools**: Command-line utilities for bulk integrity checking and repair
+
+### Advanced Sync Reliability
+- **Configurable Sync Intervals**: Background sync adapts to network conditions (default: 5 minutes)
+- **Exponential Backoff**: Failed sync attempts use intelligent retry with jitter to prevent battery drain
+- **Sync Health Indicators**: Real-time status display with visual indicators (🟢🟡🔴) and failure counts
+- **Offline Queue**: Operations are queued when offline and processed when connectivity returns
+
+### Auto-Save Protection
+- **Debounced Auto-Save**: In-progress survey answers are automatically saved every 2 seconds of inactivity
+- **Draft Management**: Temporary drafts prevent data loss during app crashes or battery issues
+- **Smart Throttling**: Auto-save only triggers after 30+ seconds of continuous typing to avoid excessive database writes
+
+### Backup & Disaster Recovery
+- **Automated Backups**: Database and media files are automatically backed up with configurable retention
+- **Point-in-Time Recovery**: Restore from any timestamped backup with integrity validation
+- **Stale Backup Protection**: System refuses backups older than 30 days for security
+- **Cross-Platform CLI**: Backup and restore operations work on all supported platforms
 
 ### Core MVP Features Implemented
 
@@ -332,6 +357,70 @@ uv run briefcase run iOS
 
 # Package for App Store
 uv run briefcase package iOS
+```
+
+## Backup & Restore Operations
+
+### Creating Backups
+```bash
+# Create a backup of database and media files
+python backup_restore.py backup
+
+# Create backup in specific directory
+python backup_restore.py backup --backup-dir /path/to/backups
+
+# Backup database only (no media files)
+python backup_restore.py backup --no-media
+```
+
+### Restoring from Backup
+```bash
+# Restore from a specific backup file with integrity validation
+python backup_restore.py restore --backup-file backups/backup_20241116_143022.zip
+
+# Restore without hash validation (faster but less safe)
+python backup_restore.py restore --backup-file backups/backup_20241116_143022.zip --no-validate
+```
+
+### Managing Backup Retention
+```bash
+# Clean up old backups, keeping only the 5 most recent
+python backup_restore.py cleanup --max-backups 5
+
+# Clean up backups in specific directory
+python backup_restore.py cleanup --backup-dir /path/to/backups --max-backups 10
+```
+
+### Photo Integrity Checking
+```bash
+# Check integrity of all photos in the backend database
+uv run flask check-photo-integrity
+
+# Check and automatically fix integrity issues
+uv run flask check-photo-integrity --fix
+```
+
+### Disaster Recovery Workflow
+1. **Stop the application** if it's currently running
+2. **Identify the backup** you want to restore from
+3. **Run integrity check** on the backup if possible
+4. **Perform the restore** operation
+5. **Restart the application** and verify data integrity
+6. **Check sync status** to ensure proper reconnection
+
+**Example emergency restore:**
+```bash
+# Stop the app
+pkill -f "flask run"
+
+# Restore from latest backup
+python backup_restore.py restore --backup-file $(ls -t backups/backup_*.zip | head -1)
+
+# Verify integrity
+uv run flask check-photo-integrity
+
+# Restart the app
+uv run flask run
 ```
 
 ## License

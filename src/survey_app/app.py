@@ -1,3 +1,4 @@
+"""Site Survey App - Main application."""
 try:
     import toga
     from toga.style import Pack
@@ -8,23 +9,32 @@ except (ImportError, RuntimeError):
 
 from .local_db import LocalDatabase
 from .enums import ProjectStatus, PriorityLevel, PhotoCategory
-import requests
-import json
+from .handlers.project_handler import ProjectHandler
+from .handlers.site_handler import SiteHandler
+from .handlers.survey_handler import SurveyHandler
+from .handlers.photo_handler import PhotoHandler
+from .handlers.template_handler import TemplateHandler
+from .handlers.sync_handler import SyncHandler
+from .ui.survey_ui import SurveyUI
+from .services.api_service import APIService
+from .services.db_service import DBService
 import asyncio
-import threading
-import time
-import random
-from PIL import Image, ExifTags
-import io
-import base64
-import uuid
+
 
 class SurveyApp(toga.App):
+    """Main SurveyApp class."""
+
     def __init__(self):
         super().__init__(formal_name='Site Survey App', app_id='com.keith.surveyapp')
+
     def startup(self):
         """Initialize the app"""
+        # Initialize services
         self.db = LocalDatabase()
+        self.db_service = DBService(self.db)
+        self.api_service = APIService()
+
+        # Initialize state
         self.current_project = None
         self.current_survey = None
         self.current_site = None
@@ -34,148 +44,48 @@ class SurveyApp(toga.App):
         self.template_fields = []
         self.total_fields = 0
         self.current_question_index = 0
-        # Phase 2 additions
         self.visible_fields = []  # Track which fields are visible based on conditions
         self.section_progress = {}  # Track progress by section
         self.photo_requirements = {}  # Track photo requirements by section
         self.current_responses = []  # Track responses for conditional logic
-        # Phase 4: Sync reliability
-        self.sync_scheduler = None
-        self.sync_failures = 0
-        self.last_sync_success = None
         self.offline_queue = []  # Queue for operations when offline
-        # Auto-save functionality
         self.auto_save_timer = None
         self.draft_responses = {}  # Temporary storage for in-progress answers
+
+        # Initialize handlers
+        self.project_handler = ProjectHandler(self)
+        self.site_handler = SiteHandler(self)
+        self.survey_handler = SurveyHandler(self)
+        self.photo_handler = PhotoHandler(self)
+        self.template_handler = TemplateHandler(self)
+        self.sync_handler = SyncHandler(self)
+
+        # Initialize UI
+        self.ui = SurveyUI(self)
 
         # Create main window
         self.main_window = toga.MainWindow(title=self.formal_name)
 
         # Create UI components
-        self.create_main_ui()
+        self.ui.create_main_ui()
 
         # Show the main window
         self.main_window.show()
 
         # Start the background sync scheduler
-        self.sync_scheduler = threading.Thread(target=self.sync_scheduler_loop, daemon=True)
-        self.sync_scheduler.start()
+        self.sync_handler.start_sync_scheduler()
 
         # Initialize location service
         self.location = toga.Location()
 
     async def get_gps_location(self):
+        """Get current GPS location."""
         try:
             location_info = await self.location.current_location()
             return location_info.latitude, location_info.longitude
         except Exception as e:
             self.status_label.text = f"GPS error: {e}"
             return None, None
-
-    def sync_scheduler_loop(self):
-        """Advanced sync scheduler with configurable intervals and exponential backoff"""
-        while True:
-            try:
-                # Get sync configuration
-                sync_interval = int(self.config.get('auto_sync_interval', 300))  # Default 5 minutes
-
-                # Perform sync
-                success = self.sync_with_server()
-
-                if success:
-                    self.sync_failures = 0
-                    self.last_sync_success = time.time()
-                    # Reset to normal interval on success
-                    sleep_time = sync_interval
-                else:
-                    self.sync_failures += 1
-                    # Exponential backoff with jitter
-                    base_delay = min(sync_interval * (2 ** min(self.sync_failures, 6)), 3600)  # Max 1 hour
-                    jitter = random.uniform(0.8, 1.2)  # Add ±20% jitter
-                    sleep_time = base_delay * jitter
-
-                # Sleep until next sync attempt
-                time.sleep(sleep_time)
-
-            except Exception as e:
-                print(f"Sync scheduler error: {e}")
-                time.sleep(60)  # Fallback delay on error
-
-    def sync_with_server(self, widget=None):
-        """Sync local data with server - returns True on success"""
-        try:
-            # Get local changes
-            local_changes = self.db.get_changes_since(self.last_sync_version)
-
-            # Send local changes to the server
-            if local_changes:
-                response = requests.post(
-                    'http://localhost:5000/api/changes',
-                    json=local_changes,
-                    timeout=30  # Increased timeout
-                )
-                if response.status_code != 200:
-                    self.status_label.text = "Sync failed - server error"
-                    return False
-
-            # Get remote changes from the server
-            response = requests.get(
-                f'http://localhost:5000/api/changes?version={self.last_sync_version}&site_id={self.db.site_id}',
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                remote_changes = response.json()
-                if remote_changes:
-                    self.db.apply_changes(remote_changes)
-                self.last_sync_version = self.db.get_current_version()
-
-                # Process offline queue if we have connectivity
-                if self.offline_queue:
-                    self.process_offline_queue()
-
-                self.update_sync_status("Sync complete")
-                if self.current_site:
-                    self.load_surveys_for_site(self.current_site.id)
-                return True
-            else:
-                self.update_sync_status("Sync failed - server error")
-                return False
-
-        except requests.exceptions.RequestException:
-            self.update_sync_status("Sync failed - server not available")
-            return False
-        except Exception as e:
-            self.update_sync_status(f"Sync error: {str(e)}")
-            return False
-
-    def update_sync_status(self, message):
-        """Update sync status with health indicators"""
-        if self.last_sync_success:
-            minutes_since = (time.time() - self.last_sync_success) / 60
-            if minutes_since < 5:
-                status_indicator = "🟢"  # Green - recently synced
-            elif minutes_since < 30:
-                status_indicator = "🟡"  # Yellow - synced within 30 min
-            else:
-                status_indicator = "🔴"  # Red - stale sync
-        else:
-            status_indicator = "⚪"  # White - never synced
-
-        full_message = f"{status_indicator} {message}"
-        if self.sync_failures > 0:
-            full_message += f" ({self.sync_failures} failures)"
-
-        self.status_label.text = full_message
-
-    def process_offline_queue(self):
-        """Process queued operations that were deferred due to offline state"""
-        # For now, just clear the queue - in a full implementation,
-        # this would retry failed operations
-        processed = len(self.offline_queue)
-        self.offline_queue.clear()
-        if processed > 0:
-            print(f"Processed {processed} queued operations")
 
     def schedule_auto_save(self, question_id, answer_text):
         """Debounced auto-save for in-progress answers"""

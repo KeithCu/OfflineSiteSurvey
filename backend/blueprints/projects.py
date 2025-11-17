@@ -177,7 +177,16 @@ def update_project(project_id):
 
 @bp.route('/projects/<int:project_id>', methods=['DELETE'])
 def delete_project(project_id):
-    project = Project.query.get_or_404(project_id)
-    db.session.delete(project)
-    db.session.commit()
-    return jsonify({'message': 'Project deleted successfully'})
+    from ..utils import cascade_delete_project
+
+    try:
+        summary = cascade_delete_project(project_id)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Project deleted successfully',
+            'summary': summary
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete project: {str(e)}'}), 500

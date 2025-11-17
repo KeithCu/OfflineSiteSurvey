@@ -68,19 +68,29 @@ def create_survey():
     if description is not None and not isinstance(description, str):
         return jsonify({'error': 'description must be a string'}), 400
 
+    # Validate site_id exists and is required
     site_id = data.get('site_id')
-    if site_id is not None:
-        try:
-            site_id = int(site_id)
-        except (ValueError, TypeError):
-            return jsonify({'error': 'site_id must be an integer'}), 400
+    if site_id is None:
+        return jsonify({'error': 'site_id is required'}), 400
+    try:
+        site_id = int(site_id)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'site_id must be an integer'}), 400
 
+    from ..utils import validate_foreign_key
+    if not validate_foreign_key('sites', 'id', site_id):
+        return jsonify({'error': f'site_id {site_id} does not exist'}), 400
+
+    # Validate template_id exists if provided
     template_id = data.get('template_id')
     if template_id is not None:
         try:
             template_id = int(template_id)
         except (ValueError, TypeError):
             return jsonify({'error': 'template_id must be an integer'}), 400
+
+        if not validate_foreign_key('survey_template', 'id', template_id):
+            return jsonify({'error': f'template_id {template_id} does not exist'}), 400
 
     status_str = data.get('status', 'draft')
     if not isinstance(status_str, str):
@@ -110,3 +120,20 @@ def create_survey():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to create survey: {str(e)}'}), 500
+
+
+@bp.route('/surveys/<int:survey_id>', methods=['DELETE'])
+def delete_survey(survey_id):
+    from ..utils import cascade_delete_survey
+
+    try:
+        summary = cascade_delete_survey(survey_id)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Survey deleted successfully',
+            'summary': summary
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete survey: {str(e)}'}), 500

@@ -34,6 +34,72 @@ def apply_changes():
             if not all(field in change for field in required_fields):
                 return jsonify({'error': f'Change missing required fields: {required_fields}'}), 400
 
+            # Validate foreign key references to prevent orphaned records
+            from ..utils import validate_foreign_key
+
+            if change['table'] == 'sites' and change['cid'] == 'project_id':
+                if not validate_foreign_key('projects', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Site references non-existent project_id: {change["val"]}',
+                        'action': 'rejected'
+                    })
+                    continue  # Skip this change
+
+            elif change['table'] == 'survey' and change['cid'] == 'site_id':
+                if not validate_foreign_key('sites', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Survey references non-existent site_id: {change["val"]}',
+                        'action': 'rejected'
+                    })
+                    continue  # Skip this change
+
+            elif change['table'] == 'survey' and change['cid'] == 'template_id' and change['val'] is not None:
+                if not validate_foreign_key('survey_template', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Survey references non-existent template_id: {change["val"]}',
+                        'action': 'rejected'
+                    })
+                    continue  # Skip this change
+
+            elif change['table'] == 'survey_response' and change['cid'] == 'survey_id':
+                if not validate_foreign_key('survey', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'SurveyResponse references non-existent survey_id: {change["val"]}',
+                        'action': 'rejected'
+                    })
+                    continue  # Skip this change
+
+            elif change['table'] == 'template_field' and change['cid'] == 'template_id':
+                if not validate_foreign_key('survey_template', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'TemplateField references non-existent template_id: {change["val"]}',
+                        'action': 'rejected'
+                    })
+                    continue  # Skip this change
+
+            elif change['table'] == 'photo' and change['cid'] == 'survey_id':
+                if not validate_foreign_key('survey', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Photo references non-existent survey_id: {change["val"]}',
+                        'action': 'rejected'
+                    })
+                    continue  # Skip this change
+
+            elif change['table'] == 'photo' and change['cid'] == 'site_id':
+                if not validate_foreign_key('sites', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Photo references non-existent site_id: {change["val"]}',
+                        'action': 'rejected'
+                    })
+                    continue  # Skip this change
+
             # Handle photo table changes - verify cloud URLs instead of image data
             if change['table'] == 'photo' and change['cid'] == 'cloud_url' and change['val']:
                 # Extract photo ID from pk (format: '{"id":"photo_id"}')

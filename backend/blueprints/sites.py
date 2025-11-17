@@ -59,6 +59,20 @@ def create_site():
     if address is not None and not isinstance(address, str):
         return jsonify({'error': 'address must be a string'}), 400
 
+    # Validate project_id exists
+    project_id = data.get('project_id')
+    if project_id is not None:
+        try:
+            project_id = int(project_id)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'project_id must be an integer'}), 400
+
+        from ..utils import validate_foreign_key
+        if not validate_foreign_key('projects', 'id', project_id):
+            return jsonify({'error': f'project_id {project_id} does not exist'}), 400
+    else:
+        return jsonify({'error': 'project_id is required'}), 400
+
     latitude = data.get('latitude')
     if latitude is not None:
         try:
@@ -87,7 +101,8 @@ def create_site():
             address=address.strip() if address else None,
             latitude=latitude,
             longitude=longitude,
-            notes=notes.strip() if notes else None
+            notes=notes.strip() if notes else None,
+            project_id=project_id
         )
         db.session.add(site)
         db.session.commit()
@@ -115,6 +130,20 @@ def update_site(site_id):
         if not isinstance(name, str) or not name.strip():
             return jsonify({'error': 'name must be a non-empty string'}), 400
         site.name = name.strip()
+
+    # Validate and update project_id
+    if 'project_id' in data:
+        project_id = data['project_id']
+        if project_id is not None:
+            try:
+                project_id = int(project_id)
+            except (ValueError, TypeError):
+                return jsonify({'error': 'project_id must be an integer'}), 400
+
+            from ..utils import validate_foreign_key
+            if not validate_foreign_key('projects', 'id', project_id):
+                return jsonify({'error': f'project_id {project_id} does not exist'}), 400
+        site.project_id = project_id
 
     # Validate and update address
     if 'address' in data:
@@ -164,7 +193,16 @@ def update_site(site_id):
 
 @bp.route('/sites/<int:site_id>', methods=['DELETE'])
 def delete_site(site_id):
-    site = Site.query.get_or_404(site_id)
-    db.session.delete(site)
-    db.session.commit()
-    return jsonify({'message': 'Site deleted successfully'})
+    from ..utils import cascade_delete_site
+
+    try:
+        summary = cascade_delete_site(site_id)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Site deleted successfully',
+            'summary': summary
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete site: {str(e)}'}), 500

@@ -16,6 +16,8 @@ from .handlers.photo_handler import PhotoHandler
 from .handlers.template_handler import TemplateHandler
 from .handlers.sync_handler import SyncHandler
 from .ui.survey_ui import SurveyUI
+from .ui_manager import UIManager
+from .config_manager import ConfigManager
 from .services.api_service import APIService
 from .services.db_service import DBService
 from .logging_config import setup_logging
@@ -41,10 +43,13 @@ class SurveyApp(toga.App):
         # Setup logging first
         setup_logging()
 
+        # Initialize configuration
+        self.config = ConfigManager()
+
         # Initialize services
         self.db = LocalDatabase()
         self.db_service = DBService(self.db)
-        self.api_service = APIService()
+        self.api_service = APIService(self.config.api_base_url)
 
         # Initialize state
         self.current_project = None
@@ -72,14 +77,19 @@ class SurveyApp(toga.App):
         self.template_handler = TemplateHandler(self)
         self.sync_handler = SyncHandler(self)
 
+        # Pass config to handlers that need it
+        self.photo_handler.config = self.config
+
         # Initialize UI
         self.ui = SurveyUI(self)
+        self.ui_manager = UIManager(self)
 
         # Create main window
         self.main_window = toga.MainWindow(title=self.formal_name)
+        self.ui_manager.main_window = self.main_window
 
         # Create UI components
-        self.ui.create_main_ui()
+        self.ui_manager.create_main_ui()
 
         # Show the main window
         self.main_window.show()
@@ -96,7 +106,7 @@ class SurveyApp(toga.App):
             location_info = await self.location.current_location()
             return location_info.latitude, location_info.longitude
         except Exception as e:
-            self.status_label.text = f"GPS error: {e}"
+            self.ui_manager.status_label.text = f"GPS error: {e}"
             return None, None
 
     def schedule_auto_save(self, question_id, answer_text):
@@ -111,8 +121,8 @@ class SurveyApp(toga.App):
             'timestamp': time.time()
         }
 
-        # Schedule save after 2 seconds of inactivity
-        self.auto_save_timer = threading.Timer(2.0, self.perform_auto_save, args=[question_id])
+        # Schedule save after configured delay
+        self.auto_save_timer = threading.Timer(self.config.auto_save_delay, self.perform_auto_save, args=[question_id])
         self.auto_save_timer.start()
 
     def perform_auto_save(self, question_id):
@@ -120,9 +130,9 @@ class SurveyApp(toga.App):
         if question_id in self.draft_responses:
             draft = self.draft_responses[question_id]
 
-            # Only save if it's been more than 30 seconds since last real save
+            # Only save if it's been more than configured interval since last real save
             # (avoid excessive saves during normal typing)
-            if time.time() - draft['timestamp'] > 30:
+            if time.time() - draft['timestamp'] > self.config.auto_save_min_interval:
                 try:
                     draft_data = {
                         'id': str(uuid.uuid4()),
@@ -142,253 +152,16 @@ class SurveyApp(toga.App):
             current_time = time.time()
             self.draft_responses = {
                 qid: draft for qid, draft in self.draft_responses.items()
-                if current_time - draft['timestamp'] < 300  # Keep for 5 minutes
+                if current_time - draft['timestamp'] < self.config.draft_retention_time
             }
-
-    def create_main_ui(self):
-        """Create the main user interface"""
         # Header
-        header_label = toga.Label(
-            'Site Survey App',
-            style=Pack(font_size=24, padding=(10, 10, 20, 10))
-        )
-
-        # Survey selection
-        survey_label = toga.Label(
-            'Select Survey:',
-            style=Pack(padding=(5, 10, 5, 10))
-        )
-
-        self.survey_selection = toga.Selection(
-            items=['Select a site first...'],
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        select_survey_button = toga.Button(
-            'Start Survey',
-            on_press=self.start_survey,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        projects_button = toga.Button(
-            'Projects',
-            on_press=self.show_projects_ui,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        sites_button = toga.Button(
-            'Sites',
-            on_press=self.show_sites_ui,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        templates_button = toga.Button(
-            'Templates',
-            on_press=self.show_templates_ui,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        photos_button = toga.Button(
-            'Photos',
-            on_press=self.show_photos_ui,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        # Enhanced survey form (initially hidden)
-        self.survey_title_label = toga.Label(
-            '',
-            style=Pack(font_size=18, padding=(20, 10, 10, 10), font_weight='bold')
-        )
-
-        # Progress indicator
-        self.progress_label = toga.Label(
-            '',
-            style=Pack(padding=(5, 10, 5, 10), color='#666666')
-        )
-
-        # Field type specific UI elements
-        self.yes_button = toga.Button(
-            'Yes',
-            on_press=lambda w: self.submit_yesno_answer('Yes'),
-            style=Pack(padding=(5, 10, 5, 5))
-        )
-        self.no_button = toga.Button(
-            'No',
-            on_press=lambda w: self.submit_yesno_answer('No'),
-            style=Pack(padding=(5, 10, 10, 5))
-        )
-
-        self.options_selection = toga.Selection(
-            items=[],
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        self.enhanced_photo_button = toga.Button(
-            '📷 Take Photo',
-            on_press=self.take_photo_enhanced,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        submit_answer_button = toga.Button(
-            'Submit Answer',
-            on_press=self.submit_answer,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        next_question_button = toga.Button(
-            'Next Question',
-            on_press=self.next_question,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        finish_survey_button = toga.Button(
-            'Finish Survey',
-            on_press=self.finish_survey,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        sync_button = toga.Button(
-            'Sync Now',
-            on_press=self.sync_with_server,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        config_button = toga.Button(
-            'Settings',
-            on_press=self.show_config_ui,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        # Question UI (legacy)
-        self.question_box = toga.Box(style=Pack(direction=COLUMN, padding=10, visibility='hidden'))
-        self.question_label_legacy = toga.Label("Question", style=Pack(padding=(5, 10, 5, 10)))
-        self.answer_input_legacy = toga.TextInput(style=Pack(padding=(5, 10, 10, 10)))
-        self.answer_selection = toga.Selection(style=Pack(padding=(5, 10, 10, 10)))
-
-        next_question_button_legacy = toga.Button('Next', on_press=self.next_question, style=Pack(padding=(5, 10, 10, 10)))
-
-        self.progress_bar = toga.ProgressBar(max=100, value=0, style=Pack(padding=(10, 10, 10, 10)))
-        self.question_box.add(self.question_label_legacy, self.answer_input_legacy, self.answer_selection, next_question_button_legacy, self.progress_bar)
-
-        # Enhanced question UI elements (separate from legacy)
-        self.question_label = toga.Label(
-            '',
-            style=Pack(padding=(10, 10, 5, 10))
-        )
-
-        self.answer_input = toga.TextInput(
-            placeholder='Enter your answer',
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        # Wire up auto-save to text input changes
-        self.answer_input.on_change = self.on_answer_input_change
-
-    def on_answer_input_change(self, widget):
-        """Handle text input changes with debounced auto-save"""
-        if self.current_survey and self.template_fields and self.current_question_index < len(self.template_fields):
-            current_field = self.template_fields[self.current_question_index]
-            question_id = current_field['id']
-            answer_text = widget.value
-
-            # Schedule auto-save with debounce
-            self.schedule_auto_save(question_id, answer_text)
-
-        # Photo capture UI
-        self.photo_box = toga.Box(style=Pack(direction=COLUMN, padding=10, visibility='hidden'))
-
-        take_photo_button = toga.Button(
-            'Take Photo',
-            on_press=self.take_photo,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        self.image_view = toga.ImageView(style=Pack(height=200))
-
-        self.photo_description_input = toga.TextInput(
-            placeholder='Photo description',
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-        self.photo_location_input = toga.TextInput(
-            placeholder='Photo location (lat, long)',
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-        save_photo_button = toga.Button(
-            'Save Photo',
-            on_press=self.save_photo,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        self.photo_box.add(
-            take_photo_button,
-            self.image_view,
-            self.photo_description_input,
-            self.photo_location_input,
-            save_photo_button
-        )
-
-        # Status label
-        self.status_label = toga.Label(
-            'Ready',
-            style=Pack(padding=(10, 10, 10, 10), color='#666666')
-        )
-
-        # Initially hide enhanced survey form
-        self.survey_title_label.style.visibility = 'hidden'
-        self.progress_label.style.visibility = 'hidden'
-        self.question_label.style.visibility = 'hidden'
-        self.answer_input.style.visibility = 'hidden'
-        self.yes_button.style.visibility = 'hidden'
-        self.no_button.style.visibility = 'hidden'
-        self.options_selection.style.visibility = 'hidden'
-        self.enhanced_photo_button.style.visibility = 'hidden'
-        submit_answer_button.style.visibility = 'hidden'
-        next_question_button.style.visibility = 'hidden'
-        finish_survey_button.style.visibility = 'hidden'
-        sync_button.style.visibility = 'hidden'
-
-        # Create main box
-        main_box = toga.Box(
-            children=[
-                header_label,
-                survey_label,
-                self.survey_selection,
-                select_survey_button,
-                projects_button,
-                sites_button,
-                templates_button,
-                photos_button,
-                config_button,
-                self.question_box,
-                self.photo_box,
-                self.survey_title_label,
-                self.progress_label,
-                self.question_label,
-                self.answer_input,
-                self.yes_button,
-                self.no_button,
-                self.options_selection,
-                self.enhanced_photo_button,
-                submit_answer_button,
-                next_question_button,
-                finish_survey_button,
-                sync_button,
-                self.status_label
-            ],
-            style=Pack(direction=COLUMN, padding=10)
-        )
-
-        self.main_window.content = main_box
-
-    def start_survey(self, widget):
-        """Start the selected survey"""
-        if self.survey_selection.value:
-            survey_id_str = self.survey_selection.value.split(':')[0]
+        if self.ui_manager.survey_selection.value:
+            survey_id_str = self.ui_manager.survey_selection.value.split(':')[0]
             try:
                 survey_id = int(survey_id_str)
                 # Try to fetch from server first
                 try:
-                    response = self.api_service.get(f'/api/surveys/{survey_id}', timeout=5)
+                    response = self.api_service.get(f'/api/surveys/{survey_id}', timeout=self.config.api_timeout)
                     if response.status_code == 200:
                         survey_data = response.json()
                         self.current_survey = survey_data
@@ -399,7 +172,7 @@ class SurveyApp(toga.App):
                         if survey_data:
                             self.current_survey = survey_data
                         else:
-                            self.status_label.text = "Survey not found"
+                            self.ui_manager.status_label.text = "Survey not found"
                             return
                 except Exception as e:
                     # Try local cache if server unavailable
@@ -408,7 +181,7 @@ class SurveyApp(toga.App):
                     if survey_data:
                         self.current_survey = survey_data
                     else:
-                        self.status_label.text = "Survey not found and server unavailable"
+                        self.ui_manager.status_label.text = "Survey not found and server unavailable"
                         return
 
                 # Reset responses
@@ -418,7 +191,7 @@ class SurveyApp(toga.App):
                 if survey_data.get('template_id'):
                     try:
                         # Use new conditional fields API
-                        template_response = self.api_service.get(f'/api/templates/{survey_data["template_id"]}/conditional-fields', timeout=5)
+                        template_response = self.api_service.get(f'/api/templates/{survey_data["template_id"]}/conditional-fields', timeout=self.config.api_timeout)
                         if template_response.status_code == 200:
                             template_data = template_response.json()
                             self.template_fields = template_data['fields']
@@ -445,14 +218,14 @@ class SurveyApp(toga.App):
                     self.show_question()
                 else:
                     # Use legacy UI
-                    self.question_box.style.visibility = 'visible'
-                    self.photo_box.style.visibility = 'visible'
+                    self.ui_manager.question_box.style.visibility = 'visible'
+                    self.ui_manager.photo_box.style.visibility = 'visible'
                     self.load_questions()
                     self.display_question()
             except ValueError:
-                self.status_label.text = "Invalid survey ID"
+                self.ui_manager.status_label.text = "Invalid survey ID"
         else:
-            self.status_label.text = "Please select a survey"
+            self.ui_manager.status_label.text = "Please select a survey"
         self.update_progress()
 
     def load_questions(self):
@@ -466,17 +239,17 @@ class SurveyApp(toga.App):
         """Display question in legacy UI"""
         if self.current_question_index < len(self.questions):
             question = self.questions[self.current_question_index]
-            self.question_label_legacy.text = question['question']
+            self.ui_manager.question_label_legacy.text = question['question']
             if question['field_type'] == 'text':
-                self.answer_input_legacy.style.visibility = 'visible'
+                self.ui_manager.answer_input_legacy.style.visibility = 'visible'
                 self.answer_selection.style.visibility = 'hidden'
             elif question['field_type'] == 'multiple_choice':
-                self.answer_input_legacy.style.visibility = 'hidden'
+                self.ui_manager.answer_input_legacy.style.visibility = 'hidden'
                 self.answer_selection.style.visibility = 'visible'
                 self.answer_selection.items = json.loads(question['options'])
         else:
-            self.question_box.style.visibility = 'hidden'
-            self.status_label.text = "Survey complete!"
+            self.ui_manager.question_box.style.visibility = 'hidden'
+            self.ui_manager.status_label.text = "Survey complete!"
         self.update_progress()
 
     def update_progress(self):
@@ -488,29 +261,28 @@ class SurveyApp(toga.App):
             overall_progress = progress_data.get('overall_progress', 0)
             
             # Update progress bar
-            self.progress_bar.value = overall_progress
+            self.ui_manager.progress_bar.value = overall_progress
             
             # Update progress label with detailed information
             total_required = progress_data.get('total_required', 0)
             total_completed = progress_data.get('total_completed', 0)
-            self.progress_label.text = f"Progress: {total_completed}/{total_required} ({overall_progress:.1f}%)"
+            self.ui_manager.progress_label.text = f"Progress: {total_completed}/{total_required} ({overall_progress:.1f}%)"
         else:
             # Fallback to basic progress calculation
             if hasattr(self, 'questions') and self.questions:
                 progress = (self.current_question_index / len(self.questions)) * 100
-                self.progress_bar.value = progress
+                self.ui_manager.progress_bar.value = progress
             elif self.total_fields > 0:
                 progress = (self.current_question_index / self.total_fields) * 100
-                self.progress_bar.value = progress
+                self.ui_manager.progress_bar.value = progress
             else:
-                self.progress_bar.value = 0
+                self.ui_manager.progress_bar.value = 0
 
     def show_survey_ui(self):
         """Show the enhanced survey interface"""
-        self.survey_title_label.style.visibility = 'visible'
-        self.progress_label.style.visibility = 'visible'
-        self.question_label.style.visibility = 'visible'
-        self.survey_title_label.text = self.current_survey['title']
+        self.ui_manager.show_enhanced_survey_ui()
+        if self.ui_manager.survey_title_label:
+            self.ui_manager.survey_title_label.text = self.current_survey['title']
 
     def show_question(self):
         """Show the current question in enhanced UI with Phase 2 features"""
@@ -518,42 +290,33 @@ class SurveyApp(toga.App):
         self.update_progress()
 
         # Hide all input elements first
-        self.answer_input.style.visibility = 'hidden'
-        self.yes_button.style.visibility = 'hidden'
-        self.no_button.style.visibility = 'hidden'
-        self.options_selection.style.visibility = 'hidden'
-        self.enhanced_photo_button.style.visibility = 'hidden'
+        self.ui_manager.answer_input.style.visibility = 'hidden'
+        self.ui_manager.yes_button.style.visibility = 'hidden'
+        self.ui_manager.no_button.style.visibility = 'hidden'
+        self.ui_manager.options_selection.style.visibility = 'hidden'
+        self.ui_manager.enhanced_photo_button.style.visibility = 'hidden'
 
         # Find the next visible field
         visible_field = self.get_next_visible_field()
-        
+
         if not visible_field:
             self.finish_survey(None)
             return
-        
+
         # Update question label with required indicator
         required_indicator = " * " if visible_field.get('required', False) else " "
-        self.question_label.text = f"{required_indicator}{visible_field['question']}"
+        self.ui_manager.question_label.text = f"{required_indicator}{visible_field['question']}"
 
-        # Handle different field types
+        # Handle different field types using ui_manager
         field_type = visible_field.get('field_type', 'text')
-        if field_type == 'yesno':
-            self.yes_button.style.visibility = 'visible'
-            self.no_button.style.visibility = 'visible'
-        elif field_type == 'photo':
-            self.enhanced_photo_button.style.visibility = 'visible'
-            # Show photo requirements if available
-            if visible_field.get('photo_requirements'):
-                self.show_photo_requirements(visible_field['photo_requirements'])
-        elif visible_field.get('options'):
-            # Multiple choice
-            self.options_selection.items = visible_field['options']
-            self.options_selection.style.visibility = 'visible'
-        else:
-            # Text input
-            self.answer_input.placeholder = visible_field.get('description', 'Enter your answer')
-            self.answer_input.value = ''
-            self.answer_input.style.visibility = 'visible'
+        options = visible_field.get('options')
+        description = visible_field.get('description', 'Enter your answer')
+
+        self.ui_manager.show_question_ui(field_type, options, description)
+
+        # Show photo requirements if available
+        if field_type == 'photo' and visible_field.get('photo_requirements'):
+            self.show_photo_requirements(visible_field['photo_requirements'])
     
     def get_next_visible_field(self):
         """Get the next visible field based on conditional logic"""
@@ -579,19 +342,19 @@ class SurveyApp(toga.App):
         # This would show a small popup or label with photo requirements
         # For now, just update status
         req_text = photo_requirements.get('description', 'Photo required')
-        self.status_label.text = f"Photo requirement: {req_text}"
+        self.ui_manager.status_label.text = f"Photo requirement: {req_text}"
 
     def submit_answer(self, widget):
         """Submit the current answer in enhanced UI with Phase 2 tracking"""
-        answer = self.answer_input.value.strip()
+        answer = self.ui_manager.answer_input.value.strip()
         # Check if this is a multiple choice question with options selected
-        if not answer and self.options_selection.value:
-            answer = self.options_selection.value
+        if not answer and self.ui_manager.options_selection.value:
+            answer = self.ui_manager.options_selection.value
             response_type = 'multiple_choice'
         elif answer:
             response_type = 'text'
         else:
-            self.status_label.text = "Please provide an answer"
+            self.ui_manager.status_label.text = "Please provide an answer"
             return
 
         # Get current field for tracking
@@ -622,7 +385,7 @@ class SurveyApp(toga.App):
             }
             self.db.save_response(response_data)
 
-        self.status_label.text = f"Answer submitted for: {question[:50]}..."
+        self.ui_manager.status_label.text = f"Answer submitted for: {question[:50]}..."
         self.next_question(None)
 
     def next_question(self, widget):
@@ -644,7 +407,7 @@ class SurveyApp(toga.App):
             question = self.questions[self.current_question_index]
             answer = ''
             if question['field_type'] == 'text':
-                answer = self.answer_input_legacy.value
+                answer = self.ui_manager.answer_input_legacy.value
             elif question['field_type'] == 'multiple_choice':
                 answer = self.answer_selection.value
 
@@ -656,7 +419,7 @@ class SurveyApp(toga.App):
                 'response_type': question['field_type']
             }
             self.db.save_response(response_data)
-            self.status_label.text = f"Saved response for: {question['question']}"
+            self.ui_manager.status_label.text = f"Saved response for: {question['question']}"
 
     def submit_yesno_answer(self, answer):
         """Submit yes/no answer in enhanced UI with Phase 2 tracking"""
@@ -688,7 +451,7 @@ class SurveyApp(toga.App):
             }
             self.db.save_response(response_data)
 
-        self.status_label.text = f"Answer submitted: {answer}"
+        self.ui_manager.status_label.text = f"Answer submitted: {answer}"
         self.current_question_index += 1
         self.show_question()
 
@@ -720,14 +483,14 @@ class SurveyApp(toga.App):
                     'image_data': photo_data,
                     'latitude': lat,
                     'longitude': long,
-                    'description': f"Photo for: {self.question_label.text}",
+                    'description': f"Photo for: {self.ui_manager.question_label.text}",
                     'category': PhotoCategory.GENERAL.value,
                     'exif_data': exif_json
                 }
                 self.db.save_photo(photo_record)
 
                 # Save response
-                question = self.question_label.text
+                question = self.ui_manager.question_label.text
                 response = {
                     'question': question,
                     'answer': f'[Photo captured - ID: {photo_record["id"]}]',
@@ -745,7 +508,7 @@ class SurveyApp(toga.App):
                 }
                 self.db.save_response(response_data)
 
-                self.status_label.text = f"Photo captured for: {question[:50]}..."
+                self.ui_manager.status_label.text = f"Photo captured for: {question[:50]}..."
                 self.current_question_index += 1
                 self.show_question()
 
@@ -770,20 +533,13 @@ class SurveyApp(toga.App):
                     self.db.save_response(response_data)
 
             # Hide enhanced survey form
-            self.survey_title_label.style.visibility = 'hidden'
-            self.progress_label.style.visibility = 'hidden'
-            self.question_label.style.visibility = 'hidden'
-            self.answer_input.style.visibility = 'hidden'
-            self.yes_button.style.visibility = 'hidden'
-            self.no_button.style.visibility = 'hidden'
-            self.options_selection.style.visibility = 'hidden'
-            self.enhanced_photo_button.style.visibility = 'hidden'
+            self.ui_manager.hide_enhanced_survey_ui()
             
             # Hide legacy UI as well
-            self.question_box.style.visibility = 'hidden'
-            self.photo_box.style.visibility = 'hidden'
+            self.ui_manager.question_box.style.visibility = 'hidden'
+            self.ui_manager.photo_box.style.visibility = 'hidden'
             
-            self.status_label.text = "Survey completed and saved!"
+            self.ui_manager.status_label.text = "Survey completed and saved!"
 
     def show_projects_ui(self, widget):
         """Show projects management UI"""
@@ -861,7 +617,7 @@ class SurveyApp(toga.App):
             project_names = [f"{p.id}: {p.name}" for p in projects]
             self.projects_list.items = project_names
             self.projects_data = projects
-            self.status_label.text = f"Loaded {len(projects)} projects"
+            self.ui_manager.status_label.text = f"Loaded {len(projects)} projects"
         else:
             self.projects_list.items = ['No projects available']
 
@@ -879,10 +635,10 @@ class SurveyApp(toga.App):
                 'priority': self.project_priority_selection.value or PriorityLevel.MEDIUM.value
             }
             self.db.save_project(project_data)
-            self.status_label.text = f"Created project: {project_name}"
+            self.ui_manager.status_label.text = f"Created project: {project_name}"
             self.load_projects(None)
         else:
-            self.status_label.text = "Please enter a project name"
+            self.ui_manager.status_label.text = "Please enter a project name"
 
     def select_project(self, projects_window):
         if self.projects_list.value and hasattr(self, 'projects_data'):
@@ -892,20 +648,20 @@ class SurveyApp(toga.App):
                 self.load_sites_for_project(self.current_project.id)
                 projects_window.close()
             else:
-                self.status_label.text = "Project not found"
+                self.ui_manager.status_label.text = "Project not found"
         else:
-            self.status_label.text = "Please select a project"
+            self.ui_manager.status_label.text = "Please select a project"
 
     def load_sites_for_project(self, project_id):
         """Load sites for the selected project"""
         sites = self.db.get_sites_for_project(project_id)
         if sites:
             site_names = [f"{s.id}: {s.name}" for s in sites]
-            self.survey_selection.items = ['Select a site first...'] + site_names
-            self.status_label.text = f"Loaded {len(sites)} sites for project {self.current_project.name}"
+            self.ui_manager.survey_selection.items = ['Select a site first...'] + site_names
+            self.ui_manager.status_label.text = f"Loaded {len(sites)} sites for project {self.current_project.name}"
         else:
-            self.survey_selection.items = ['Select a site first...']
-            self.status_label.text = f"No sites available for project {self.current_project.name}"
+            self.ui_manager.survey_selection.items = ['Select a site first...']
+            self.ui_manager.status_label.text = f"No sites available for project {self.current_project.name}"
 
     def show_sites_ui(self, widget):
         """Show sites management UI"""
@@ -952,7 +708,7 @@ class SurveyApp(toga.App):
             site_names = [f"{s.id}: {s.name}" for s in sites]
             self.sites_list.items = site_names
             self.sites_data = sites
-            self.status_label.text = f"Loaded {len(sites)} sites"
+            self.ui_manager.status_label.text = f"Loaded {len(sites)} sites"
         else:
             self.sites_list.items = ['No sites available']
 
@@ -969,12 +725,12 @@ class SurveyApp(toga.App):
             if self.current_project:
                 site_data['project_id'] = self.current_project.id
             self.db.save_site(site_data)
-            self.status_label.text = f"Created site: {site_name}"
+            self.ui_manager.status_label.text = f"Created site: {site_name}"
             self.load_sites(None)
             if self.current_project:
                 self.load_sites_for_project(self.current_project.id)
         else:
-            self.status_label.text = "Please enter a site name"
+            self.ui_manager.status_label.text = "Please enter a site name"
 
     def select_site(self, sites_window):
         if self.sites_list.value and hasattr(self, 'sites_data'):
@@ -984,20 +740,20 @@ class SurveyApp(toga.App):
                 self.load_surveys_for_site(self.current_site.id)
                 sites_window.close()
             else:
-                self.status_label.text = "Site not found"
+                self.ui_manager.status_label.text = "Site not found"
         else:
-            self.status_label.text = "Please select a site"
+            self.ui_manager.status_label.text = "Please select a site"
 
     def load_surveys_for_site(self, site_id):
         """Load surveys for the selected site"""
         surveys = self.db.get_surveys_for_site(site_id)
         if surveys:
             survey_names = [f"{s.id}: {s.title}" for s in surveys]
-            self.survey_selection.items = survey_names
-            self.status_label.text = f"Loaded {len(surveys)} surveys for site {self.current_site.name}"
+            self.ui_manager.survey_selection.items = survey_names
+            self.ui_manager.status_label.text = f"Loaded {len(surveys)} surveys for site {self.current_site.name}"
         else:
-            self.survey_selection.items = []
-            self.status_label.text = f"No surveys available for site {self.current_site.name}"
+            self.ui_manager.survey_selection.items = []
+            self.ui_manager.status_label.text = f"No surveys available for site {self.current_site.name}"
 
     def show_templates_ui(self, widget):
         """Show templates management UI"""
@@ -1052,7 +808,7 @@ class SurveyApp(toga.App):
             template_names = [f"{t['id']}: {t['name']} ({t['category']})" for t in templates]
             self.templates_list.items = template_names
             self.templates_data = templates  # Store for later use
-            self.status_label.text = f"Loaded {len(templates)} templates"
+            self.ui_manager.status_label.text = f"Loaded {len(templates)} templates"
         else:
             self.templates_list.items = ['Failed to load templates']
 
@@ -1065,7 +821,7 @@ class SurveyApp(toga.App):
             template = next((t for t in self.templates_data if t['id'] == template_id), None)
             if template:
                 if not self.current_site:
-                    self.status_label.text = "Please select a site first"
+                    self.ui_manager.status_label.text = "Please select a site first"
                     return
 
                 survey_data = {
@@ -1078,15 +834,15 @@ class SurveyApp(toga.App):
 
                 # In a real app, this would be a CRDT insert
                 self.db.save_survey(survey_data)
-                self.status_label.text = f"Created survey from template"
+                self.ui_manager.status_label.text = f"Created survey from template"
                 # Refresh surveys list
                 if self.current_site:
                     self.load_surveys_for_site(self.current_site.id)
 
             else:
-                self.status_label.text = "Template not found"
+                self.ui_manager.status_label.text = "Template not found"
         else:
-            self.status_label.text = "Please select a template first"
+            self.ui_manager.status_label.text = "Please select a template first"
 
     def show_config_ui(self, widget):
         """Show configuration settings UI"""

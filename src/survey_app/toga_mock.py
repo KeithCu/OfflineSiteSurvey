@@ -53,3 +53,15 @@ class Pack:
 class Image:
     def __init__(self, data=None):
         pass
+
+# Constants
+COLUMN = 'column'
+ROW = 'row'
+
+class ProgressBar:
+    def __init__(self, max=100, value=0, style=None):
+        pass
+
+class Location:
+    async def current_location(self):
+        return type('LocationInfo', (), {'latitude': 0.0, 'longitude': 0.0})()

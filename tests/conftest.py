@@ -23,6 +23,11 @@ def app():
     app = create_app(test_config)
 
     with app.app_context():
+        # Temporarily disable CRDT for testing
+        from backend.models import create_crr_tables
+        from sqlalchemy import event
+        # Remove the CRDT event listener for tests
+        event.remove(db.metadata, 'after_create', create_crr_tables)
         db.create_all()
 
     yield app

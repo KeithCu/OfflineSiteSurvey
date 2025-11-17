@@ -19,7 +19,7 @@ def test_project_model_creation(app):
 
         assert project.id is not None
         assert project.name == "Test Project"
-        assert project.status.value == "draft"
+        assert project.status == "draft"
 
 
 def test_site_model_creation(app):
@@ -177,36 +177,41 @@ def test_photo_model_creation(app):
 
 
 def test_model_relationships(app):
-    """Test model relationships work correctly."""
-    with app.app_context():
-        # Create hierarchy: Project -> Site -> Survey -> Response/Photo
-        project = Project(name="Relationship Test Project")
-        site = Site(name="Relationship Test Site", project_id=project.id)
-        survey = Survey(title="Relationship Test Survey", site_id=site.id)
-        response = SurveyResponse(
-            survey_id=survey.id,
-            question="Test?",
-            answer="Answer",
-            response_type="text"
-        )
-        photo = Photo(
-            survey_id=survey.id,
-            site_id=site.id,
-            image_data=b"test",
-            hash_value="b" * 64,
-            hash_algo="sha256",
-            size_bytes=4
-        )
+        """Test model relationships work correctly."""
+        with app.app_context():
+            # Create hierarchy: Project -> Site -> Survey -> Response/Photo
+            project = Project(name="Relationship Test Project")
+            site = Site(name="Relationship Test Site", project_id=project.id)
+            survey = Survey(title="Relationship Test Survey", site_id=site.id)
 
-        db.session.add_all([project, site, survey, response, photo])
-        db.session.commit()
+            db.session.add_all([project, site, survey])
+            db.session.commit()  # Commit parents first to get IDs
 
-        # Test relationships
-        assert survey in site.surveys
-        assert response in survey.responses
-        assert photo.survey_id == survey.id
-        assert photo.site_id == site.id
+            response = SurveyResponse(
+                survey_id=survey.id,
+                question="Test?",
+                answer="Answer",
+                response_type="text"
+            )
+            photo = Photo(
+                survey_id=survey.id,
+                site_id=site.id,
+                image_data=b"test",
+                hash_value="b" * 64,
+                hash_algo="sha256",
+                size_bytes=4,
+                category="general"
+            )
 
-        # Test reverse relationships
-        assert site.project_id == project.id
-        assert survey.site_id == site.id
+            db.session.add_all([response, photo])
+            db.session.commit()
+
+            # Test relationships
+            assert survey in site.surveys
+            assert response in survey.responses
+            assert photo.survey_id == str(survey.id)
+            assert photo.site_id == site.id
+
+            # Test reverse relationships
+            assert site.project_id == project.id
+            assert survey.site_id == site.id

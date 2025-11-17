@@ -2,7 +2,7 @@
 from flask import Blueprint, jsonify, request
 import json
 from ..models import db, Photo
-from ...shared.utils import compute_photo_hash
+from shared.utils import compute_photo_hash
 
 
 bp = Blueprint('photos', __name__, url_prefix='/api')

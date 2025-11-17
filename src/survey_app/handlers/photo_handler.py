@@ -68,7 +68,7 @@ class PhotoHandler:
             category=self.app.current_category,
             search_term=self.app.current_search,
             page=page,
-            per_page=40
+            per_page=self.config.get('max_visible_photos', 40)
         )
 
         photos = photos_result['photos']

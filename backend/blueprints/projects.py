@@ -1,7 +1,9 @@
 """Projects blueprint for Flask API."""
 from flask import Blueprint, jsonify, request
 from ..models import db, Project, ProjectStatus
+from shared.validation import Validator, ValidationError
 import datetime
+import logging
 
 
 bp = Blueprint('projects', __name__, url_prefix='/api')
@@ -25,78 +27,77 @@ def get_projects():
 
 @bp.route('/projects', methods=['POST'])
 def create_project():
+    logger = logging.getLogger(__name__)
+
     try:
         data = request.get_json()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Invalid JSON in project creation: {e}")
         return jsonify({'error': 'Invalid JSON data'}), 400
 
     if not isinstance(data, dict):
         return jsonify({'error': 'Request data must be a JSON object'}), 400
 
-    # Validate required fields
-    if 'name' not in data:
-        return jsonify({'error': 'name field is required'}), 400
-
-    name = data['name']
-    if not isinstance(name, str) or not name.strip():
-        return jsonify({'error': 'name must be a non-empty string'}), 400
-
-    # Validate optional fields
-    description = data.get('description')
-    if description is not None and not isinstance(description, str):
-        return jsonify({'error': 'description must be a string'}), 400
-
-    status_str = data.get('status', 'draft')
-    if not isinstance(status_str, str):
-        return jsonify({'error': 'status must be a string'}), 400
-
     try:
-        status = ProjectStatus(status_str)
-    except ValueError:
-        return jsonify({'error': f'status must be one of: {[s.value for s in ProjectStatus]}'}), 400
+        # Validate input data
+        validated_data = Validator.validate_project_data(data)
 
-    client_info = data.get('client_info')
-    if client_info is not None and not isinstance(client_info, str):
-        return jsonify({'error': 'client_info must be a string'}), 400
+        # Handle status enum
+        status_str = data.get('status', 'draft')
+        if not isinstance(status_str, str):
+            raise ValidationError('status must be a string')
 
-    due_date = None
-    due_date_str = data.get('due_date')
-    if due_date_str:
-        if not isinstance(due_date_str, str):
-            return jsonify({'error': 'due_date must be a string in ISO format'}), 400
         try:
-            due_date = datetime.datetime.fromisoformat(due_date_str)
+            status = ProjectStatus(status_str)
         except ValueError:
-            return jsonify({'error': 'due_date must be a valid ISO date string'}), 400
+            raise ValidationError(f'Invalid status: {status_str}')
 
-    priority_str = data.get('priority', 'medium')
-    from ..models import PriorityLevel
-    if not isinstance(priority_str, str):
-        return jsonify({'error': 'priority must be a string'}), 400
+        validated_data['status'] = status
 
-    try:
-        priority = PriorityLevel(priority_str)
-    except ValueError:
-        return jsonify({'error': f'priority must be one of: {[p.value for p in PriorityLevel]}'}), 400
+        # Handle priority enum
+        from ..models import PriorityLevel
+        priority_str = data.get('priority', 'medium')
+        if not isinstance(priority_str, str):
+            raise ValidationError('priority must be a string')
 
-    try:
-        project = Project(
-            name=name.strip(),
-            description=description.strip() if description else None,
-            status=status,
-            client_info=client_info.strip() if client_info else None,
-            due_date=due_date,
-            priority=priority
-        )
+        try:
+            priority = PriorityLevel(priority_str)
+        except ValueError:
+            raise ValidationError(f'Invalid priority: {priority_str}')
+
+        validated_data['priority'] = priority
+
+        # Handle due date
+        due_date = None
+        due_date_str = data.get('due_date')
+        if due_date_str:
+            if not isinstance(due_date_str, str):
+                raise ValidationError('due_date must be a string in ISO format')
+            try:
+                due_date = datetime.datetime.fromisoformat(due_date_str)
+            except ValueError:
+                raise ValidationError('due_date must be a valid ISO date string')
+        validated_data['due_date'] = due_date
+
+        # Create project
+        project = Project(**validated_data)
         db.session.add(project)
         db.session.commit()
+
+        logger.info(f"Created project: {project.id} - {project.name}")
+
         return jsonify({
             'id': project.id,
             'message': 'Project created successfully'
         }), 201
+
+    except ValidationError as e:
+        logger.warning(f"Validation error in project creation: {e}")
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
+        logger.error(f"Failed to create project: {e}")
         db.session.rollback()
-        return jsonify({'error': f'Failed to create project: {str(e)}'}), 500
+        return jsonify({'error': 'Failed to create project'}), 500
 
 
 @bp.route('/projects/<int:project_id>', methods=['PUT'])

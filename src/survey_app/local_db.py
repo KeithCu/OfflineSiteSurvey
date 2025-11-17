@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, Index
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey, Enum
 from .enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
@@ -13,116 +13,131 @@ import tempfile
 import shutil
 import logging
 from appdirs import user_data_dir
-from ..shared.utils import compute_photo_hash, generate_thumbnail
+from shared.utils import compute_photo_hash, generate_thumbnail
 
 Base = declarative_base()
 
 class Project(Base):
     __tablename__ = 'projects'
-    id = Column(Integer, primary_key=True)
-    name = Column(String(200), nullable=False)
-    description = Column(Text)
-    status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT)
-    client_info = Column(Text)
+    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    name = Column(String(200), nullable=False, server_default="")
+    description = Column(Text, server_default="")
+    status = Column(String(20), default='draft', server_default='draft')
+    client_info = Column(Text, server_default="")
     due_date = Column(DateTime)
-    priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    priority = Column(String(20), default='medium', server_default='medium')
+    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
 
 class Site(Base):
     __tablename__ = 'sites'
-    id = Column(Integer, primary_key=True)
-    name = Column(String(200), nullable=False)
-    address = Column(Text)
-    latitude = Column(Float)
-    longitude = Column(Float)
-    notes = Column(Text)
-    project_id = Column(Integer, ForeignKey('projects.id'))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    name = Column(String(200), nullable=False, server_default="Untitled")
+    address = Column(Text, server_default="")
+    latitude = Column(Float, server_default="0.0")
+    longitude = Column(Float, server_default="0.0")
+    notes = Column(Text, server_default="")
+    project_id = Column(Integer, ForeignKey('projects.id'), index=True, server_default="1")
+    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
+
+# Indexes for Site table
+Index('idx_sites_project_id', Site.project_id)
 
 class Survey(Base):
     __tablename__ = 'surveys'
-    id = Column(Integer, primary_key=True)
-    title = Column(String(200), nullable=False)
-    description = Column(Text)
-    site_id = Column(Integer, ForeignKey('sites.id'), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT)
-    template_id = Column(Integer, ForeignKey('templates.id'))
+    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    title = Column(String(200), nullable=False, server_default="Untitled Survey")
+    description = Column(Text, server_default="")
+    site_id = Column(Integer, ForeignKey('sites.id'), nullable=False, index=True, server_default="1")
+    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    status = Column(String(20), default='draft', server_default='draft')
+    template_id = Column(Integer, ForeignKey('templates.id'), index=True, server_default=None)
+
+# Indexes for Survey table
+Index('idx_surveys_site_id', Survey.site_id)
+Index('idx_surveys_template_id', Survey.template_id)
+Index('idx_surveys_status', Survey.status)
 
 class SurveyResponse(Base):
     __tablename__ = 'responses'
-    id = Column(Integer, primary_key=True)
-    survey_id = Column(Integer, ForeignKey('surveys.id'), nullable=False)
-    question = Column(String(500), nullable=False)
-    answer = Column(Text)
-    response_type = Column(String(50))
-    latitude = Column(Float)
-    longitude = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    survey_id = Column(Integer, ForeignKey('surveys.id'), nullable=False, index=True, server_default="1")
+    question = Column(String(500), nullable=False, server_default="")
+    answer = Column(Text, server_default="")
+    response_type = Column(String(50), index=True, server_default="")
+    latitude = Column(Float, server_default="0.0")
+    longitude = Column(Float, server_default="0.0")
+    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
     # Phase 2 additions
-    question_id = Column(Integer)  # Links to template field ID for conditional logic
-    field_type = Column(String(50))  # Stores field type from template
+    question_id = Column(Integer, index=True, server_default="0")  # Links to template field ID for conditional logic
+    field_type = Column(String(50), server_default="")  # Stores field type from template
+
+# Indexes for SurveyResponse table
+Index('idx_responses_survey_question', SurveyResponse.survey_id, SurveyResponse.question_id)
 
 class AppConfig(Base):
     __tablename__ = 'config'
-    id = Column(Integer, primary_key=True)
-    key = Column(String(100), unique=True, nullable=False)
-    value = Column(Text)
-    description = Column(String(300))
-    category = Column(String(50))
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    key = Column(String(100), unique=True, nullable=False, server_default="")
+    value = Column(Text, server_default="")
+    description = Column(String(300), server_default="")
+    category = Column(String(50), server_default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
 
 class SurveyTemplate(Base):
     __tablename__ = 'templates'
-    id = Column(Integer, primary_key=True)
-    name = Column(String(200), nullable=False)
-    description = Column(Text)
-    category = Column(String(50))
-    is_default = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    name = Column(String(200), nullable=False, server_default="Untitled Template")
+    description = Column(Text, server_default="")
+    category = Column(String(50), server_default="")
+    is_default = Column(Boolean, default=False, server_default='0')
+    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
 
 class TemplateField(Base):
     __tablename__ = 'template_fields'
-    id = Column(Integer, primary_key=True)
-    template_id = Column(Integer, ForeignKey('templates.id'), nullable=False)
-    field_type = Column(String(50))
-    question = Column(String(500), nullable=False)
-    description = Column(Text)
-    required = Column(Boolean, default=False)
-    options = Column(Text)
-    order_index = Column(Integer, default=0)
-    section = Column(String(100))
+    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    template_id = Column(Integer, ForeignKey('templates.id'), nullable=False, server_default="1")
+    field_type = Column(String(50), server_default="")
+    question = Column(String(500), nullable=False, server_default="")
+    description = Column(Text, server_default="")
+    required = Column(Boolean, default=False, server_default='0')
+    options = Column(Text, server_default="")
+    order_index = Column(Integer, default=0, server_default="0")
+    section = Column(String(100), server_default="")
     # Phase 2 additions
-    conditions = Column(Text)  # JSON format for conditional logic
-    photo_requirements = Column(Text)  # JSON format for photo requirements
-    section_weight = Column(Integer, default=1)  # For weighted progress calculation
+    conditions = Column(Text, server_default="")  # JSON format for conditional logic
+    photo_requirements = Column(Text, server_default="")  # JSON format for photo requirements
+    section_weight = Column(Integer, default=1, server_default="1")  # For weighted progress calculation
 
 class Photo(Base):
     __tablename__ = 'photos'
-    id = Column(String, primary_key=True)
-    survey_id = Column(String, ForeignKey('surveys.id'))
-    site_id = Column(Integer, ForeignKey('sites.id'))  # For site overview photos
+    id = Column(String, primary_key=True, nullable=False, server_default="")
+    survey_id = Column(String, ForeignKey('surveys.id'), index=True, server_default="")
+    site_id = Column(Integer, ForeignKey('sites.id'), index=True, server_default="1")  # For site overview photos
     image_data = Column(LargeBinary)
-    latitude = Column(Float)
-    longitude = Column(Float)
-    description = Column(Text)
-    category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL)
-    exif_data = Column(Text)  # JSON string of EXIF data
-    created_at = Column(DateTime, default=datetime.utcnow)
+    latitude = Column(Float, server_default="0.0")
+    longitude = Column(Float, server_default="0.0")
+    description = Column(Text, server_default="")
+    category = Column(String(20), default='general', index=True, server_default='general')
+    exif_data = Column(Text, server_default="")  # JSON string of EXIF data
+    created_at = Column(DateTime, default=datetime.utcnow, index=True, server_default="1970-01-01 00:00:00")
     # Phase 4: Enhanced photo integrity
-    hash_algo = Column(String(10), default='sha256')  # Hash algorithm used
-    hash_value = Column(String(128))  # Cryptographic hash of image data
-    size_bytes = Column(Integer)  # Size of image data in bytes
+    hash_algo = Column(String(10), default='sha256', server_default='sha256')  # Hash algorithm used
+    hash_value = Column(String(128), index=True, unique=True, server_default="")  # Cryptographic hash of image data
+    size_bytes = Column(Integer, server_default="0")  # Size of image data in bytes
     # Phase 4: Performance optimizations
     thumbnail_data = Column(LargeBinary)  # Cached 200px thumbnail
-    file_path = Column(String(500))  # File path for large photos (future use)
+    file_path = Column(String(500), server_default="")  # File path for large photos (future use)
     # Phase 2 additions
-    requirement_id = Column(String)  # Links to photo requirement
-    fulfills_requirement = Column(Boolean, default=False)  # Tracks if this fulfills a requirement
+    requirement_id = Column(String, index=True, server_default="")  # Links to photo requirement
+    fulfills_requirement = Column(Boolean, default=False, server_default='0')  # Tracks if this fulfills a requirement
+
+# Indexes for Photo table
+Index('idx_photos_survey_site', Photo.survey_id, Photo.site_id)
+Index('idx_photos_requirement', Photo.requirement_id, Photo.fulfills_requirement)
 
 
 class LocalDatabase:
@@ -313,8 +328,11 @@ class LocalDatabase:
         finally:
             session.close()
 
-    def get_photos(self, survey_id=None, category=None, search_term=None, page=1, per_page=40):
+    def get_photos(self, survey_id=None, category=None, search_term=None, page=1, per_page=None):
         """Get photos with pagination support for performance"""
+        if per_page is None:
+            per_page = 40  # Default fallback
+
         session = self.get_session()
         try:
             query = session.query(Photo)

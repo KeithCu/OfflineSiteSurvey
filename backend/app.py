@@ -45,8 +45,10 @@ def create_app(test_config=None):
         pass
 
     # Database configuration
-    DB_NAME = 'backend_main.db'
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_NAME}'
+    # Only set default database URI if not already set (e.g., by tests)
+    if 'SQLALCHEMY_DATABASE_URI' not in app.config:
+        DB_NAME = 'backend_main.db'
+        app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_NAME}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)

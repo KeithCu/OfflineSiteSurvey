@@ -7,10 +7,28 @@ from sqlalchemy.engine import Engine
 from .models import db, create_crr_tables
 from .blueprints import projects, sites, surveys, templates, photos, crdt
 from .cli import init_db_command, check_photo_integrity_command
+from .logging_config import setup_logging
 
 
 def create_app(test_config=None):
-    """Application factory."""
+    """Flask application factory for the Site Survey backend.
+
+    Creates and configures a Flask application instance with:
+    - SQLAlchemy database integration
+    - CRDT sqlite extension loading
+    - Blueprint registration for API endpoints
+    - CLI command registration
+    - Logging configuration
+
+    Args:
+        test_config (dict, optional): Configuration overrides for testing
+
+    Returns:
+        Flask: Configured Flask application instance
+    """
+    # Setup logging first
+    setup_logging()
+
     app = Flask(__name__, instance_relative_config=True)
 
     if test_config is None:

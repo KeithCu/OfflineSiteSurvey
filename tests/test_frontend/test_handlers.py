@@ -1,0 +1,207 @@
+"""Tests for frontend handler operations."""
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+from src.survey_app.handlers.project_handler import ProjectHandler
+from src.survey_app.handlers.site_handler import SiteHandler
+from src.survey_app.handlers.survey_handler import SurveyHandler
+from src.survey_app.handlers.photo_handler import PhotoHandler
+from src.survey_app.handlers.sync_handler import SyncHandler
+from src.survey_app.enums import ProjectStatus
+
+
+class MockApp:
+    """Mock app class for testing handlers."""
+    def __init__(self):
+        self.db = Mock()
+        self.api_service = Mock()
+        self.current_project = None
+        self.current_site = None
+        self.current_survey = None
+        self.status_label = Mock()
+        self.status_label.text = ""
+        self.responses = []
+        self.offline_queue = []
+
+
+@pytest.fixture
+def mock_app():
+    """Create a mock app for testing."""
+    return MockApp()
+
+
+def test_project_handler_initialization(mock_app):
+    """Test ProjectHandler initializes properly."""
+    handler = ProjectHandler(mock_app)
+    assert handler.app == mock_app
+    assert hasattr(handler, 'show_projects_ui')
+
+
+def test_project_handler_show_projects_ui(mock_app):
+    """Test showing projects UI."""
+    handler = ProjectHandler(mock_app)
+
+    # Mock database response
+    mock_app.db.get_projects.return_value = [
+        Mock(id=1, name='Test Project', description='Test desc')
+    ]
+
+    # Mock toga components
+    with patch('src.survey_app.handlers.project_handler.toga') as mock_toga:
+        mock_window = Mock()
+        mock_toga.Window.return_value = mock_window
+        mock_toga.Selection.return_value = Mock()
+        mock_toga.Button.return_value = Mock()
+        mock_toga.TextInput.return_value = Mock()
+        mock_toga.Box.return_value = Mock()
+
+        # Call the method
+        handler.show_projects_ui(None)
+
+        # Verify toga components were created
+        mock_toga.Window.assert_called_once()
+        mock_toga.Selection.assert_called()
+        mock_toga.Button.assert_called()
+
+
+def test_site_handler_initialization(mock_app):
+    """Test SiteHandler initializes properly."""
+    handler = SiteHandler(mock_app)
+    assert handler.app == mock_app
+    assert hasattr(handler, 'show_sites_ui')
+
+
+def test_site_handler_create_site(mock_app):
+    """Test creating a site."""
+    handler = SiteHandler(mock_app)
+
+    # Mock UI inputs
+    mock_app.new_site_name_input = Mock()
+    mock_app.new_site_name_input.value = "Test Site"
+    mock_app.new_site_address_input = Mock()
+    mock_app.new_site_address_input.value = "123 Test St"
+    mock_app.new_site_notes_input = Mock()
+    mock_app.new_site_notes_input.value = "Test notes"
+
+    # Mock database
+    mock_app.db.save_site.return_value = Mock(id=1, name="Test Site")
+
+    # Call create site
+    handler.create_site(None)
+
+    # Verify database was called
+    mock_app.db.save_site.assert_called_once()
+    call_args = mock_app.db.save_site.call_args[0][0]
+    assert call_args['name'] == "Test Site"
+    assert call_args['address'] == "123 Test St"
+    assert call_args['notes'] == "Test notes"
+
+
+def test_survey_handler_initialization(mock_app):
+    """Test SurveyHandler initializes properly."""
+    handler = SurveyHandler(mock_app)
+    assert handler.app == mock_app
+    assert hasattr(handler, 'start_survey')
+
+
+def test_sync_handler_initialization(mock_app):
+    """Test SyncHandler initializes properly."""
+    handler = SyncHandler(mock_app)
+    assert handler.app == mock_app
+    assert hasattr(handler, 'sync_with_server')
+
+
+@patch('src.survey_app.handlers.sync_handler.requests')
+def test_sync_handler_sync_with_server(mock_requests, mock_app):
+    """Test sync with server functionality."""
+    handler = SyncHandler(mock_app)
+
+    # Mock database responses
+    mock_app.db.get_changes_since.return_value = [
+        {'table': 'projects', 'pk': '1', 'cid': 'name', 'val': 'Test', 'col_version': 1, 'db_version': 1}
+    ]
+    mock_app.db.apply_changes.return_value = None
+
+    # Mock API responses
+    mock_response_post = Mock()
+    mock_response_post.status_code = 200
+    mock_response_get = Mock()
+    mock_response_get.status_code = 200
+    mock_response_get.json.return_value = [
+        {'table': 'sites', 'pk': '1', 'cid': 'name', 'val': 'Test Site', 'col_version': 1, 'db_version': 2}
+    ]
+
+    mock_requests.post.return_value = mock_response_post
+    mock_requests.get.return_value = mock_response_get
+
+    # Call sync
+    result = handler.sync_with_server()
+
+    # Verify success
+    assert result is True
+    mock_app.db.get_changes_since.assert_called_once_with(mock_app.last_sync_version)
+    mock_app.db.apply_changes.assert_called_once()
+
+
+def test_photo_handler_initialization(mock_app):
+    """Test PhotoHandler initializes properly."""
+    handler = PhotoHandler(mock_app)
+    assert handler.app == mock_app
+    assert hasattr(handler, 'show_photos_ui')
+
+
+def test_photo_handler_filter_photos(mock_app):
+    """Test photo filtering."""
+    handler = PhotoHandler(mock_app)
+
+    # Mock database
+    mock_app.db.get_photos.return_value = {
+        'photos': [Mock(description='Test Photo')],
+        'page': 1,
+        'total_pages': 1,
+        'total_count': 1
+    }
+
+    # Call filter
+    handler.filter_photos(None, Mock(value='general'))
+
+    # Verify database was called with category filter
+    mock_app.db.get_photos.assert_called_with(
+        category='general',
+        search_term=None,
+        page=1,
+        per_page=40
+    )
+
+
+@patch('src.survey_app.handlers.photo_handler.toga')
+def test_photo_handler_show_photos_ui(mock_toga, mock_app):
+    """Test showing photos UI."""
+    handler = PhotoHandler(mock_app)
+
+    # Mock toga components
+    mock_window = Mock()
+    mock_toga.Window.return_value = mock_window
+    mock_toga.TextInput.return_value = Mock()
+    mock_toga.Button.return_value = Mock()
+    mock_toga.Label.return_value = Mock()
+    mock_toga.ScrollContainer.return_value = Mock()
+    mock_toga.Box.return_value = Mock()
+
+    # Call show photos UI
+    handler.show_photos_ui(None)
+
+    # Verify toga components were created
+    mock_toga.Window.assert_called_once()
+    mock_toga.ScrollContainer.assert_called_once()
+
+
+def test_handlers_with_logger(mock_app):
+    """Test that handlers have logging capability."""
+    handler = ProjectHandler(mock_app)
+    assert hasattr(handler, 'logger')
+
+    handler = SyncHandler(mock_app)
+    assert hasattr(handler, 'logger')
+
+    handler = PhotoHandler(mock_app)
+    assert hasattr(handler, 'logger')

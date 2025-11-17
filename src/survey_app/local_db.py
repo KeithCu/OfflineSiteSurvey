@@ -11,7 +11,9 @@ import hashlib
 import zipfile
 import tempfile
 import shutil
+import logging
 from appdirs import user_data_dir
+from ..shared.utils import compute_photo_hash, generate_thumbnail
 
 Base = declarative_base()
 
@@ -126,6 +128,7 @@ class Photo(Base):
 class LocalDatabase:
     def __init__(self, db_path='local_surveys.db'):
         """Initialize the local database"""
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.db_path = db_path
         self.site_id = str(uuid.uuid4())
         self.engine = create_engine(f'sqlite:///{self.db_path}')
@@ -153,34 +156,7 @@ class LocalDatabase:
 
         self.Session = sessionmaker(bind=self.engine)
 
-    def _compute_photo_hash(self, image_data):
-        """Compute SHA-256 hash of image data for integrity verification"""
-        if isinstance(image_data, bytes):
-            return hashlib.sha256(image_data).hexdigest()
-        return None
 
-    def _generate_thumbnail(self, image_data, max_size=200):
-        """Generate a thumbnail from image data, maintaining aspect ratio"""
-        if not image_data:
-            return None
-
-        try:
-            from PIL import Image
-            import io
-
-            # Open image from bytes
-            img = Image.open(io.BytesIO(image_data))
-
-            # Calculate thumbnail size maintaining aspect ratio
-            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-
-            # Save thumbnail to bytes
-            thumb_buffer = io.BytesIO()
-            img.save(thumb_buffer, format='JPEG', quality=85)
-            return thumb_buffer.getvalue()
-        except Exception as e:
-            print(f"Error generating thumbnail: {e}")
-            return None
 
     def get_session(self):
         return self.Session()
@@ -278,7 +254,7 @@ class LocalDatabase:
 
             # Generate and cache thumbnail for performance
             if not photo_data.get('thumbnail_data'):
-                photo_data['thumbnail_data'] = self._generate_thumbnail(image_data)
+                photo_data['thumbnail_data'] = generate_thumbnail(image_data)
 
         photo = Photo(**photo_data)
         session.add(photo)
@@ -407,7 +383,7 @@ class LocalDatabase:
                     applied_changes[table_name] = change_version
 
             except Exception as e:
-                print(f"Failed to apply change for table {table_name}: {e}")
+                self.logger.error(f"Failed to apply change for table {table_name}: {e}")
                 # In production, would queue for retry
                 continue
 
@@ -423,7 +399,7 @@ class LocalDatabase:
 
         # Log integrity issues if any
         if integrity_issues:
-            print(f"Photo integrity issues detected: {integrity_issues}")
+            self.logger.warning(f"Photo integrity issues detected: {integrity_issues}")
             # In a production system, this would trigger re-sync or alert
 
     def backup(self, backup_dir=None, include_media=True):
@@ -463,11 +439,11 @@ class LocalDatabase:
                 }
                 backup_zip.writestr('backup_metadata.json', json.dumps(metadata, indent=2))
 
-            print(f"Backup created: {backup_path}")
+            self.logger.info(f"Backup created: {backup_path}")
             return backup_path
 
         except Exception as e:
-            print(f"Backup failed: {e}")
+            self.logger.error(f"Backup failed: {e}")
             if os.path.exists(backup_path):
                 os.remove(backup_path)
             return None
@@ -530,11 +506,11 @@ class LocalDatabase:
                     Base.metadata.create_all(self.engine)
                     self.Session = sessionmaker(bind=self.engine)
 
-                    print(f"Successfully restored from backup: {backup_path}")
+                    self.logger.info(f"Successfully restored from backup: {backup_path}")
                     return True
 
             except Exception as e:
-                print(f"Restore failed: {e}")
+                self.logger.error(f"Restore failed: {e}")
                 raise
 
     def _validate_backup_integrity(self, backup_db_path):
@@ -586,9 +562,9 @@ class LocalDatabase:
             backup_path = os.path.join(backup_dir, old_backup)
             try:
                 os.remove(backup_path)
-                print(f"Removed old backup: {old_backup}")
+                self.logger.info(f"Removed old backup: {old_backup}")
             except Exception as e:
-                print(f"Failed to remove old backup {old_backup}: {e}")
+                self.logger.warning(f"Failed to remove old backup {old_backup}: {e}")
 
     # Phase 2 methods for conditional logic and progress tracking
     

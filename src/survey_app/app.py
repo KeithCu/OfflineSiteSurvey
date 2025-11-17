@@ -18,17 +18,23 @@ from .handlers.sync_handler import SyncHandler
 from .ui.survey_ui import SurveyUI
 from .services.api_service import APIService
 from .services.db_service import DBService
+from .logging_config import setup_logging
 import asyncio
+import logging
 
 
 class SurveyApp(toga.App):
     """Main SurveyApp class."""
 
     def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
         super().__init__(formal_name='Site Survey App', app_id='com.keith.surveyapp')
 
     def startup(self):
         """Initialize the app"""
+        # Setup logging first
+        setup_logging()
+
         # Initialize services
         self.db = LocalDatabase()
         self.db_service = DBService(self.db)
@@ -122,9 +128,9 @@ class SurveyApp(toga.App):
                         'field_type': 'text'
                     }
                     self.db.save_response(draft_data)
-                    print(f"Auto-saved draft for question {question_id}")
+                    self.logger.info(f"Auto-saved draft for question {question_id}")
                 except Exception as e:
-                    print(f"Auto-save failed: {e}")
+                    self.logger.warning(f"Auto-save failed: {e}")
 
             # Clean up old drafts (keep only recent ones)
             current_time = time.time()
@@ -376,7 +382,7 @@ class SurveyApp(toga.App):
                 survey_id = int(survey_id_str)
                 # Try to fetch from server first
                 try:
-                    response = requests.get(f'http://localhost:5000/api/surveys/{survey_id}', timeout=5)
+                    response = self.api_service.get(f'/api/surveys/{survey_id}', timeout=5)
                     if response.status_code == 200:
                         survey_data = response.json()
                         self.current_survey = survey_data
@@ -405,7 +411,7 @@ class SurveyApp(toga.App):
                 if survey_data.get('template_id'):
                     try:
                         # Use new conditional fields API
-                        template_response = requests.get(f'http://localhost:5000/api/templates/{survey_data["template_id"]}/conditional-fields', timeout=5)
+                        template_response = self.api_service.get(f'/api/templates/{survey_data["template_id"]}/conditional-fields', timeout=5)
                         if template_response.status_code == 200:
                             template_data = template_response.json()
                             self.template_fields = template_data['fields']
@@ -1134,302 +1140,6 @@ class SurveyApp(toga.App):
         # In a real app, this would be a CRDT insert
         pass
 
-    def show_photos_ui(self, widget):
-        """Show photo gallery UI"""
-        photos_window = toga.Window(title="Photo Gallery")
-
-        # Search
-        self.search_input = toga.TextInput(placeholder='Search descriptions', style=Pack(padding=5, flex=1))
-        search_button = toga.Button('Search', on_press=lambda w: self.search_photos(photos_window), style=Pack(padding=5))
-        search_box = toga.Box(children=[self.search_input, search_button], style=Pack(direction=ROW, padding=5))
-
-        # Filter buttons
-        filter_label = toga.Label('Filter by Category:', style=Pack(padding=(10, 5, 5, 5)))
-        all_button = toga.Button('All', on_press=lambda w: self.filter_photos(photos_window, None), style=Pack(padding=5))
-        buttons = [all_button]
-        for category in PhotoCategory:
-            button = toga.Button(category.value.title(), on_press=lambda w, c=category: self.filter_photos(photos_window, c), style=Pack(padding=5))
-            buttons.append(button)
-        
-        # Add photo requirements button
-        requirements_button = toga.Button('Photo Requirements', on_press=lambda w: self.show_photo_requirements_ui(photos_window), style=Pack(padding=5))
-        buttons.append(requirements_button)
-
-        filter_box = toga.Box(
-            children=[filter_label] + buttons,
-            style=Pack(direction=ROW, padding=5)
-        )
-
-        # Photos content
-        self.photos_scroll_container = toga.ScrollContainer(horizontal=False, vertical=True)
-        self.current_category = None
-        self.current_search = None
-        self.load_photos_content()  # Load all initially
-
-        close_button = toga.Button('Close', on_press=lambda w: photos_window.close(), style=Pack(padding=10))
-
-        main_photos_box = toga.Box(
-            children=[search_box, filter_box, self.photos_scroll_container, close_button],
-            style=Pack(direction=COLUMN)
-        )
-
-        photos_window.content = main_photos_box
-        photos_window.show()
-
-    def filter_photos(self, window, category):
-        """Filter photos by category"""
-        self.current_category = category.value if category else None
-        self.load_photos_content(page=1)
-
-    def search_photos(self, window):
-        """Search photos by description"""
-        self.current_search = self.search_input.value.strip() or None
-        self.load_photos_content(page=1)
-
-    def load_photos_content(self, page=1):
-        """Load and display photos content with pagination and thumbnails"""
-        photos_result = self.db.get_photos(
-            category=self.current_category,
-            search_term=self.current_search,
-            page=page,
-            per_page=40
-        )
-
-        photos = photos_result['photos']
-
-        if not photos:
-            no_photos_label = toga.Label("No photos available", style=Pack(padding=20))
-            photos_box = toga.Box(children=[no_photos_label], style=Pack(direction=COLUMN))
-        else:
-            # Main box for photos
-            photos_box = toga.Box(style=Pack(direction=COLUMN, padding=10))
-
-            # Add pagination info
-            pagination_label = toga.Label(
-                f"Page {photos_result['page']} of {photos_result['total_pages']} ({photos_result['total_count']} total photos)",
-                style=Pack(padding=(0, 0, 10, 0), font_size=12)
-            )
-            photos_box.add(pagination_label)
-
-            # Pagination controls
-            pagination_box = toga.Box(style=Pack(direction=ROW, padding=(0, 0, 15, 0)))
-
-            prev_button = toga.Button(
-                'Previous',
-                on_press=lambda w: self.load_photos_content(max(1, page - 1)),
-                style=Pack(padding=5),
-                enabled=page > 1
-            )
-
-            page_input = toga.TextInput(
-                value=str(page),
-                style=Pack(width=60, padding=5)
-            )
-
-            total_pages_label = toga.Label(
-                f" of {photos_result['total_pages']}",
-                style=Pack(padding=(5, 0, 5, 0))
-            )
-
-            next_button = toga.Button(
-                'Next',
-                on_press=lambda w: self.load_photos_content(min(photos_result['total_pages'], page + 1)),
-                style=Pack(padding=5),
-                enabled=page < photos_result['total_pages']
-            )
-
-            go_button = toga.Button(
-                'Go',
-                on_press=lambda w: self.load_photos_content(int(page_input.value) if page_input.value.isdigit() else page),
-                style=Pack(padding=5)
-            )
-
-            pagination_box.add(prev_button, page_input, total_pages_label, go_button, next_button)
-            photos_box.add(pagination_box)
-
-            # Group photos into rows of 4
-            row_photos = []
-            for photo in photos:
-                row_photos.append(photo)
-                if len(row_photos) == 4:
-                    # Create row
-                    row_box = toga.Box(style=Pack(direction=ROW, padding=(5, 5, 5, 5)))
-                    for p in row_photos:
-                        # Use cached thumbnail if available, otherwise generate on-the-fly
-                        thumb_data = p.thumbnail_data
-                        if not thumb_data and p.image_data:
-                            # Fallback: generate thumbnail on-the-fly (shouldn't happen with new photos)
-                            img = Image.open(io.BytesIO(p.image_data))
-                            thumb = img.copy()
-                            thumb.thumbnail((100, 100))
-                            thumb_byte_arr = io.BytesIO()
-                            thumb.save(thumb_byte_arr, format='JPEG')
-                            thumb_data = thumb_byte_arr.getvalue()
-
-                        if thumb_data:
-                            image_view = toga.ImageView(data=thumb_data, style=Pack(width=100, height=100, padding=5))
-                        else:
-                            # Placeholder for missing thumbnail
-                            image_view = toga.ImageView(style=Pack(width=100, height=100, padding=5, background_color='#cccccc'))
-
-                        desc_label = toga.Label(p.description or 'No description', style=Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
-                        photo_box = toga.Box(children=[image_view, desc_label], style=Pack(direction=COLUMN))
-                        row_box.add(photo_box)
-                    photos_box.add(row_box)
-                    row_photos = []
-
-            # Add remaining photos
-            if row_photos:
-                row_box = toga.Box(style=Pack(direction=ROW, padding=(5, 5, 5, 5)))
-                for p in row_photos:
-                    # Use cached thumbnail if available
-                    thumb_data = p.thumbnail_data
-                    if not thumb_data and p.image_data:
-                        img = Image.open(io.BytesIO(p.image_data))
-                        thumb = img.copy()
-                        thumb.thumbnail((100, 100))
-                        thumb_byte_arr = io.BytesIO()
-                        thumb.save(thumb_byte_arr, format='JPEG')
-                        thumb_data = thumb_byte_arr.getvalue()
-
-                    if thumb_data:
-                        image_view = toga.ImageView(data=thumb_data, style=Pack(width=100, height=100, padding=5))
-                    else:
-                        image_view = toga.ImageView(style=Pack(width=100, height=100, padding=5, background_color='#cccccc'))
-
-                    desc_label = toga.Label(p.description or 'No description', style=Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
-                    photo_box = toga.Box(children=[image_view, desc_label], style=Pack(direction=COLUMN))
-                    row_box.add(photo_box)
-                photos_box.add(row_box)
-
-        self.photos_scroll_container.content = photos_box
-
-    def take_photo(self, widget):
-        # In a real app, this would open the camera.
-        # For now, we'll create a dummy image.
-        img = Image.new('RGB', (640, 480), color = 'red')
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='JPEG', quality=75)
-        self.current_photo_data = img_byte_arr.getvalue()
-        self.image_view.image = toga.Image(data=self.current_photo_data)
-
-        # Get GPS location
-        async def update_location():
-            lat, long = await self.get_gps_location()
-            if lat is not None and long is not None:
-                self.photo_location_input.value = f"{lat}, {long}"
-
-        asyncio.create_task(update_location())
-
-    def save_photo(self, widget):
-        if self.current_survey and hasattr(self, 'current_photo_data'):
-            latitude, longitude = None, None
-            try:
-                lat_str, lon_str = self.photo_location_input.value.split(',')
-                latitude = float(lat_str.strip())
-                longitude = float(lon_str.strip())
-            except (ValueError, IndexError):
-                pass # Ignore if location is not a valid lat,long pair
-
-            photo_data = {
-                'id': str(uuid.uuid4()),
-                'survey_id': self.current_survey['id'],
-                'image_data': self.current_photo_data,
-                'latitude': latitude,
-                'longitude': longitude,
-                'description': self.photo_description_input.value
-            }
-            self.db.save_photo(photo_data)
-            self.status_label.text = "Photo saved locally"
-        else:
-            self.status_label.text = "Please select a survey and take a photo first"
-    
-    def show_photo_requirements_ui(self, parent_window):
-        """Show photo requirements checklist UI"""
-        if not self.current_survey:
-            self.status_label.text = "Please select a survey first"
-            return
-        
-        requirements_window = toga.Window(title="Photo Requirements")
-        
-        # Get photo requirements
-        requirements_data = self.db.get_photo_requirements(self.current_survey['id'])
-        requirements_by_section = requirements_data.get('requirements_by_section', {})
-        
-        # Create requirements content
-        requirements_box = toga.Box(style=Pack(direction=COLUMN, padding=10))
-        
-        if not requirements_by_section:
-            no_requirements_label = toga.Label("No photo requirements for this survey", style=Pack(padding=20))
-            requirements_box.add(no_requirements_label)
-        else:
-            for section_name, section_requirements in requirements_by_section.items():
-                # Section header
-                section_label = toga.Label(
-                    f"{section_name} Section",
-                    style=Pack(font_size=16, font_weight='bold', padding=(10, 5, 5, 5))
-                )
-                requirements_box.add(section_label)
-                
-                # Requirements list
-                for req in section_requirements:
-                    req_item = self.create_requirement_item(req)
-                    requirements_box.add(req_item)
-        
-        close_button = toga.Button('Close', on_press=lambda w: requirements_window.close(), style=Pack(padding=10))
-        requirements_box.add(close_button)
-        
-        requirements_window.content = requirements_box
-        requirements_window.show()
-    
-    def create_requirement_item(self, requirement):
-        """Create UI item for a photo requirement"""
-        req_box = toga.Box(style=Pack(direction=ROW, padding=5))
-        
-        # Status indicator
-        status_color = 'red' if requirement.get('required', False) else 'gray'
-        if requirement.get('taken', False):
-            status_color = 'green'
-        
-        status_indicator = toga.Label(
-            '●',
-            style=Pack(color=status_color, padding=(0, 5, 0, 0))
-        )
-        
-        # Requirement text
-        req_text = requirement.get('title', 'Photo requirement')
-        if requirement.get('required', False):
-            req_text += " (Required)"
-        else:
-            req_text += " (Optional)"
-        
-        req_label = toga.Label(req_text, style=Pack(flex=1))
-        
-        # Take photo button
-        take_photo_btn = toga.Button(
-            '📷',
-            on_press=lambda w, req_id=requirement.get('field_id'): self.take_requirement_photo(req_id),
-            style=Pack(padding=(0, 0, 0, 5))
-        )
-        
-        req_box.add(status_indicator, req_label, take_photo_btn)
-        return req_box
-    
-    def take_requirement_photo(self, field_id):
-        """Take a photo for a specific requirement"""
-        # Find the field for this requirement
-        field = next((f for f in self.template_fields if f['id'] == field_id), None)
-        if not field:
-            self.status_label.text = "Requirement not found"
-            return
-        
-        # Use existing photo capture logic
-        self.take_photo_enhanced(None)
-        
-        # Mark photo as fulfilling requirement
-        if hasattr(self, 'last_photo_id'):
-            self.db.mark_requirement_fulfillment(self.last_photo_id, field_id, True)
-            self.status_label.text = f"Photo captured for requirement: {field['question']}"
 
 
 def main():

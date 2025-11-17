@@ -3,6 +3,7 @@ import threading
 import time
 import random
 import requests
+import logging
 
 
 class SyncHandler:
@@ -10,6 +11,7 @@ class SyncHandler:
 
     def __init__(self, app):
         self.app = app
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.sync_scheduler = None
         self.sync_failures = 0
         self.last_sync_success = None
@@ -45,7 +47,7 @@ class SyncHandler:
                 time.sleep(sleep_time)
 
             except Exception as e:
-                print(f"Sync scheduler error: {e}")
+                self.logger.error(f"Sync scheduler error: {e}")
                 time.sleep(60)  # Fallback delay on error
 
     def sync_with_server(self, widget=None):
@@ -56,8 +58,8 @@ class SyncHandler:
 
             # Send local changes to the server
             if local_changes:
-                response = requests.post(
-                    'http://localhost:5000/api/changes',
+                response = self.app.api_service.post(
+                    '/api/changes',
                     json=local_changes,
                     timeout=30  # Increased timeout
                 )
@@ -66,8 +68,8 @@ class SyncHandler:
                     return False
 
             # Get remote changes from the server
-            response = requests.get(
-                f'http://localhost:5000/api/changes?version={self.app.last_sync_version}&site_id={self.app.db.site_id}',
+            response = self.app.api_service.get(
+                f'/api/changes?version={self.app.last_sync_version}&site_id={self.app.db.site_id}',
                 timeout=30
             )
 
@@ -122,7 +124,7 @@ class SyncHandler:
         processed = len(self.app.offline_queue)
         self.app.offline_queue.clear()
         if processed > 0:
-            print(f"Processed {processed} queued operations")
+            self.logger.info(f"Processed {processed} queued operations")
 
     def show_config_ui(self, widget):
         """Show configuration settings UI"""

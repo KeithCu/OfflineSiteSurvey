@@ -217,6 +217,157 @@ uv run briefcase build iOS      # iOS app (macOS only)
 uv run briefcase build windows  # Windows app
 ```
 
+## Testing
+
+The application includes comprehensive test suites for both backend and frontend components.
+
+### Backend Testing
+
+```bash
+# Install test dependencies (included in pyproject.toml)
+uv sync
+
+# Run all backend tests
+uv run pytest tests/test_backend/ -v
+
+# Run with coverage report
+uv run pytest tests/test_backend/ --cov=backend --cov-report=html
+
+# Run specific test categories
+uv run pytest tests/test_backend/test_models.py  # Database models
+uv run pytest tests/test_backend/test_api.py     # API endpoints
+uv run pytest tests/test_backend/test_utils.py   # Utility functions
+uv run pytest tests/test_backend/test_crdt_sync.py  # CRDT sync logic
+```
+
+### Frontend Testing
+
+```bash
+# Run all frontend tests
+uv run pytest tests/test_frontend/ -v
+
+# Run with coverage
+uv run pytest tests/test_frontend/ --cov=src/survey_app --cov-report=html
+
+# Run specific test categories
+uv run pytest tests/test_frontend/test_local_db.py  # Database operations
+uv run pytest tests/test_frontend/test_handlers.py  # UI handlers
+```
+
+### Test Structure
+
+```
+tests/
+├── conftest.py              # Shared test fixtures and configuration
+├── test_backend/            # Backend component tests
+│   ├── test_models.py       # Database model tests
+│   ├── test_api.py          # API endpoint tests
+│   ├── test_utils.py        # Shared utility tests
+│   └── test_crdt_sync.py    # CRDT synchronization tests
+└── test_frontend/           # Frontend component tests
+    ├── test_local_db.py     # Local database tests
+    └── test_handlers.py     # UI handler tests
+```
+
+## Logging
+
+The application uses structured logging for debugging and monitoring.
+
+### Backend Logging
+
+Backend logs are written to `logs/backend.log` with rotation (10MB, 5 backups). Logs include:
+- Database operations
+- API requests and responses
+- CRDT sync operations
+- Photo integrity checks
+
+```bash
+# View recent backend logs
+tail -f logs/backend.log
+
+# Search for specific events
+grep "ERROR" logs/backend.log
+grep "sync" logs/backend.log
+```
+
+### Frontend Logging
+
+Frontend logs are written to console only (suitable for Toga applications). Logs include:
+- UI interactions
+- Database operations
+- Sync operations
+- Auto-save events
+
+### Log Levels
+
+- `DEBUG`: Detailed diagnostic information
+- `INFO`: General operational messages
+- `WARNING`: Warning conditions that don't prevent operation
+- `ERROR`: Error conditions that may affect functionality
+
+## Local Development
+
+### Quick Setup
+
+```bash
+# Clone and setup
+git clone <repository-url>
+cd OfflineSiteSurvey
+
+# Install Python dependencies
+uv sync
+
+# Setup CRDT database extension
+./setup_crsqlite.sh
+
+# Initialize database with sample data
+uv run flask init-db
+
+# Start backend server
+uv run flask --app backend.app run --debug
+
+# In another terminal, start frontend development
+uv run briefcase dev
+```
+
+### Development Workflow
+
+1. **Backend Changes**: Modify files in `backend/`, restart Flask server
+2. **Frontend Changes**: Modify files in `src/survey_app/`, Toga will hot-reload
+3. **Database Changes**: Run `uv run flask init-db` to apply schema updates
+4. **Testing**: Run `uv run pytest` to verify changes don't break functionality
+
+### Database Management
+
+```bash
+# Reset database (WARNING: destroys all data)
+rm instance/backend_main.db
+uv run flask init-db
+
+# Check photo integrity
+uv run flask check-photo-integrity
+
+# Create backup
+python backup_restore.py backup
+
+# Restore from backup
+python backup_restore.py restore --backup-file backups/backup_*.zip
+```
+
+### Debugging
+
+```bash
+# Enable debug logging
+export FLASK_ENV=development
+uv run flask --app backend.app run --debug
+
+# View logs in real-time
+tail -f logs/backend.log
+
+# Run tests with verbose output
+uv run pytest -v -s
+```
+
 ## Production Deployment
 
 ### Backend Setup

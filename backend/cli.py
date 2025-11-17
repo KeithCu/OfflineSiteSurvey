@@ -28,6 +28,14 @@ def init_db_command():
         conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_surveys_site_id ON survey(site_id);"))
         conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_sites_project_id ON site(project_id);"))
 
+        # Add CHECK constraints for data validation
+        # Photo hash validation (SHA-256 is 64 characters)
+        conn.execute(db.text("ALTER TABLE photo ADD CONSTRAINT IF NOT EXISTS chk_photo_hash_length CHECK (length(hash_value) = 64);"))
+        # Image compression quality range
+        conn.execute(db.text("ALTER TABLE app_config ADD CONSTRAINT IF NOT EXISTS chk_compression_quality_range CHECK (key != 'image_compression_quality' OR (CAST(value AS INTEGER) >= 1 AND CAST(value AS INTEGER) <= 100));"))
+        # Auto-sync interval must be non-negative
+        conn.execute(db.text("ALTER TABLE app_config ADD CONSTRAINT IF NOT EXISTS chk_sync_interval_non_negative CHECK (key != 'auto_sync_interval' OR CAST(value AS INTEGER) >= 0);"))
+
     # Seed initial data
     if not AppConfig.query.filter_by(key='image_compression_quality').first():
         config = AppConfig(key='image_compression_quality', value='75')

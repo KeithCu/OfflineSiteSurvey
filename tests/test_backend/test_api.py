@@ -1,0 +1,189 @@
+"""Tests for backend API endpoints."""
+import json
+import pytest
+from backend.models import db, Project, Site, Survey, SurveyTemplate, TemplateField, Photo
+
+
+def test_config_api_endpoints(client, app):
+    """Test configuration API endpoints."""
+    with app.app_context():
+        # Test GET /api/config
+        response = client.get('/api/config')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert isinstance(data, dict)
+
+        # Test GET /api/config/<key>
+        response = client.get('/api/config/image_compression_quality')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'value' in data
+
+        # Test PUT /api/config/<key>
+        response = client.put(
+            '/api/config/test_key',
+            json={'value': 'test_value', 'description': 'Test config'}
+        )
+        assert response.status_code == 200
+
+
+def test_projects_api_endpoints(client, app):
+    """Test projects API endpoints."""
+    with app.app_context():
+        # Create test data
+        project = Project(
+            name="Test Project",
+            description="Test description",
+            status="draft"
+        )
+        db.session.add(project)
+        db.session.commit()
+
+        # Test GET /api/projects
+        response = client.get('/api/projects')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert len(data) >= 1
+        assert data[0]['name'] == "Test Project"
+
+
+def test_sites_api_endpoints(client, app):
+    """Test sites API endpoints."""
+    with app.app_context():
+        # Create test data
+        project = Project(name="Parent Project")
+        site = Site(
+            name="Test Site",
+            address="123 Test St",
+            project_id=project.id
+        )
+        db.session.add_all([project, site])
+        db.session.commit()
+
+        # Test GET /api/sites
+        response = client.get('/api/sites')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert len(data) >= 1
+        assert data[0]['name'] == "Test Site"
+
+
+def test_surveys_api_endpoints(client, app):
+    """Test surveys API endpoints."""
+    with app.app_context():
+        # Create test data
+        project = Project(name="Parent Project")
+        site = Site(name="Parent Site", project_id=project.id)
+        survey = Survey(
+            title="Test Survey",
+            description="Test survey",
+            site_id=site.id
+        )
+        db.session.add_all([project, site, survey])
+        db.session.commit()
+
+        # Test GET /api/surveys
+        response = client.get('/api/surveys')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert len(data) >= 1
+        assert data[0]['title'] == "Test Survey"
+
+        # Test GET /api/surveys/<id>
+        response = client.get(f'/api/surveys/{survey.id}')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['title'] == "Test Survey"
+
+
+def test_templates_api_endpoints(client, app):
+    """Test templates API endpoints."""
+    with app.app_context():
+        # Create test data
+        template = SurveyTemplate(
+            name="Test Template",
+            description="Test template",
+            category="commercial"
+        )
+        field = TemplateField(
+            template_id=template.id,
+            question="Test question?",
+            field_type="text",
+            order_index=1
+        )
+        db.session.add_all([template, field])
+        db.session.commit()
+
+        # Test GET /api/templates
+        response = client.get('/api/templates')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert len(data) >= 1
+        assert data[0]['name'] == "Test Template"
+
+        # Test GET /api/templates/<id>
+        response = client.get(f'/api/templates/{template.id}')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['name'] == "Test Template"
+
+        # Test GET /api/templates/<id>/conditional-fields
+        response = client.get(f'/api/templates/{template.id}/conditional-fields')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'fields' in data
+
+
+def test_photos_api_endpoints(client, app):
+    """Test photos API endpoints."""
+    with app.app_context():
+        # Create test data
+        project = Project(name="Parent Project")
+        site = Site(name="Parent Site", project_id=project.id)
+        survey = Survey(title="Parent Survey", site_id=site.id)
+        photo = Photo(
+            survey_id=survey.id,
+            site_id=site.id,
+            image_data=b"test_image_data",
+            hash_value="c" * 64,
+            hash_algo="sha256",
+            size_bytes=16,
+            description="Test photo"
+        )
+        db.session.add_all([project, site, survey, photo])
+        db.session.commit()
+
+        # Test GET /api/photos
+        response = client.get('/api/photos')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert len(data) >= 1
+        assert data[0]['description'] == "Test photo"
+
+        # Test GET /api/photos/<id>/integrity
+        response = client.get(f'/api/photos/{photo.id}/integrity')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'is_valid' in data
+        assert 'hash_matches' in data
+
+
+def test_crdt_api_endpoints(client, app):
+    """Test CRDT sync API endpoints."""
+    # Test GET /api/changes (should return empty for new db)
+    response = client.get('/api/changes?version=0&site_id=test_site')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert isinstance(data, list)
+
+    # Test POST /api/changes
+    changes = [{
+        'table': 'projects',
+        'pk': '1',
+        'cid': 'name',
+        'val': 'Test Project',
+        'col_version': 1,
+        'db_version': 1
+    }]
+    response = client.post('/api/changes', json=changes)
+    assert response.status_code == 200

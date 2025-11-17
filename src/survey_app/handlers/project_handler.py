@@ -1,15 +1,44 @@
-"""Project management handlers for SurveyApp."""
+"""Project management handlers for SurveyApp.
+
+This module provides UI handlers for creating, selecting, and managing
+projects in the survey application.
+"""
+
 import toga
+import logging
 
 
 class ProjectHandler:
-    """Handles project-related operations."""
+    """Handles project-related user interface and business logic operations.
+
+    Provides methods for displaying project management UI, creating new projects,
+    loading existing projects, and selecting active projects for survey work.
+
+    Attributes:
+        app: Reference to the main SurveyApp instance
+        logger: Logger instance for this handler
+    """
 
     def __init__(self, app):
+        """Initialize the project handler.
+
+        Args:
+            app: The main SurveyApp instance
+        """
         self.app = app
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def show_projects_ui(self, widget):
-        """Show projects management UI"""
+        """Display the projects management user interface.
+
+        Creates and shows a modal window with controls for:
+        - Viewing existing projects
+        - Creating new projects with metadata
+        - Selecting active projects
+
+        Args:
+            widget: The widget that triggered this action (button click)
+        """
         projects_window = toga.Window(title="Projects")
 
         projects_label = toga.Label('Available Projects:', style=toga.Pack(padding=(10, 5, 10, 5)))
@@ -78,7 +107,14 @@ class ProjectHandler:
         self.load_projects(None)
 
     def load_projects(self, widget):
-        """Load projects from local db"""
+        """Load and display available projects from the local database.
+
+        Retrieves all projects from the database and populates the UI selection
+        component. Updates the app status with the number of loaded projects.
+
+        Args:
+            widget: The widget that triggered this action
+        """
         projects = self.app.db.get_projects()
         if projects:
             project_names = [f"{p.id}: {p.name}" for p in projects]
@@ -89,7 +125,14 @@ class ProjectHandler:
             self.app.projects_list.items = ['No projects available']
 
     def create_project(self, widget):
-        """Create a new project"""
+        """Create a new project with the specified metadata.
+
+        Validates input fields and creates a new project in the database
+        with status, client info, due date, and priority information.
+
+        Args:
+            widget: The widget that triggered this action
+        """
         project_name = self.app.new_project_name_input.value
         project_description = self.app.new_project_description_input.value
         if project_name:
@@ -108,6 +151,14 @@ class ProjectHandler:
             self.app.status_label.text = "Please enter a project name"
 
     def select_project(self, projects_window):
+        """Select a project as the active project for survey work.
+
+        Sets the selected project as the current project and loads its associated
+        sites. Closes the projects window after successful selection.
+
+        Args:
+            projects_window: The projects management window to close
+        """
         if self.app.projects_list.value and hasattr(self.app, 'projects_data'):
             project_id = int(self.app.projects_list.value.split(':')[0])
             self.app.current_project = next((p for p in self.app.projects_data if p.id == project_id), None)

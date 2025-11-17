@@ -13,15 +13,25 @@ This project contains a comprehensive offline-first site survey application with
 ## Key Features
 
 ✅ **Offline-First Architecture** - Works without internet connectivity, syncs when available
+
 ✅ **Automatic Image Compression** - Reduces photo sizes to 75% quality to save storage
+
 ✅ **Configurable Settings** - Server-managed configuration for image quality, sync intervals, etc.
+
 ✅ **Survey Templates** - Create and manage reusable survey templates for different property types
+
 ✅ **Complete Survey Workflow** - Full MVP with all question types (text, yes/no, multiple choice, photo) and immediate response saving
+
 ✅ **Enhanced Survey UI** - Progress tracking, field type validation, and intuitive navigation
+
 ✅ **GPS Photo Tagging** - Automatic location capture for survey photos
+
 ✅ **Photo Gallery & Management** - Grid view thumbnails, categories (interior/exterior/issues/progress), search, and metadata storage
+
 ✅ **Project Hierarchy** - Organize work with Projects → Sites → Surveys → Photos structure
+
 ✅ **Cross-Platform** - Native apps for iOS, Android, Windows, macOS, and Linux
+
 ✅ **CRDT-Based Sync** - Robust multi-client synchronization with automatic conflict resolution
 
 ## File Structure

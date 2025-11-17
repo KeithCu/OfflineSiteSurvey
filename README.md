@@ -2,37 +2,33 @@
 
 This project contains a comprehensive offline-first site survey application with advanced features.
 
-## Overview
+## Features
 
-- **Backend:** Flask REST API with configuration management and survey templates
-- **Frontend:** BeeWare cross-platform app (iOS, Android, Desktop) with offline functionality
-- **Database:** PostgreSQL/SQLite backend, local SQLite frontend for offline-first operation
-- **Cross-Platform:** Native apps for iOS, Android, Windows, macOS, and Linux
-- **Features:** Automatic image compression, configurable settings, template-based surveys, robust CRDT-based sync, complete MVP survey workflow, photo gallery with categories and search, project hierarchy management
+✅ **Offline-First Architecture** - Complete survey workflow works without internet, syncs automatically when available
 
-## Key Features
+✅ **Cross-Platform Apps** - Native BeeWare applications for iOS, Android, Windows, macOS, and Linux
 
-✅ **Offline-First Architecture** - Works without internet connectivity, syncs when available
+✅ **Flask REST API Backend** - Robust server with configuration management and survey templates
 
-✅ **Automatic Image Compression** - Reduces photo sizes to 75% quality to save storage
+✅ **Dual Database System** - PostgreSQL/SQLite backend with local SQLite frontend for offline operation
 
-✅ **Configurable Settings** - Server-managed configuration for image quality, sync intervals, etc.
+✅ **Automatic Image Compression** - Photos reduced to 75% quality to optimize storage while maintaining usability
 
-✅ **Survey Templates** - Create and manage reusable survey templates for different property types
+✅ **GPS Photo Tagging** - Automatic location capture and metadata storage for all survey photos
 
-✅ **Complete Survey Workflow** - Full MVP with all question types (text, yes/no, multiple choice, photo) and immediate response saving
+✅ **Photo Gallery & Management** - Grid view thumbnails, categorized storage (interior/exterior/issues/progress), and search functionality
 
-✅ **Enhanced Survey UI** - Progress tracking, field type validation, and intuitive navigation
+✅ **Survey Templates** - Create and manage reusable templates for different property types and inspection requirements
 
-✅ **GPS Photo Tagging** - Automatic location capture for survey photos
+✅ **Complete Survey Workflow** - Full MVP with all question types (text, yes/no, multiple choice, photo) and immediate data saving
 
-✅ **Photo Gallery & Management** - Grid view thumbnails, categories (interior/exterior/issues/progress), search, and metadata storage
+✅ **Enhanced Survey UI** - Progress tracking, field validation, conditional logic, and intuitive navigation
 
-✅ **Project Hierarchy** - Organize work with Projects → Sites → Surveys → Photos structure
+✅ **Project Hierarchy Management** - Organize work with Projects → Sites → Surveys → Photos structure
 
-✅ **Cross-Platform** - Native apps for iOS, Android, Windows, macOS, and Linux
+✅ **Configurable Settings** - Server-managed configuration for image quality, sync intervals, and app behavior
 
-✅ **CRDT-Based Sync** - Robust multi-client synchronization with automatic conflict resolution
+✅ **CRDT-Based Synchronization** - Robust multi-client sync with automatic conflict resolution using cr-sqlite
 
 ## File Structure
 
@@ -102,8 +98,6 @@ The core MVP survey workflow is fully functional with all question types working
 - Covers electrical, structural, safety, and maintenance inspections
 - Template system for creating custom survey types
 - Organized by sections (General, Electrical, Structural, Safety, etc.)
-- **Conditional Logic**: Fields show/hide based on previous answers (e.g., electrical safety notes only if exposed wires = Yes)
-- **Photo Requirements**: Built-in photo requirement definitions with descriptions and validation
 
 ### Enhanced Survey UI
 - Progress indicators showing current question and completion status
@@ -317,28 +311,6 @@ Frontend logs are written to console only (suitable for Toga applications). Logs
 
 ## Local Development
 
-### Quick Setup
-
-```bash
-# Clone and setup
-git clone <repository-url>
-cd OfflineSiteSurvey
-
-# Install Python dependencies
-uv sync
-
-# Setup CRDT database extension
-./setup_crsqlite.sh
-
-# Initialize database with sample data
-uv run flask init-db
-
-# Start backend server
-uv run flask --app backend.app run --debug
-
-# In another terminal, start frontend development
-uv run briefcase dev
-```
 
 ### Development Workflow
 

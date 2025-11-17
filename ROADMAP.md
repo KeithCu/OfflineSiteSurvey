@@ -79,7 +79,119 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 - [x] **Conflict Resolution**: Smart merging of conflicting changes
 - [x] **Offline Queues**: Queue operations for when connectivity returns
 
-## Phase 5: Collaboration & Team Features 👥 (MEDIUM PRIORITY)
+## Phase 5.5: CompanyCam API Integration 🔄 (HIGH PRIORITY - COMPETITIVE ADVANTAGE)
+
+### Overview
+Create a direct, one-way sync bridge from this app to CompanyCam using their robust v2 REST API. This positions the app as a "CompanyCam Offline Companion," solving connectivity issues by queuing data (projects, photos, and metadata) locally and seamlessly pushing it to the user's CompanyCam account when connectivity is restored.
+
+### Core Integration Features
+- [ ] **Direct API Integration**: Implement the CompanyCam v2 REST API
+- [ ] **OAuth 2.0 Authentication**: Handle CompanyCam OAuth 2.0 flow to securely connect user accounts
+- [ ] **Smart Project Creation**: `POST /v2/projects` to create new projects with duplicate checking
+- [ ] **Batch Photo Upload**: `POST /v2/projects/{project_id}/photos` for photo uploads with metadata
+- [ ] **Metadata & Tag Mapping**: Map survey data to CompanyCam tags and notepad fields
+
+### User Experience
+- [ ] **One-Time OAuth Connection**: "Connect to CompanyCam" button with OAuth 2.0 browser flow
+- [ ] **Project Export**: "Send to CompanyCam" button in completed surveys
+- [ ] **Offline Queue Integration**: Export works without active connection using background sync
+- [ ] **Sync Status**: Clear status indicators ("Pending," "Uploading (3/15)", "Complete", "Failed")
+- [ ] **Error Handling**: Graceful handling of auth expiry, quota limits, plan restrictions
+
+### Technical Implementation
+- [ ] **OAuth 2.0 Flow**: Implement Authorization Code grant with custom URL scheme redirect
+- [ ] **Token Management**: Secure storage and automatic refresh of access/refresh tokens
+- [ ] **Background Upload Queue**: Sequential project and photo uploads with progress tracking
+- [ ] **Rate Limiting**: Exponential backoff for API rate limits (429 responses)
+- [ ] **Tag Creation**: `POST /v2/tags` to create CompanyCam tags matching survey categories
+
+### Challenges & Solutions (API-Plan Specific)
+
+#### Challenge: API Plan Requirements
+**Issue**: CompanyCam API only available on Pro, Premium, and Elite plans (not Basic)
+**Solutions**:
+- **Plan Check UI**: Inform users that "CompanyCam Pro or higher" is required
+- **Graceful Degradation**: Clear error messages for insufficient plans
+- **Fallback to CSV**: Keep CSV export as backup for Basic plan users
+
+#### Challenge: OAuth in Cross-Platform Apps
+**Issue**: OAuth redirect flow requires browser handling in mobile/desktop apps
+**Solutions**:
+- **In-App Web View**: Use embedded browser for OAuth authorization
+- **Custom URL Scheme**: Register app-specific URL scheme (e.g., `mysurveyapp://auth`)
+- **Platform-Specific Handling**: Different implementations for iOS, Android, desktop
+
+#### Challenge: Data Structure Mapping
+**Issue**: Survey fields don't perfectly match CompanyCam's structure
+**Solutions**:
+- **Tag-Based Mapping**: Use CompanyCam tags for flexible categorization
+- **Notepad for Complex Data**: Store structured survey data in project notepad
+- **User-Configurable Mapping**: Allow users to define field→tag mappings
+
+### Implementation Priority (API-First Approach)
+1. **OAuth 2.0 Authentication**: Implement full OAuth flow with token management
+2. **Project & Photo Upload**: Background queue for `POST /v2/projects` and photo uploads
+3. **Data Mapping UI**: Interface for configuring survey→CompanyCam field mappings
+4. **Error Handling**: Robust error recovery for auth, quotas, and plan issues
+5. **CSV Fallback**: Keep CSV export only for users without API access
+
+### API Endpoints to Implement
+- `POST /oauth/authorize` - OAuth authorization flow
+- `POST /v2/projects` - Create CompanyCam projects
+- `GET /v2/projects?query=...` - Check for existing projects
+- `POST /v2/projects/{project_id}/photos` - Upload photos with metadata
+- `POST /v2/tags` - Create tags for categorization
+
+### Success Metrics
+- [ ] **Authentication Success**: 98% successful OAuth connections
+- [ ] **Upload Reliability**: Successfully sync 95% of projects/photos
+- [ ] **Data Preservation**: 100% retention of GPS, timestamps, and survey metadata
+- [ ] **User Experience**: Export completes in < 3 minutes for typical projects
+- [ ] **Error Recovery**: Automatic handling of 90% of common error scenarios
+
+### Business Value
+- **Seamless Integration**: Native CompanyCam compatibility vs. manual import
+- **Market Positioning**: "CompanyCam's missing offline capability"
+- **User Retention**: Easy migration path for existing CompanyCam users
+- **Revenue Model**: Premium feature or partnership opportunity
+
+## Phase 6: Collaboration & Team Features 👥 (MEDIUM PRIORITY)
+
+### Selective Data Sync & Visibility (HIGH PRIORITY SUBTASK)
+**Problem**: Current CRDT implementation syncs ALL data to ALL clients, causing:
+- Excessive storage usage on mobile devices (photos from other sites/projects)
+- High bandwidth consumption on slow/expensive connections
+- Privacy concerns (surveyors seeing data from other teams)
+- Performance issues with large datasets
+
+**Requirements**:
+- Clients can SEE metadata (survey titles, site names, project info) from other teams
+- Full data (responses, photos) only downloaded when explicitly requested
+- "Data ownership" model: each client owns their created data, can share others' data on-demand
+- UI indicators for "available locally" vs "available remotely"
+
+**Proposed Solution**:
+1. **Metadata-Only Sync**: Modify CRDT to sync metadata tables (projects, sites, surveys) to all clients, but exclude response/photo data unless owned by that client
+2. **Lazy Loading API**: Add `/api/surveys/{id}/request-data` endpoint that triggers selective sync of specific survey data
+3. **Ownership Tracking**: Add `owner_site_id` field to surveys/responses/photos to track which client created the data
+4. **UI Enhancements**:
+   - Survey list shows "🔄 Download Data" button for remote surveys
+   - Photo gallery shows placeholders for remote photos with "Load" option
+   - Progress indicators for data downloads
+5. **Sync Protocol Changes**:
+   - Clients send `site_id` in sync requests
+   - Server filters changesets: send full data only for owned records, metadata-only for others
+   - Add "data request" messages to trigger selective downloads
+
+**Implementation Steps**:
+1. Add ownership fields to models (`owner_site_id`)
+2. Modify sync logic in `crdt.py` to filter by ownership
+3. Create selective sync endpoints
+4. Update frontend to handle partial data states
+5. Add download progress UI
+6. Test with multiple clients to ensure data isolation
+
+**Benefits**: 90%+ reduction in default data transfer, improved privacy, better mobile performance.
 
 ### User Management
 - [ ] **User Authentication**: Secure login with password/biometric options

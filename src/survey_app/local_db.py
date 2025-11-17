@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey, Enum
+from .enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
 import json
 import os
 from datetime import datetime
@@ -19,10 +20,10 @@ class Project(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(200), nullable=False)
     description = Column(Text)
-    status = Column(String(50), default='draft')
+    status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT)
     client_info = Column(Text)
     due_date = Column(DateTime)
-    priority = Column(String(50), default='medium')
+    priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -46,7 +47,7 @@ class Survey(Base):
     site_id = Column(Integer, ForeignKey('sites.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    status = Column(String(50), default='draft')
+    status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT)
     template_id = Column(Integer, ForeignKey('templates.id'))
 
 class SurveyResponse(Base):
@@ -107,7 +108,7 @@ class Photo(Base):
     latitude = Column(Float)
     longitude = Column(Float)
     description = Column(Text)
-    category = Column(String(50), default='general')
+    category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL)
     exif_data = Column(Text)  # JSON string of EXIF data
     created_at = Column(DateTime, default=datetime.utcnow)
     # Phase 4: Enhanced photo integrity

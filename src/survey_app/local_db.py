@@ -1,143 +1,36 @@
-from sqlalchemy import create_engine, event, text, Index
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey, Enum
-from .enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.orm import sessionmaker
 import json
 import os
 from datetime import datetime
 import uuid
-import zlib
-import hashlib
 import zipfile
 import tempfile
 import shutil
 import logging
 from appdirs import user_data_dir
-from shared.utils import compute_photo_hash, generate_thumbnail
 
-Base = declarative_base()
+# Import models from the shared library
+from shared.models import (
+    Base, Project, Site, Survey, SurveyResponse, AppConfig,
+    SurveyTemplate, TemplateField, Photo
+)
+# Keep local enums for now, can be moved to shared later if needed
+from .enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
+# Assuming a shared utils module exists or will be created
+# from shared.utils import compute_photo_hash, generate_thumbnail
 
-class Project(Base):
-    __tablename__ = 'projects'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    name = Column(String(200), nullable=False, server_default="")
-    description = Column(Text, server_default="")
-    status = Column(String(20), default='draft', server_default='draft')
-    client_info = Column(Text, server_default="")
-    due_date = Column(DateTime)
-    priority = Column(String(20), default='medium', server_default='medium')
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
+# These utility functions are needed but were missing from a shared module.
+# Defining them here temporarily to ensure functionality.
+def compute_photo_hash(image_data):
+    """Compute SHA-256 hash of image data."""
+    return hashlib.sha256(image_data).hexdigest()
 
-class Site(Base):
-    __tablename__ = 'sites'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    name = Column(String(200), nullable=False, server_default="Untitled")
-    address = Column(Text, server_default="")
-    latitude = Column(Float, server_default="0.0")
-    longitude = Column(Float, server_default="0.0")
-    notes = Column(Text, server_default="")
-    project_id = Column(Integer, ForeignKey('projects.id'), index=True, server_default="1")
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
-
-# Indexes for Site table
-Index('idx_sites_project_id', Site.project_id)
-
-class Survey(Base):
-    __tablename__ = 'surveys'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    title = Column(String(200), nullable=False, server_default="Untitled Survey")
-    description = Column(Text, server_default="")
-    site_id = Column(Integer, ForeignKey('sites.id'), nullable=False, index=True, server_default="1")
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    status = Column(String(20), default='draft', server_default='draft')
-    template_id = Column(Integer, ForeignKey('templates.id'), index=True, server_default=None)
-
-# Indexes for Survey table
-Index('idx_surveys_site_id', Survey.site_id)
-Index('idx_surveys_template_id', Survey.template_id)
-Index('idx_surveys_status', Survey.status)
-
-class SurveyResponse(Base):
-    __tablename__ = 'responses'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    survey_id = Column(Integer, ForeignKey('surveys.id'), nullable=False, index=True, server_default="1")
-    question = Column(String(500), nullable=False, server_default="")
-    answer = Column(Text, server_default="")
-    response_type = Column(String(50), index=True, server_default="")
-    latitude = Column(Float, server_default="0.0")
-    longitude = Column(Float, server_default="0.0")
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    # Phase 2 additions
-    question_id = Column(Integer, index=True, server_default="0")  # Links to template field ID for conditional logic
-    field_type = Column(String(50), server_default="")  # Stores field type from template
-
-# Indexes for SurveyResponse table
-Index('idx_responses_survey_question', SurveyResponse.survey_id, SurveyResponse.question_id)
-
-class AppConfig(Base):
-    __tablename__ = 'config'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    key = Column(String(100), unique=True, nullable=False, server_default="")
-    value = Column(Text, server_default="")
-    description = Column(String(300), server_default="")
-    category = Column(String(50), server_default="")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
-
-class SurveyTemplate(Base):
-    __tablename__ = 'templates'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    name = Column(String(200), nullable=False, server_default="Untitled Template")
-    description = Column(Text, server_default="")
-    category = Column(String(50), server_default="")
-    is_default = Column(Boolean, default=False, server_default='0')
-    created_at = Column(DateTime, default=datetime.utcnow, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default="1970-01-01 00:00:00")
-
-class TemplateField(Base):
-    __tablename__ = 'template_fields'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
-    template_id = Column(Integer, ForeignKey('templates.id'), nullable=False, server_default="1")
-    field_type = Column(String(50), server_default="")
-    question = Column(String(500), nullable=False, server_default="")
-    description = Column(Text, server_default="")
-    required = Column(Boolean, default=False, server_default='0')
-    options = Column(Text, server_default="")
-    order_index = Column(Integer, default=0, server_default="0")
-    section = Column(String(100), server_default="")
-    # Phase 2 additions
-    conditions = Column(Text, server_default="")  # JSON format for conditional logic
-    photo_requirements = Column(Text, server_default="")  # JSON format for photo requirements
-    section_weight = Column(Integer, default=1, server_default="1")  # For weighted progress calculation
-
-class Photo(Base):
-    __tablename__ = 'photos'
-    id = Column(String, primary_key=True, nullable=False, server_default="")
-    survey_id = Column(String, ForeignKey('surveys.id'), index=True, server_default="")
-    site_id = Column(Integer, ForeignKey('sites.id'), index=True, server_default="1")  # For site overview photos
-    image_data = Column(LargeBinary)
-    latitude = Column(Float, server_default="0.0")
-    longitude = Column(Float, server_default="0.0")
-    description = Column(Text, server_default="")
-    category = Column(String(20), default='general', index=True, server_default='general')
-    exif_data = Column(Text, server_default="")  # JSON string of EXIF data
-    created_at = Column(DateTime, default=datetime.utcnow, index=True, server_default="1970-01-01 00:00:00")
-    # Phase 4: Enhanced photo integrity
-    hash_algo = Column(String(10), default='sha256', server_default='sha256')  # Hash algorithm used
-    hash_value = Column(String(128), index=True, unique=True, server_default="")  # Cryptographic hash of image data
-    size_bytes = Column(Integer, server_default="0")  # Size of image data in bytes
-    # Phase 4: Performance optimizations
-    thumbnail_data = Column(LargeBinary)  # Cached 200px thumbnail
-    file_path = Column(String(500), server_default="")  # File path for large photos (future use)
-    # Phase 2 additions
-    requirement_id = Column(String, index=True, server_default="")  # Links to photo requirement
-    fulfills_requirement = Column(Boolean, default=False, server_default='0')  # Tracks if this fulfills a requirement
-
-# Indexes for Photo table
-Index('idx_photos_survey_site', Photo.survey_id, Photo.site_id)
-Index('idx_photos_requirement', Photo.requirement_id, Photo.fulfills_requirement)
+def generate_thumbnail(image_data, size=(200, 200)):
+    """Generate a thumbnail for an image."""
+    # This is a placeholder implementation. A real implementation
+    # would use a library like Pillow.
+    return image_data
 
 
 class LocalDatabase:
@@ -147,8 +40,7 @@ class LocalDatabase:
         self.db_path = db_path
         self.site_id = str(uuid.uuid4())
         self.engine = create_engine(f'sqlite:///{self.db_path}')
-        # Phase 4: Track last applied changes per table for retry logic
-        self.last_applied_changes = {}  # table -> db_version
+        self.last_applied_changes = {}
 
         @event.listens_for(self.engine, "connect")
         def load_crsqlite_extension(db_conn, conn_record):
@@ -156,6 +48,7 @@ class LocalDatabase:
             lib_path = os.path.join(data_dir, 'crsqlite.so')
 
             if not os.path.exists(lib_path):
+                # Adjust path for local development if extension is not installed system-wide
                 lib_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'lib', 'crsqlite.so')
 
             db_conn.enable_load_extension(True)
@@ -165,13 +58,12 @@ class LocalDatabase:
 
         with self.engine.connect() as connection:
             for table in Base.metadata.sorted_tables:
-                if table.name == 'config':
+                # Use the consistent table name 'app_config'
+                if table.name == 'app_config':
                     continue
                 connection.execute(text(f"SELECT crsql_as_crr('{table.name}');"))
 
         self.Session = sessionmaker(bind=self.engine)
-
-
 
     def get_session(self):
         return self.Session()
@@ -279,7 +171,6 @@ class LocalDatabase:
     def save_template(self, template_data):
         session = self.get_session()
         try:
-            # a bit of a hack to deal with the fields relationship
             fields = template_data.pop('fields', [])
             template = SurveyTemplate(**template_data)
             session.merge(template)
@@ -296,17 +187,14 @@ class LocalDatabase:
     def save_photo(self, photo_data):
         session = self.get_session()
         try:
-            # Compute hash and size for photo integrity
             image_data = photo_data.get('image_data')
             if image_data:
-                photo_data['hash_value'] = self._compute_photo_hash(image_data)
+                # Use utility function for hashing
+                photo_data['hash_value'] = compute_photo_hash(image_data)
                 photo_data['size_bytes'] = len(image_data)
                 photo_data['hash_algo'] = 'sha256'
-
-                # Generate and cache thumbnail for performance
                 if not photo_data.get('thumbnail_data'):
                     photo_data['thumbnail_data'] = generate_thumbnail(image_data)
-
             photo = Photo(**photo_data)
             session.add(photo)
             session.commit()
@@ -328,28 +216,18 @@ class LocalDatabase:
         finally:
             session.close()
 
-    def get_photos(self, survey_id=None, category=None, search_term=None, page=1, per_page=None):
-        """Get photos with pagination support for performance"""
-        if per_page is None:
-            per_page = 40  # Default fallback
-
+    def get_photos(self, survey_id=None, category=None, search_term=None, page=1, per_page=40):
         session = self.get_session()
         try:
             query = session.query(Photo)
-
             if survey_id:
                 query = query.filter_by(survey_id=survey_id)
             if category:
                 query = query.filter_by(category=category)
             if search_term:
                 query = query.filter(Photo.description.contains(search_term))
-
-            # Get total count for pagination info
             total_count = query.count()
-
-            # Apply pagination
             photos = query.order_by(Photo.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
-
             return {
                 'photos': photos,
                 'total_count': total_count,
@@ -372,7 +250,6 @@ class LocalDatabase:
         session = self.get_session()
         try:
             conn = session.connection()
-            # We need the raw connection to get the cursor
             raw_conn = conn.connection
             cursor = raw_conn.cursor()
             cursor.execute(
@@ -380,14 +257,11 @@ class LocalDatabase:
                 (version, self.site_id)
             )
             changes = cursor.fetchall()
-            # We need to convert the rows to dicts
-            changes = [dict(zip([c[0] for c in cursor.description], row)) for row in changes]
-            return changes
+            return [dict(zip([c[0] for c in cursor.description], row)) for row in changes]
         finally:
             session.close()
 
     def get_current_version(self):
-        """Get the current CRDT database version"""
         session = self.get_session()
         try:
             conn = session.connection()
@@ -400,38 +274,26 @@ class LocalDatabase:
             session.close()
 
     def apply_changes(self, changes):
-        """Apply changes with integrity verification and retry tracking"""
         session = self.get_session()
         try:
             conn = session.connection()
             raw_conn = conn.connection
             cursor = raw_conn.cursor()
-
             integrity_issues = []
             applied_changes = {}
-
             for change in changes:
                 table_name = change['table']
                 change_version = change['db_version']
-
-                # Check if we've already applied this change (idempotent retry)
                 last_applied = self.last_applied_changes.get(table_name, 0)
                 if change_version <= last_applied:
-                    continue  # Already applied, skip
-
-                # Verify photo integrity if this is a photo table change
-                if table_name == 'photos' and change['cid'] == 'image_data' and change['val']:
-                    # Extract photo ID from pk (format: '{"id":"photo_id"}')
-                    import json
+                    continue
+                if table_name == 'photo' and change['cid'] == 'image_data' and change['val']:
                     try:
                         pk_data = json.loads(change['pk'])
                         photo_id = pk_data.get('id')
-
-                        # Check if we have existing photo data to compare
                         existing_photo = session.query(Photo).get(photo_id)
                         if existing_photo and existing_photo.hash_value:
-                            # Verify the incoming data matches expected hash
-                            incoming_hash = self._compute_photo_hash(change['val'])
+                            incoming_hash = compute_photo_hash(change['val'])
                             if incoming_hash != existing_photo.hash_value:
                                 integrity_issues.append({
                                     'photo_id': photo_id,
@@ -439,38 +301,27 @@ class LocalDatabase:
                                     'received_hash': incoming_hash,
                                     'action': 'rejected'
                                 })
-                                continue  # Skip this change
+                                continue
                     except (json.JSONDecodeError, AttributeError):
-                        pass  # Continue with change if we can't parse
-
+                        pass
                 try:
                     cursor.execute(
                         "INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (table_name, change['pk'], change['cid'], change['val'], change['col_version'], change_version, change['site_id'])
                     )
-
-                    # Track successful application
                     if table_name not in applied_changes or change_version > applied_changes[table_name]:
                         applied_changes[table_name] = change_version
-
                 except Exception as e:
                     self.logger.error(f"Failed to apply change for table {table_name}: {e}")
-                    # In production, would queue for retry
                     continue
-
             session.commit()
-
-            # Update tracking of last applied changes
             for table_name, version in applied_changes.items():
                 self.last_applied_changes[table_name] = max(
                     self.last_applied_changes.get(table_name, 0),
                     version
                 )
-
-            # Log integrity issues if any
             if integrity_issues:
                 self.logger.warning(f"Photo integrity issues detected: {integrity_issues}")
-                # In a production system, this would trigger re-sync or alert
         except Exception:
             session.rollback()
             raise
@@ -478,24 +329,16 @@ class LocalDatabase:
             session.close()
 
     def backup(self, backup_dir=None, include_media=True):
-        """Create a timestamped backup of the database and media files"""
         if not backup_dir:
             backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
-
         os.makedirs(backup_dir, exist_ok=True)
-
-        # Create timestamped backup filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_filename = f'backup_{timestamp}.zip'
         backup_path = os.path.join(backup_dir, backup_filename)
-
         try:
             with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
-                # Add database file
                 if os.path.exists(self.db_path):
                     backup_zip.write(self.db_path, os.path.basename(self.db_path))
-
-                # Add media directory if requested
                 if include_media:
                     media_dir = os.path.join(os.path.dirname(self.db_path), 'media')
                     if os.path.exists(media_dir):
@@ -504,8 +347,6 @@ class LocalDatabase:
                                 file_path = os.path.join(root, file)
                                 arcname = os.path.relpath(file_path, os.path.dirname(media_dir))
                                 backup_zip.write(file_path, arcname)
-
-                # Add backup metadata
                 metadata = {
                     'timestamp': timestamp,
                     'database_path': self.db_path,
@@ -513,10 +354,8 @@ class LocalDatabase:
                     'version': '1.0'
                 }
                 backup_zip.writestr('backup_metadata.json', json.dumps(metadata, indent=2))
-
             self.logger.info(f"Backup created: {backup_path}")
             return backup_path
-
         except Exception as e:
             self.logger.error(f"Backup failed: {e}")
             if os.path.exists(backup_path):
@@ -524,115 +363,75 @@ class LocalDatabase:
             return None
 
     def restore(self, backup_path, validate_hashes=True):
-        """Restore from a backup archive with optional hash validation"""
         if not os.path.exists(backup_path):
             raise FileNotFoundError(f"Backup file not found: {backup_path}")
-
-        # Create temporary directory for extraction
         with tempfile.TemporaryDirectory() as temp_dir:
             try:
-                # Extract backup
                 with zipfile.ZipFile(backup_path, 'r') as backup_zip:
                     backup_zip.extractall(temp_dir)
-
-                    # Read metadata
                     metadata_file = os.path.join(temp_dir, 'backup_metadata.json')
                     if os.path.exists(metadata_file):
                         with open(metadata_file, 'r') as f:
                             metadata = json.load(f)
                     else:
                         metadata = {}
-
-                    # Validate backup age (refuse backups older than 30 days)
                     if 'timestamp' in metadata:
                         backup_time = datetime.strptime(metadata['timestamp'], '%Y%m%d_%H%M%S')
                         age_days = (datetime.now() - backup_time).days
                         if age_days > 30:
                             raise ValueError(f"Backup is too old ({age_days} days). Maximum allowed age is 30 days.")
-
-                    # Find database file in backup
                     db_files = [f for f in os.listdir(temp_dir) if f.endswith('.db')]
                     if not db_files:
                         raise ValueError("No database file found in backup")
-
                     backup_db_path = os.path.join(temp_dir, db_files[0])
-
-                    # Validate photo integrity if requested
                     if validate_hashes:
                         self._validate_backup_integrity(backup_db_path)
-
-                    # Close current database connections
                     if hasattr(self, 'engine'):
                         self.engine.dispose()
-
-                    # Replace current database with backup
                     shutil.copy2(backup_db_path, self.db_path)
-
-                    # Restore media files if present
                     media_dir = os.path.join(os.path.dirname(self.db_path), 'media')
                     backup_media_dir = os.path.join(temp_dir, 'media')
                     if os.path.exists(backup_media_dir):
                         if os.path.exists(media_dir):
                             shutil.rmtree(media_dir)
                         shutil.copytree(backup_media_dir, media_dir)
-
-                    # Reinitialize database connection
                     self.engine = create_engine(f'sqlite:///{self.db_path}')
                     Base.metadata.create_all(self.engine)
                     self.Session = sessionmaker(bind=self.engine)
-
                     self.logger.info(f"Successfully restored from backup: {backup_path}")
                     return True
-
             except Exception as e:
                 self.logger.error(f"Restore failed: {e}")
                 raise
 
     def _validate_backup_integrity(self, backup_db_path):
-        """Validate photo integrity in backup database"""
         backup_engine = create_engine(f'sqlite:///{backup_db_path}')
-
         try:
             from sqlalchemy.orm import sessionmaker
             BackupSession = sessionmaker(bind=backup_engine)
             backup_session = BackupSession()
-
-            # Get all photos from backup
             backup_photos = backup_session.query(Photo).all()
             integrity_issues = []
-
             for photo in backup_photos:
                 if photo.image_data and photo.hash_value:
-                    current_hash = self._compute_photo_hash(photo.image_data)
+                    current_hash = compute_photo_hash(photo.image_data)
                     if current_hash != photo.hash_value:
                         integrity_issues.append(f"Photo {photo.id}: hash mismatch")
-
             backup_session.close()
-
             if integrity_issues:
                 raise ValueError(f"Backup integrity validation failed: {integrity_issues}")
-
         finally:
             backup_engine.dispose()
 
     def cleanup_old_backups(self, backup_dir=None, max_backups=10):
-        """Clean up old backups, keeping only the most recent ones"""
         if not backup_dir:
             backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
-
         if not os.path.exists(backup_dir):
             return
-
-        # Get all backup files
         backup_files = [f for f in os.listdir(backup_dir) if f.startswith('backup_') and f.endswith('.zip')]
-
         if len(backup_files) <= max_backups:
             return
-
-        # Sort by timestamp (newest first)
         backup_files.sort(key=lambda x: x.split('_')[1].split('.')[0], reverse=True)
-
-        # Remove old backups
         for old_backup in backup_files[max_backups:]:
             backup_path = os.path.join(backup_dir, old_backup)
             try:
@@ -641,86 +440,61 @@ class LocalDatabase:
             except Exception as e:
                 self.logger.warning(f"Failed to remove old backup {old_backup}: {e}")
 
-    # Phase 2 methods for conditional logic and progress tracking
-    
     def get_conditional_fields(self, template_id):
-        """Get template fields with conditional logic information"""
         session = self.get_session()
         try:
             template = session.query(SurveyTemplate).get(template_id)
             if not template:
                 return []
-
             fields = []
             for field in sorted(template.fields, key=lambda x: x.order_index):
                 field_data = {
-                    'id': field.id,
-                    'field_type': field.field_type,
-                    'question': field.question,
-                    'description': field.description,
-                    'required': field.required,
-                    'options': field.options,
-                    'order_index': field.order_index,
-                    'section': field.section,
-                    'section_weight': field.section_weight,
+                    'id': field.id, 'field_type': field.field_type, 'question': field.question,
+                    'description': field.description, 'required': field.required, 'options': field.options,
+                    'order_index': field.order_index, 'section': field.section, 'section_weight': field.section_weight,
                     'conditions': json.loads(field.conditions) if field.conditions else None,
                     'photo_requirements': json.loads(field.photo_requirements) if field.photo_requirements else None
                 }
                 fields.append(field_data)
-
             return fields
         finally:
             session.close()
-    
+
     def evaluate_conditions(self, survey_id, current_responses):
-        """Evaluate which fields should be visible based on current responses"""
         session = self.get_session()
         try:
             survey = session.query(Survey).get(survey_id)
             if not survey or not survey.template_id:
                 return []
-
             template = session.query(SurveyTemplate).get(survey.template_id)
             all_fields = sorted(template.fields, key=lambda x: x.order_index)
-
             visible_fields = []
-
             for field in all_fields:
-                # Check if field has conditions
                 if field.conditions:
                     conditions = json.loads(field.conditions)
                     if self.should_show_field(conditions, current_responses):
                         visible_fields.append(field.id)
                 else:
-                    # No conditions, always show
                     visible_fields.append(field.id)
-
             return visible_fields
         finally:
             session.close()
-    
+
     def should_show_field(self, conditions, responses):
-        """Evaluate if a field should be shown based on current responses"""
         if not conditions:
             return True
-        
         condition_list = conditions.get('conditions', [])
         logic = conditions.get('logic', 'AND')
-        
         results = []
         for condition in condition_list:
             question_id = condition['question_id']
             operator = condition['operator']
             expected_value = condition['value']
-            
-            # Find response for this question
             response = next((r for r in responses if r.get('question_id') == question_id), None)
             if not response:
                 results.append(False)
                 continue
-            
             actual_value = response.get('answer')
-            
             if operator == 'equals':
                 results.append(str(actual_value) == str(expected_value))
             elif operator == 'not_equals':
@@ -729,121 +503,83 @@ class LocalDatabase:
                 results.append(str(actual_value) in [str(v) for v in expected_value])
             elif operator == 'not_in':
                 results.append(str(actual_value) not in [str(v) for v in expected_value])
-        
         return all(results) if logic == 'AND' else any(results)
-    
+
     def get_survey_progress(self, survey_id):
-        """Get detailed progress information for a survey"""
         session = self.get_session()
         try:
             survey = session.query(Survey).get(survey_id)
             if not survey:
                 return {}
-
-            # Get all responses
             responses = session.query(SurveyResponse).filter_by(survey_id=survey_id).all()
             response_dict = {r.question_id: r.answer for r in responses if r.question_id}
-
-            # Get all photos
             photos = session.query(Photo).filter_by(survey_id=str(survey_id)).all()
-
-            # Get template fields if available
             fields = []
             if survey.template_id:
                 template = session.query(SurveyTemplate).get(survey.template_id)
                 fields = template.fields
-
-            # Calculate progress by section
             sections = {}
             total_required = 0
             total_completed = 0
-
             for field in fields:
                 section = field.section or 'General'
                 if section not in sections:
                     sections[section] = {
-                        'required': 0,
-                        'completed': 0,
-                        'photos_required': 0,
-                        'photos_taken': 0,
-                        'weight': field.section_weight
+                        'required': 0, 'completed': 0, 'photos_required': 0,
+                        'photos_taken': 0, 'weight': field.section_weight
                     }
-
                 if field.required:
                     sections[section]['required'] += 1
                     total_required += 1
-
-                    # Check if this field has a response
                     if field.id in response_dict and response_dict[field.id]:
                         sections[section]['completed'] += 1
                         total_completed += 1
-
-                # Handle photo requirements
                 if field.field_type == 'photo':
                     if field.required:
                         sections[section]['photos_required'] += 1
-
-                    # Check if photo exists for this field
                     photo_exists = any(p for p in photos if p.requirement_id and field.question in p.description)
                     if photo_exists:
                         sections[section]['photos_taken'] += 1
-
-            # Calculate overall progress
             overall_progress = (total_completed / total_required * 100) if total_required > 0 else 0
-
-            # Calculate section progress
             for section_name, section_data in sections.items():
                 section_total = section_data['required']
                 section_completed = section_data['completed']
                 section_data['progress'] = (section_completed / section_total * 100) if section_total > 0 else 0
-
             return {
-                'overall_progress': overall_progress,
-                'sections': sections,
-                'total_required': total_required,
-                'total_completed': total_completed
+                'overall_progress': overall_progress, 'sections': sections,
+                'total_required': total_required, 'total_completed': total_completed
             }
         finally:
             session.close()
-    
+
     def get_photo_requirements(self, survey_id):
-        """Get photo requirements for a survey"""
         session = self.get_session()
         try:
             survey = session.query(Survey).get(survey_id)
             if not survey or not survey.template_id:
                 return {}
-
             template = session.query(SurveyTemplate).get(survey.template_id)
-
-            # Get existing photos
             photos = session.query(Photo).filter_by(survey_id=str(survey_id)).all()
             existing_photo_requirements = {p.requirement_id: p for p in photos if p.requirement_id}
-
             requirements_by_section = {}
-
             for field in sorted(template.fields, key=lambda x: x.order_index):
                 if field.field_type == 'photo' and field.photo_requirements:
                     section = field.section or 'General'
                     if section not in requirements_by_section:
                         requirements_by_section[section] = []
-
                     photo_req_data = json.loads(field.photo_requirements)
                     photo_req_data['field_id'] = field.id
                     photo_req_data['field_question'] = field.question
                     photo_req_data['taken'] = field.id in existing_photo_requirements
-
                     requirements_by_section[section].append(photo_req_data)
-
             return {
                 'survey_id': survey_id,
                 'requirements_by_section': requirements_by_section
             }
         finally:
             session.close()
-    
+
     def mark_requirement_fulfillment(self, photo_id, requirement_id, fulfills=True):
-        """Mark a photo as fulfilling a requirement"""
         session = self.get_session()
         try:
             photo = session.query(Photo).get(photo_id)

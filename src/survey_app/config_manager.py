@@ -33,6 +33,12 @@ class ConfigManager:
         # GPS settings
         'gps_timeout': 10.0,
         'gps_accuracy_threshold': 50.0,  # meters
+
+        # CompanyCam settings
+        'companycam_client_id': '',
+        'companycam_access_token': '',
+        'companycam_refresh_token': '',
+        'companycam_user_id': '',
     }
 
     def __init__(self):
@@ -104,3 +110,20 @@ class ConfigManager:
     @property
     def gps_timeout(self) -> float:
         return self.get('gps_timeout')
+
+    # CompanyCam properties
+    @property
+    def companycam_client_id(self) -> str:
+        return self.get('companycam_client_id')
+
+    @property
+    def companycam_access_token(self) -> str:
+        return self.get('companycam_access_token')
+
+    @property
+    def companycam_refresh_token(self) -> str:
+        return self.get('companycam_refresh_token')
+
+    @property
+    def companycam_user_id(self) -> str:
+        return self.get('companycam_user_id')

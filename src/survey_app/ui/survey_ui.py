@@ -110,6 +110,12 @@ class SurveyUI:
             style=toga.Pack(padding=(5, 10, 10, 10))
         )
 
+        self.sync_companycam_button = toga.Button(
+            '📤 Sync to CompanyCam',
+            on_press=self.app.companycam_handler.sync_survey_to_companycam,
+            style=toga.Pack(padding=(5, 10, 10, 10))
+        )
+
         sync_button = toga.Button(
             'Sync Now',
             on_press=self.app.sync_handler.sync_with_server,
@@ -198,6 +204,7 @@ class SurveyUI:
         submit_answer_button.style.visibility = 'hidden'
         next_question_button.style.visibility = 'hidden'
         finish_survey_button.style.visibility = 'hidden'
+        sync_companycam_button.style.visibility = 'hidden'
         sync_button.style.visibility = 'hidden'
 
         # Create main box
@@ -225,6 +232,7 @@ class SurveyUI:
                 submit_answer_button,
                 next_question_button,
                 finish_survey_button,
+                self.sync_companycam_button,
                 sync_button,
                 self.app.status_label
             ],

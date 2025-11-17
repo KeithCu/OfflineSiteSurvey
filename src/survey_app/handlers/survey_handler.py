@@ -308,6 +308,12 @@ class SurveyHandler:
             self.app.question_box.style.visibility = 'hidden'
             self.app.photo_box.style.visibility = 'hidden'
 
+            # Show CompanyCam sync button if connected
+            if hasattr(self.app, 'companycam_handler') and self.app.companycam_service.is_connected():
+                # Access the button through the UI
+                if hasattr(self.app.ui, 'sync_companycam_button'):
+                    self.app.ui.sync_companycam_button.style.visibility = 'visible'
+
             self.app.status_label.text = "Survey completed and saved!"
 
     def get_next_visible_field(self):

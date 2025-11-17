@@ -150,6 +150,25 @@ class SyncHandler:
             style=toga.Pack(padding=(5, 5, 10, 5))
         )
 
+        # CompanyCam section
+        companycam_label = toga.Label('CompanyCam Integration:', style=toga.Pack(padding=(20, 5, 10, 5), font_weight='bold'))
+
+        # Connection status
+        connection_status = "Connected" if self.app.companycam_service.is_connected() else "Not Connected"
+        status_label = toga.Label(f'Status: {connection_status}', style=toga.Pack(padding=(5, 5, 5, 5)))
+
+        connect_button = toga.Button(
+            'Connect to CompanyCam',
+            on_press=self.app.companycam_handler.connect_to_companycam,
+            style=toga.Pack(padding=(5, 5, 5, 5))
+        )
+
+        disconnect_button = toga.Button(
+            'Disconnect',
+            on_press=self.app.companycam_handler.disconnect_from_companycam,
+            style=toga.Pack(padding=(5, 5, 5, 5))
+        )
+
         # Save button
         save_button = toga.Button(
             'Save Settings',
@@ -172,6 +191,10 @@ class SyncHandler:
                 self.app.sync_input,
                 offline_label,
                 self.app.offline_input,
+                companycam_label,
+                status_label,
+                connect_button,
+                disconnect_button,
                 save_button,
                 close_button
             ],

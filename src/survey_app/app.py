@@ -15,11 +15,13 @@ from .handlers.survey_handler import SurveyHandler
 from .handlers.photo_handler import PhotoHandler
 from .handlers.template_handler import TemplateHandler
 from .handlers.sync_handler import SyncHandler
+from .handlers.companycam_handler import CompanyCamHandler
 from .ui.survey_ui import SurveyUI
 from .ui_manager import UIManager
 from .config_manager import ConfigManager
 from .services.api_service import APIService
 from .services.db_service import DBService
+from .services.companycam_service import CompanyCamService
 from .logging_config import setup_logging
 import asyncio
 import logging
@@ -50,6 +52,7 @@ class SurveyApp(toga.App):
         self.db = LocalDatabase()
         self.db_service = DBService(self.db)
         self.api_service = APIService(self.config.api_base_url)
+        self.companycam_service = CompanyCamService(self.config)
 
         # Initialize state
         self.current_project = None
@@ -76,6 +79,7 @@ class SurveyApp(toga.App):
         self.photo_handler = PhotoHandler(self)
         self.template_handler = TemplateHandler(self)
         self.sync_handler = SyncHandler(self)
+        self.companycam_handler = CompanyCamHandler(self)
 
         # Pass config to handlers that need it
         self.photo_handler.config = self.config

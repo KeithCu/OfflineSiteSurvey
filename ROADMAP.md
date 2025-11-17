@@ -54,7 +54,6 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 ### Survey Management
 - [ ] **Survey Progress Tracking**: Completion percentages, required vs. optional fields
 - [ ] **Survey Versions**: Track changes and updates to surveys
-- [ ] **Survey Approvals**: Review and approval workflows
 - [ ] **Survey Archiving**: Archive completed surveys with retention policies
 
 ## Phase 4: User Experience & Reliability ⚡ (COMPLETED ✅)

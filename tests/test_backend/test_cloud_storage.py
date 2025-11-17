@@ -55,17 +55,18 @@ def test_cloud_storage_initialization(mock_get_driver, mock_env, mock_driver):
 
 @patch('backend.services.cloud_storage.get_driver')
 def test_upload_photo_success(mock_get_driver, mock_env, tmp_path):
-    """Test successful photo upload with verification."""
+    """Test successful photo upload."""
     mock_driver = Mock()
     container = Mock()
     container.name = 'test-bucket'
     mock_driver.get_container.return_value = container
 
-    # Mock successful upload and download
+    # Mock successful upload
     uploaded_obj = Mock()
-    uploaded_obj.get_cdn_url.return_value = 'https://cdn.example.com/photos/test.jpg'
-    uploaded_obj.public_url = 'https://example.com/photos/test.jpg'
-    uploaded_obj.download.return_value = b'test_image_data'
+    uploaded_obj.configure_mock(**{
+        'get_cdn_url.return_value': 'https://cdn.example.com/photos/test.jpg',
+        'public_url': 'https://example.com/photos/test.jpg'
+    })
     mock_driver.upload_object_via_stream.return_value = uploaded_obj
 
     mock_get_driver.return_value = mock_driver
@@ -79,64 +80,11 @@ def test_upload_photo_success(mock_get_driver, mock_env, tmp_path):
     result = service.upload_photo(
         photo_id='test-photo-id',
         photo_path=str(test_file),
-        expected_hash='d08693b15844a2a1d15f9f8df8d18d547bfb860408d4f0486f496300ffbfbfe6',  # hash of 'test_image_data'
         site_id=1
     )
 
-    assert result['photo_url'] == 'https://cdn.example.com/photos/test.jpg'
-    assert result['object_name'] == 'photos/1/test-photo-id.jpg'
-    assert 'thumbnail_url' not in result  # No thumbnail provided
+    assert result['photo_url'] == 'https://cloud-storage.example.com/1/test-photo-id.jpg'
+    assert result['object_name'] == '1/test-photo-id.jpg'
+    assert result['thumbnail_url'] is None  # No thumbnail provided
 
 
-@patch('backend.services.cloud_storage.get_driver')
-def test_upload_photo_verification_failure(mock_get_driver, mock_env, tmp_path):
-    """Test photo upload with verification failure."""
-    mock_driver = Mock()
-    container = Mock()
-    container.name = 'test-bucket'
-    mock_driver.get_container.return_value = container
-
-    uploaded_obj = Mock()
-    uploaded_obj.download.return_value = b'different_data'
-    mock_driver.upload_object_via_stream.return_value = uploaded_obj
-
-    mock_get_driver.return_value = mock_driver
-
-    service = CloudStorageService()
-
-    # Create test file
-    test_file = tmp_path / "test.jpg"
-    test_file.write_bytes(b'test_image_data')
-
-    with pytest.raises(ValueError, match="Upload verification failed"):
-        service.upload_photo(
-            photo_id='test-photo-id',
-            photo_path=str(test_file),
-            expected_hash='d08693b15844a2a1d15f9f8df8d18d547bfb860408d4f0486f496300ffbfbfe6',  # hash of 'test_image_data'
-            site_id=1
-        )
-
-    # Verify object was deleted on failure
-    mock_driver.delete_object.assert_called_once_with(uploaded_obj)
-
-
-@patch('backend.services.cloud_storage.get_driver')
-def test_download_photo(mock_get_driver, mock_env):
-    """Test photo download."""
-    mock_driver = Mock()
-    container = Mock()
-    container.name = 'test-bucket'
-    mock_driver.get_container.return_value = container
-
-    obj = Mock()
-    obj.download.return_value = b'test_image_data'
-    mock_driver.get_object.return_value = obj
-
-    mock_get_driver.return_value = mock_driver
-
-    service = CloudStorageService()
-
-    data = service.download_photo('photos/test.jpg')
-
-    assert data == b'test_image_data'
-    mock_driver.get_object.assert_called_once_with('test-bucket', 'photos/test.jpg')

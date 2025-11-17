@@ -285,7 +285,7 @@ During sync, photos are validated by:
 ### Cloud Storage Integration
 - **Local-First Architecture**: Photos stored locally first, uploaded to cloud when online
 - **Upload Queue**: Background service processes pending uploads with retry logic
-- **Verification**: Uploaded photos are downloaded and hash-verified before database update
+- **Upload**: Photos are uploaded directly to cloud storage without post-upload verification
 - **CRDT Sync**: Syncs cloud URLs instead of binary data, downloads on demand
 - **Caching**: Local caching of downloaded photos for offline viewing
 
@@ -293,9 +293,8 @@ During sync, photos are validated by:
 1. Photo captured → stored locally in pending directory
 2. Database record created with `upload_status='pending'`
 3. Background queue uploads to cloud storage
-4. **CRITICAL**: Downloads uploaded photo and verifies hash matches original
-5. Only after verification passes → updates database with cloud URLs and `upload_status='completed'`
-6. Local file cleaned up (optional, can keep as additional cache)
+4. Upload completes → updates database with cloud URLs and `upload_status='completed'`
+5. Local file cleaned up (optional, can keep as additional cache)
 
 #### Supported Cloud Providers
 - **Amazon S3** (recommended, most tested)

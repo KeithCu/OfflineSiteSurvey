@@ -95,12 +95,11 @@ class UploadQueueService:
             # Generate thumbnail if not exists
             thumbnail_path = self._ensure_thumbnail(processing_path)
 
-            # Upload to cloud with verification - organize by site_id
+            # Upload to cloud - organize by site_id
             result = self.cloud_storage.upload_photo(
                 photo_id=photo.id,
                 photo_path=processing_path,
                 thumbnail_path=thumbnail_path,
-                expected_hash=photo.hash_value,
                 site_id=photo.site_id
             )
 

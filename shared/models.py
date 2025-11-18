@@ -1,7 +1,7 @@
-import enum
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey, Index, text
 from sqlalchemy.orm import relationship, declarative_base
+from shared.enums import SurveyStatus, ProjectStatus, PhotoCategory, PriorityLevel
 
 Base = declarative_base()
 
@@ -9,31 +9,6 @@ Base = declarative_base()
 def utc_now():
     """Return current UTC datetime (timezone-aware)."""
     return datetime.now(timezone.utc)
-
-class SurveyStatus(enum.Enum):
-    DRAFT = 'draft'
-    ACTIVE = 'active'
-    COMPLETED = 'completed'
-    ARCHIVED = 'archived'
-
-
-class ProjectStatus(enum.Enum):
-    DRAFT = 'draft'
-    IN_PROGRESS = 'in_progress'
-    COMPLETED = 'completed'
-    ARCHIVED = 'archived'
-
-class PhotoCategory(enum.Enum):
-    GENERAL = 'general'
-    INTERIOR = 'interior'
-    EXTERIOR = 'exterior'
-    ISSUES = 'issues'
-    PROGRESS = 'progress'
-
-class PriorityLevel(enum.Enum):
-    LOW = 'low'
-    MEDIUM = 'medium'
-    HIGH = 'high'
 
 class Project(Base):
     __tablename__ = 'projects'

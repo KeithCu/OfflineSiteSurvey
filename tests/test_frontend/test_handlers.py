@@ -6,7 +6,7 @@ from src.survey_app.handlers.site_handler import SiteHandler
 from src.survey_app.handlers.survey_handler import SurveyHandler
 from src.survey_app.handlers.photo_handler import PhotoHandler
 from src.survey_app.handlers.sync_handler import SyncHandler
-from src.survey_app.enums import ProjectStatus
+from shared.enums import ProjectStatus
 
 
 class MockApp:

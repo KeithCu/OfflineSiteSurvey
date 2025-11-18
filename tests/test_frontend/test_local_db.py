@@ -4,7 +4,7 @@ import pytest
 import os
 from unittest.mock import patch
 from src.survey_app.local_db import LocalDatabase
-from src.survey_app.enums import ProjectStatus, SurveyStatus, PhotoCategory
+from shared.enums import ProjectStatus, SurveyStatus, PhotoCategory
 
 
 def test_local_database_initialization(test_db):

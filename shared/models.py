@@ -12,7 +12,7 @@ def utc_now():
 
 class Project(Base):
     __tablename__ = 'projects'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String(200), nullable=False, server_default="")
     description = Column(Text, server_default="")
     status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT, server_default=ProjectStatus.DRAFT.value)
@@ -26,7 +26,7 @@ class Project(Base):
 
 class Site(Base):
     __tablename__ = 'sites'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String(200), nullable=False, server_default="Untitled")
     address = Column(Text, server_default="")
     latitude = Column(Float, server_default="0.0")
@@ -42,7 +42,7 @@ Index('idx_site_project_id', Site.project_id)
 
 class Survey(Base):
     __tablename__ = 'survey'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    id = Column(Integer, primary_key=True, nullable=False)
     title = Column(String(200), nullable=False, server_default="Untitled Survey")
     description = Column(Text, server_default="")
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False)
@@ -61,7 +61,7 @@ Index('idx_survey_created_at', Survey.created_at)
 
 class SurveyResponse(Base):
     __tablename__ = 'survey_response'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    id = Column(Integer, primary_key=True, nullable=False)
     survey_id = Column(Integer, ForeignKey('survey.id', ondelete='CASCADE'), nullable=False, index=True)
     question = Column(String(500), nullable=False, server_default="")
     answer = Column(Text, server_default="")
@@ -78,7 +78,7 @@ Index('idx_response_created_at', SurveyResponse.created_at)
 
 class AppConfig(Base):
     __tablename__ = 'app_config'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    id = Column(Integer, primary_key=True, nullable=False)
     key = Column(String(100), unique=True, nullable=False, server_default="")
     value = Column(Text, server_default="")
     description = Column(String(300), server_default="")
@@ -88,7 +88,7 @@ class AppConfig(Base):
 
 class SurveyTemplate(Base):
     __tablename__ = 'survey_template'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String(200), nullable=False, server_default="Untitled Template")
     description = Column(Text, server_default="")
     category = Column(String(50), server_default="")
@@ -101,7 +101,7 @@ class SurveyTemplate(Base):
 
 class TemplateField(Base):
     __tablename__ = 'template_field'
-    id = Column(Integer, primary_key=True, nullable=False, server_default="0")
+    id = Column(Integer, primary_key=True, nullable=False)
     template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='CASCADE'), nullable=False, index=True)
     field_type = Column(String(50), server_default="")
     question = Column(String(500), nullable=False, server_default="")

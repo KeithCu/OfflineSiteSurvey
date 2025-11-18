@@ -408,11 +408,21 @@ class LocalDatabase:
                         if existing_photo and existing_photo.hash_value and existing_photo.upload_status == 'completed':
                             # Download photo from cloud and verify hash
                             try:
-                                import requests
-                                response = requests.get(change['val'], timeout=30)
-                                response.raise_for_status()
-                                downloaded_data = response.content
-                                downloaded_hash = compute_photo_hash(downloaded_data)
+                                from ..services.cloud_storage import get_cloud_storage
+                                cloud_storage = get_cloud_storage()
+                                # Extract object name from cloud URL
+                                from urllib.parse import urlparse
+                                def extract_object_name_from_url(url):
+                                    if not url:
+                                        return None
+                                    parsed = urlparse(url)
+                                    path = parsed.path.lstrip('/')
+                                    return path if path else None
+                                
+                                object_name = extract_object_name_from_url(change['val'])
+                                if object_name:
+                                    downloaded_data = cloud_storage.download_photo(object_name)
+                                    downloaded_hash = compute_photo_hash(downloaded_data)
 
                                 if downloaded_hash != existing_photo.hash_value:
                                     integrity_issues.append({
@@ -731,11 +741,21 @@ class LocalDatabase:
                 # Check cloud data if no local data but has cloud URL
                 elif photo.cloud_url and photo.upload_status == 'completed':
                     try:
-                        import requests
-                        response = requests.get(photo.cloud_url, timeout=30)
-                        response.raise_for_status()
-                        downloaded_data = response.content
-                        current_hash = compute_photo_hash(downloaded_data)
+                        from ..services.cloud_storage import get_cloud_storage
+                        cloud_storage = get_cloud_storage()
+                        # Extract object name from cloud URL
+                        from urllib.parse import urlparse
+                        def extract_object_name_from_url(url):
+                            if not url:
+                                return None
+                            parsed = urlparse(url)
+                            path = parsed.path.lstrip('/')
+                            return path if path else None
+                        
+                        object_name = extract_object_name_from_url(photo.cloud_url)
+                        if object_name:
+                            downloaded_data = cloud_storage.download_photo(object_name)
+                            current_hash = compute_photo_hash(downloaded_data)
                         # Cache downloaded data locally for future use
                         photo.image_data = downloaded_data
                     except Exception as e:

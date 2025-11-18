@@ -148,7 +148,8 @@ def check_referential_integrity_command(fix, relationship):
                     orphaned_photo_sites.append(photo_id)
         if orphaned_photo_sites:
             orphaned.setdefault('photo_sites', []).extend(orphaned_photo_sites)
-            total_orphaned += len(orphaned_photo_sites)
+            # Fix: Define total_orphaned before using it
+    total_orphaned = sum(len(records) for records in orphaned.values())
 
     total_orphaned = sum(len(records) for records in orphaned.values())
 

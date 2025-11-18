@@ -127,8 +127,9 @@ class Photo(Base):
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), index=True)
     cloud_url = Column(String(1000), server_default="")
     thumbnail_url = Column(String(1000), server_default="")
-    image_data = Column(LargeBinary, nullable=True)
-    thumbnail_data = Column(LargeBinary, nullable=True)
+    # Remove image_data and thumbnail_data columns as they are not used in cloud-first architecture
+    # image_data = Column(LargeBinary, nullable=True)
+    # thumbnail_data = Column(LargeBinary, nullable=True)
     upload_status = Column(String(20), default='pending', server_default='pending')
     retry_count = Column(Integer, default=0, server_default='0')
     last_retry_at = Column(DateTime)

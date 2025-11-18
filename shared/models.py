@@ -126,6 +126,8 @@ class Photo(Base):
     cloud_url = Column(String(1000), server_default="")
     thumbnail_url = Column(String(1000), server_default="")
     upload_status = Column(String(20), default='pending', server_default='pending')
+    retry_count = Column(Integer, default=0, server_default='0')
+    last_retry_at = Column(DateTime)
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
     description = Column(Text, server_default="")

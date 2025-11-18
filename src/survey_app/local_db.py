@@ -626,7 +626,7 @@ class LocalDatabase:
                 return {}
             responses = session.query(SurveyResponse).filter_by(survey_id=survey_id).all()
             response_dict = {r.question_id: r.answer for r in responses if r.question_id}
-            photos = session.query(Photo).filter_by(survey_id=str(survey_id)).all()
+            photos = session.query(Photo).filter_by(survey_id=survey_id).all()
             fields = []
             if survey.template_id:
                 template = session.get(SurveyTemplate, survey.template_id)
@@ -672,7 +672,7 @@ class LocalDatabase:
             if not survey or not survey.template_id:
                 return {}
             template = session.get(SurveyTemplate, survey.template_id)
-            photos = session.query(Photo).filter_by(survey_id=str(survey_id)).all()
+            photos = session.query(Photo).filter_by(survey_id=survey_id).all()
             existing_photo_requirements = {p.requirement_id: p for p in photos if p.requirement_id}
             requirements_by_section = {}
             for field in sorted(template.fields, key=lambda x: x.order_index):
@@ -700,17 +700,38 @@ class LocalDatabase:
             photos = session.query(Photo).all()
             issues = 0
             for photo in photos:
+                current_hash = None
+
+                # Check local data first
                 image_data = getattr(photo, 'image_data', None)
-                # Only perform integrity checks when raw data is available
-                if not image_data:
+                if image_data:
+                    current_hash = compute_photo_hash(image_data)
+                # Check cloud data if no local data but has cloud URL
+                elif photo.cloud_url and photo.upload_status == 'completed':
+                    try:
+                        import requests
+                        response = requests.get(photo.cloud_url, timeout=30)
+                        response.raise_for_status()
+                        downloaded_data = response.content
+                        current_hash = compute_photo_hash(downloaded_data)
+                        # Cache downloaded data locally for future use
+                        photo.image_data = downloaded_data
+                    except Exception as e:
+                        self.logger.warning(f"Failed to download photo {photo.id} from cloud for integrity check: {e}")
+                        issues += 1  # Count as issue since we can't verify
+                        continue
+                else:
+                    # No data available to check, skip
                     continue
+
                 if not photo.hash_value:
                     issues += 1
                     continue
-                expected_hash = compute_photo_hash(image_data)
-                if photo.hash_value != expected_hash:
+
+                if photo.hash_value != current_hash:
                     issues += 1
                     continue
+
             return issues
         finally:
             session.close()

@@ -29,6 +29,8 @@ class UploadQueueService:
         self.running = False
         self.thread = None
         self.check_interval = 30  # seconds between queue checks
+        self.max_retries = 5  # maximum retry attempts
+        self.base_backoff_seconds = 60  # base delay for exponential backoff
 
     def start(self):
         """Start the background upload queue processor."""
@@ -58,23 +60,69 @@ class UploadQueueService:
             time.sleep(self.check_interval)
 
     def _process_pending_uploads(self):
-        """Process all pending photo uploads."""
+        """Process all pending and failed photo uploads with retry logic."""
         session = self.SessionLocal()
         try:
-            # Get pending photos
+            # Get pending photos (never failed before)
             pending_photos = session.query(Photo).filter_by(upload_status='pending').all()
 
-            for photo in pending_photos:
+            # Get failed photos that are eligible for retry
+            failed_photos = self._get_retryable_failed_photos(session)
+
+            all_photos = pending_photos + failed_photos
+
+            for photo in all_photos:
                 try:
                     self._process_single_upload(session, photo)
                 except Exception as e:
                     logger.error(f"Failed to upload photo {photo.id}: {e}")
-                    # Mark as failed for retry later
-                    photo.upload_status = 'failed'
-                    session.commit()
+                    self._handle_upload_failure(session, photo, e)
 
         finally:
             session.close()
+
+    def _get_retryable_failed_photos(self, session):
+        """Get failed photos that are eligible for retry based on backoff logic."""
+        from datetime import datetime, timedelta
+        current_time = datetime.utcnow()
+
+        failed_photos = session.query(Photo).filter_by(upload_status='failed').all()
+        retryable_photos = []
+
+        for photo in failed_photos:
+            if photo.retry_count >= self.max_retries:
+                # Max retries exceeded, mark as permanently failed
+                photo.upload_status = 'permanently_failed'
+                logger.warning(f"Photo {photo.id} exceeded max retries ({self.max_retries}), marking as permanently failed")
+                continue
+
+            # Calculate backoff delay (exponential: base * 2^retry_count)
+            backoff_seconds = self.base_backoff_seconds * (2 ** photo.retry_count)
+
+            if photo.last_retry_at:
+                time_since_last_retry = current_time - photo.last_retry_at
+                if time_since_last_retry.total_seconds() < backoff_seconds:
+                    # Not enough time has passed, skip this photo
+                    continue
+
+            retryable_photos.append(photo)
+
+        return retryable_photos
+
+    def _handle_upload_failure(self, session, photo, error):
+        """Handle upload failure with retry tracking."""
+        from datetime import datetime
+        photo.retry_count += 1
+        photo.last_retry_at = datetime.utcnow()
+
+        if photo.retry_count >= self.max_retries:
+            photo.upload_status = 'permanently_failed'
+            logger.error(f"Photo {photo.id} permanently failed after {photo.retry_count} attempts: {error}")
+        else:
+            photo.upload_status = 'failed'
+            logger.warning(f"Photo {photo.id} failed (attempt {photo.retry_count}/{self.max_retries}), will retry later: {error}")
+
+        session.commit()
 
     def _process_single_upload(self, session, photo):
         """Process upload for a single photo."""
@@ -107,6 +155,8 @@ class UploadQueueService:
             photo.cloud_url = result['photo_url']
             photo.thumbnail_url = result['thumbnail_url']
             photo.upload_status = 'completed'
+            photo.retry_count = 0  # Reset retry count on success
+            photo.last_retry_at = None  # Clear last retry time
 
             session.commit()
 

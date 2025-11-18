@@ -166,7 +166,7 @@ def get_survey_progress(survey_id):
     response_dict = {r.question_id: r.answer for r in responses if r.question_id}
     
     # Get all photos
-    photos = Photo.query.filter_by(survey_id=str(survey_id)).all()
+    photos = Photo.query.filter_by(survey_id=survey_id).all()
     
     # Get template fields if available
     fields = []
@@ -238,7 +238,7 @@ def get_photo_requirements(survey_id):
     template = db.session.get(SurveyTemplate, survey.template_id)
     
     # Get existing photos
-    photos = Photo.query.filter_by(survey_id=str(survey_id)).all()
+    photos = Photo.query.filter_by(survey_id=survey_id).all()
     existing_photo_requirements = {p.requirement_id: p for p in photos if p.requirement_id}
     
     requirements_by_section = {}

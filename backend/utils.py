@@ -31,6 +31,8 @@ def validate_foreign_key(table_name, column_name, value):
             return db.session.get(Survey, value) is not None
         elif table_name == 'survey_template':
             return db.session.get(SurveyTemplate, value) is not None
+        elif table_name == 'template_field':
+            return db.session.get(TemplateField, value) is not None
         else:
             logger.warning(f"Unknown table for FK validation: {table_name}")
             return False

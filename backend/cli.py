@@ -76,11 +76,44 @@ def check_photo_integrity_command(fix):
     fixed = 0
 
     for photo in photos:
-        if not photo.image_data:
+        current_hash = None
+        actual_size = None
+
+        # Check local data first (legacy support)
+        if photo.image_data:
+            current_hash = compute_photo_hash(photo.image_data, photo.hash_algo)
+            actual_size = len(photo.image_data)
+        # Check cloud data if no local data or if we want to verify cloud integrity
+        elif photo.cloud_url and photo.upload_status == 'completed':
+            try:
+                from .services.cloud_storage import get_cloud_storage
+                from urllib.parse import urlparse
+                cloud_storage = get_cloud_storage()
+
+                def extract_object_name_from_url(url):
+                    if not url:
+                        return None
+                    parsed = urlparse(url)
+                    path = parsed.path.lstrip('/')
+                    return path if path else None
+
+                object_name = extract_object_name_from_url(photo.cloud_url)
+                if object_name:
+                    image_data = cloud_storage.download_photo(object_name)
+                    current_hash = compute_photo_hash(image_data, photo.hash_algo)
+                    actual_size = len(image_data)
+                    click.echo(f"  Verified photo {photo.id} integrity from cloud")
+                else:
+                    click.echo(f"  Skipping photo {photo.id}: invalid cloud URL format")
+                    continue
+            except Exception as e:
+                click.echo(f"  Error downloading photo {photo.id} from cloud: {e}")
+                continue
+        else:
+            # No data available to check
             continue
 
-        current_hash = compute_photo_hash(photo.image_data, photo.hash_algo)
-        size_matches = photo.size_bytes == len(photo.image_data)
+        size_matches = photo.size_bytes == actual_size if actual_size is not None else True
 
         if photo.hash_value != current_hash or not size_matches:
             issues_found += 1
@@ -88,14 +121,16 @@ def check_photo_integrity_command(fix):
             if photo.hash_value != current_hash:
                 click.echo(f"  Hash mismatch: stored={photo.hash_value}, computed={current_hash}")
             if not size_matches:
-                click.echo(f"  Size mismatch: stored={photo.size_bytes}, actual={len(photo.image_data)}")
+                click.echo(f"  Size mismatch: stored={photo.size_bytes}, actual={actual_size}")
 
-            if fix:
+            if fix and current_hash and actual_size is not None:
                 photo.hash_value = current_hash
-                photo.size_bytes = len(photo.image_data)
+                photo.size_bytes = actual_size
                 db.session.commit()
                 fixed += 1
                 click.echo(f"  Fixed photo {photo.id}")
+            elif fix:
+                click.echo(f"  Could not fix photo {photo.id}: no valid data available")
 
     if issues_found == 0:
         click.echo("All photos passed integrity check")

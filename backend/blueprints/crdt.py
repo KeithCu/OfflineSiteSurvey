@@ -100,17 +100,25 @@ def apply_changes():
                     })
                     continue  # Skip this change
 
-            # Handle photo table changes - verify cloud URLs instead of image data
-            if change['table'] == 'photo' and change['cid'] == 'cloud_url' and change['val']:
+            elif change['table'] == 'photo' and change['cid'] == 'question_id' and change['val'] is not None:
+                if not validate_foreign_key('template_field', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Photo references non-existent question_id: {change["val"]}',
+                        'action': 'rejected'
+                    })
+                    continue  # Skip this change
+
+            # Handle photo table changes - verify photo integrity for relevant changes
+            if change['table'] == 'photo':
                 # Extract photo ID from pk (format: '{"id":"photo_id"}')
                 try:
                     pk_data = json.loads(change['pk'])
                     photo_id = pk_data.get('id')
-
-                    # Check if we have existing photo record
                     existing_photo = db.session.get(Photo, photo_id)
-                    if existing_photo and existing_photo.hash_value:
-                        # Download photo from cloud URL and verify hash
+
+                    # Validate cloud URL changes - download and verify hash (with fallback)
+                    if change['cid'] == 'cloud_url' and change['val'] and existing_photo and existing_photo.hash_value:
                         try:
                             from ..services.cloud_storage import get_cloud_storage
                             cloud_storage = get_cloud_storage()
@@ -136,12 +144,71 @@ def apply_changes():
                                     })
                                     continue  # Skip this change
                         except Exception as e:
+                            # Cloud storage temporarily unavailable - log warning but allow change
+                            # This prevents valid syncs from being blocked by temporary network issues
                             integrity_issues.append({
                                 'photo_id': photo_id,
-                                'error': f'Failed to verify cloud photo: {str(e)}',
+                                'error': f'Cloud verification failed (allowing change): {str(e)}',
+                                'action': 'warning'
+                            })
+                            # Continue with change (don't skip)
+
+                    # Validate hash_value changes - ensure they match any existing cloud data
+                    elif change['cid'] == 'hash_value' and change['val'] and existing_photo and existing_photo.cloud_url and existing_photo.upload_status == 'completed':
+                        try:
+                            from ..services.cloud_storage import get_cloud_storage
+                            cloud_storage = get_cloud_storage()
+                            object_name = extract_object_name_from_url(existing_photo.cloud_url)
+                            if object_name:
+                                downloaded_data = cloud_storage.download_photo(object_name)
+                                downloaded_hash = compute_photo_hash(downloaded_data)
+                                if downloaded_hash != change['val']:
+                                    integrity_issues.append({
+                                        'photo_id': photo_id,
+                                        'expected_hash': downloaded_hash,
+                                        'received_hash': change['val'],
+                                        'action': 'rejected'
+                                    })
+                                    continue  # Skip this change
+                        except Exception as e:
+                            # Log but don't reject - cloud might be temporarily unavailable
+                            pass
+
+                    # Validate upload_status changes to 'completed' - verify cloud data exists and matches hash (with fallback)
+                    elif change['cid'] == 'upload_status' and change['val'] == 'completed' and existing_photo and existing_photo.hash_value:
+                        if not existing_photo.cloud_url:
+                            integrity_issues.append({
+                                'photo_id': photo_id,
+                                'error': 'Cannot mark upload as completed without cloud_url',
                                 'action': 'rejected'
                             })
                             continue  # Skip this change
+
+                        try:
+                            from ..services.cloud_storage import get_cloud_storage
+                            cloud_storage = get_cloud_storage()
+                            object_name = extract_object_name_from_url(existing_photo.cloud_url)
+                            if object_name:
+                                downloaded_data = cloud_storage.download_photo(object_name)
+                                downloaded_hash = compute_photo_hash(downloaded_data)
+                                if downloaded_hash != existing_photo.hash_value:
+                                    integrity_issues.append({
+                                        'photo_id': photo_id,
+                                        'expected_hash': existing_photo.hash_value,
+                                        'received_hash': downloaded_hash,
+                                        'action': 'rejected'
+                                    })
+                                    continue  # Skip this change
+                        except Exception as e:
+                            # Cloud verification failed - allow the change but log warning
+                            # The upload queue will handle re-verification later
+                            integrity_issues.append({
+                                'photo_id': photo_id,
+                                'error': f'Upload completion verification failed (allowing change): {str(e)}',
+                                'action': 'warning'
+                            })
+                            # Continue with change (don't skip)
+
                 except (json.JSONDecodeError, AttributeError, TypeError):
                     pass  # Continue with change if we can't parse
 

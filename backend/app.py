@@ -1,4 +1,14 @@
 """Flask application factory for Site Survey backend."""
+try:
+    # The pysqlite3-binary package is required to enable SQLite extensions on some systems.
+    # This code ensures it's used as the default sqlite3 driver.
+    __import__("pysqlite3")
+    import sys
+    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+except ImportError:
+    # If pysqlite3-binary is not installed, continue with the default driver.
+    pass
+
 from flask import Flask
 import os
 from appdirs import user_data_dir

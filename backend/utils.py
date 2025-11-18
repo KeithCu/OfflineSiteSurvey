@@ -249,3 +249,41 @@ def cascade_delete_survey(survey_id):
         raise
 
     return summary
+
+
+def cascade_delete_template(template_id):
+    """
+    Delete a survey template and all its child records (fields).
+
+    Args:
+        template_id (int): ID of the template to delete
+
+    Returns:
+        dict: Summary of deleted records
+    """
+    summary = {
+        'templates': 0,
+        'template_fields': 0
+    }
+
+    try:
+        template = db.session.get(SurveyTemplate, template_id)
+        if not template:
+            return summary
+
+        # SQLAlchemy will handle cascade delete of template fields due to cascade='all, delete-orphan'
+        # But we count them for the summary
+        fields = TemplateField.query.filter_by(template_id=template_id).all()
+        summary['template_fields'] = len(fields)
+
+        # Delete the template (cascade will handle fields)
+        db.session.delete(template)
+        summary['templates'] = 1
+
+        logger.info(f"Cascading delete completed for template {template_id}: {summary}")
+
+    except Exception as e:
+        logger.error(f"Error in cascade delete of template {template_id}: {e}")
+        raise
+
+    return summary

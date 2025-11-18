@@ -14,9 +14,15 @@ def create_crr_tables(target, connection, **kw):
         'projects', 'sites', 'survey', 'survey_response',
         'survey_template', 'template_field', 'photo'
     ]
+    failed_tables = []
     for table_name in crr_tables:
         try:
             connection.execute(text(f"SELECT crsql_as_crr('{table_name}');"))
         except Exception as e:
-            print(f"Warning: Failed to make {table_name} CRR: {e}")
-            # Continue with other tables
+            failed_tables.append(table_name)
+            print(f"ERROR: Failed to make {table_name} CRR: {e}")
+
+    if failed_tables:
+        raise RuntimeError(f"Failed to create CRR tables: {', '.join(failed_tables)}. CRDT synchronization will not work properly.")
+
+    connection.execute(text("PRAGMA foreign_keys = ON;"))

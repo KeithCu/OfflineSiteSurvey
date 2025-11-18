@@ -58,6 +58,42 @@ class UploadQueueService:
             self.thread.join(timeout=5)
         logger.info("Upload queue service stopped")
 
+    def recover_permanently_failed_uploads(self, photo_ids=None):
+        """
+        Manually recover permanently failed uploads by resetting their status.
+
+        Args:
+            photo_ids: List of photo IDs to recover. If None, recovers all permanently failed uploads.
+        """
+        session = self.SessionLocal()
+        try:
+            query = session.query(Photo).filter_by(upload_status='permanently_failed')
+
+            if photo_ids:
+                query = query.filter(Photo.id.in_(photo_ids))
+
+            failed_photos = query.all()
+            recovered_count = 0
+
+            for photo in failed_photos:
+                # Reset status to allow retry
+                photo.upload_status = 'failed'
+                photo.retry_count = max(0, self.max_retries - 2)  # Allow at least 2 more attempts
+                photo.last_retry_at = None  # Allow immediate retry
+                logger.info(f"Recovered permanently failed upload for photo {photo.id}")
+                recovered_count += 1
+
+            session.commit()
+            logger.info(f"Recovered {recovered_count} permanently failed uploads")
+            return recovered_count
+
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error recovering permanently failed uploads: {e}")
+            raise
+        finally:
+            session.close()
+
     def _process_queue_loop(self):
         """Main processing loop for upload queue."""
         while True:
@@ -97,7 +133,8 @@ class UploadQueueService:
     def _get_retryable_failed_photos(self, session):
         """Get failed photos that are eligible for retry based on backoff logic."""
         from datetime import datetime, timedelta
-        current_time = datetime.utcnow()
+        from shared.models import utc_now
+        current_time = utc_now()
 
         failed_photos = session.query(Photo).filter_by(upload_status='failed').all()
         retryable_photos = []
@@ -120,13 +157,27 @@ class UploadQueueService:
 
             retryable_photos.append(photo)
 
+        # Also check for permanently failed photos that might be retryable after a longer period
+        permanently_failed_photos = session.query(Photo).filter_by(upload_status='permanently_failed').all()
+        for photo in permanently_failed_photos:
+            # Retry permanently failed photos once per day after 24 hours have passed
+            if photo.last_retry_at:
+                time_since_last_retry = current_time - photo.last_retry_at
+                if time_since_last_retry.total_seconds() > 86400:  # 24 hours
+                    logger.info(f"Attempting recovery retry for permanently failed photo {photo.id}")
+                    # Reset retry count to allow one more attempt
+                    photo.retry_count = self.max_retries - 1
+                    photo.upload_status = 'failed'
+                    retryable_photos.append(photo)
+
         return retryable_photos
 
     def _handle_upload_failure(self, session, photo, error):
         """Handle upload failure with retry tracking."""
         from datetime import datetime
         photo.retry_count += 1
-        photo.last_retry_at = datetime.utcnow()
+        from shared.models import utc_now
+        photo.last_retry_at = utc_now()
 
         if photo.retry_count >= self.max_retries:
             photo.upload_status = 'permanently_failed'

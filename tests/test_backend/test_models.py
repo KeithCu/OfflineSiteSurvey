@@ -1,6 +1,7 @@
 """Tests for backend database models."""
 import pytest
 from backend.models import db, Project, Site, Survey, SurveyResponse, AppConfig, SurveyTemplate, TemplateField, Photo
+from shared.enums import ProjectStatus
 
 
 def test_project_model_creation(app):
@@ -19,7 +20,7 @@ def test_project_model_creation(app):
 
         assert project.id is not None
         assert project.name == "Test Project"
-        assert project.status == "draft"
+        assert project.status == ProjectStatus.DRAFT
 
 
 def test_site_model_creation(app):

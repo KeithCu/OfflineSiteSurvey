@@ -144,14 +144,13 @@ def apply_changes():
                                     })
                                     continue  # Skip this change
                         except Exception as e:
-                            # Cloud storage temporarily unavailable - log warning but allow change
-                            # This prevents valid syncs from being blocked by temporary network issues
+                            # Cloud storage verification failed - reject the change to prevent corrupted photos
                             integrity_issues.append({
                                 'photo_id': photo_id,
-                                'error': f'Cloud verification failed (allowing change): {str(e)}',
-                                'action': 'warning'
+                                'error': f'Cloud verification failed: {str(e)}',
+                                'action': 'rejected'
                             })
-                            # Continue with change (don't skip)
+                            continue  # Skip this change
 
                     # Validate hash_value changes - ensure they match any existing cloud data
                     elif change['cid'] == 'hash_value' and change['val'] and existing_photo and existing_photo.cloud_url and existing_photo.upload_status == 'completed':
@@ -200,14 +199,13 @@ def apply_changes():
                                     })
                                     continue  # Skip this change
                         except Exception as e:
-                            # Cloud verification failed - allow the change but log warning
-                            # The upload queue will handle re-verification later
+                            # Cloud verification failed - reject the change to prevent corrupted photos
                             integrity_issues.append({
                                 'photo_id': photo_id,
-                                'error': f'Upload completion verification failed (allowing change): {str(e)}',
-                                'action': 'warning'
+                                'error': f'Upload completion verification failed: {str(e)}',
+                                'action': 'rejected'
                             })
-                            # Continue with change (don't skip)
+                            continue  # Skip this change
 
                 except (json.JSONDecodeError, AttributeError, TypeError) as e:
                     # Log parsing errors but continue with change
@@ -253,6 +251,12 @@ def get_changes():
         # Validate site_id parameter
         if not site_id:
             return jsonify({'error': 'site_id parameter is required'}), 400
+
+        # Validate that site_id exists in the database
+        from ..models import Site
+        site = db.session.get(Site, site_id)
+        if not site:
+            return jsonify({'error': f'Invalid site_id: site {site_id} does not exist'}), 400
 
     except Exception:
         return jsonify({'error': 'Invalid request parameters'}), 400

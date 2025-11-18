@@ -99,14 +99,15 @@ def should_show_field(conditions, responses):
     return all(results) if logic == 'AND' else any(results)
 
 
-def generate_thumbnail(image_data, max_size=200):
-    """Generate a thumbnail from image data while maintaining aspect ratio.
+def generate_thumbnail(image_data=None, image_path=None, max_size=200):
+    """Generate a thumbnail from image data or file path while maintaining aspect ratio.
 
     Creates a smaller JPEG version of the image for efficient display in galleries
     and lists. Used during photo upload to create cached thumbnails.
 
     Args:
-        image_data (bytes): Raw image data bytes
+        image_data (bytes, optional): Raw image data bytes
+        image_path (str, optional): Path to image file on disk
         max_size (int, optional): Maximum dimension for thumbnail. Defaults to 200
 
     Returns:
@@ -115,22 +116,16 @@ def generate_thumbnail(image_data, max_size=200):
     Note:
         Thumbnails are saved with 85% JPEG quality for reasonable size/performance balance.
         PIL Image.Resampling.LANCZOS is used for high-quality downsampling.
-
-    Examples:
-        >>> from PIL import Image
-        >>> import io
-        >>> img = Image.new('RGB', (1000, 800), color='blue')
-        >>> buf = io.BytesIO()
-        >>> img.save(buf, format='JPEG')
-        >>> thumb = generate_thumbnail(buf.getvalue(), max_size=100)
-        >>> thumb is not None
-        True
+        Either image_data or image_path must be provided.
     """
-    if not image_data:
+    if not image_data and not image_path:
         return None
 
     try:
-        img = Image.open(io.BytesIO(image_data))
+        if image_path:
+            img = Image.open(image_path)
+        else:
+            img = Image.open(io.BytesIO(image_data))
 
         # Calculate thumbnail size maintaining aspect ratio
         img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)

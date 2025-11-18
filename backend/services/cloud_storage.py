@@ -61,8 +61,10 @@ class CloudStorageService:
 
             # Check if recovery timeout has passed
             if time.time() - self._last_failure_time >= self._recovery_timeout:
-                # Allow one request to test recovery
-                logger.info("Circuit breaker recovery timeout reached, allowing test request")
+                # Transition to half-open state - allow test requests but track success/failure
+                self._circuit_open = False  # Enter half-open state
+                self._success_count = 0
+                logger.info("Circuit breaker entering half-open state for recovery test")
                 return False
 
             return True
@@ -71,8 +73,9 @@ class CloudStorageService:
         """Record a successful operation for circuit breaker."""
         with self._circuit_lock:
             self._success_count += 1
-            if self._circuit_open and self._success_count >= self._min_success_threshold:
-                self._circuit_open = False
+            # In half-open state, close circuit after minimum successes
+            if not self._circuit_open and self._success_count >= self._min_success_threshold:
+                # We were in half-open state and have enough successes
                 self._failure_count = 0
                 self._success_count = 0
                 logger.info("Circuit breaker closed - service recovered")
@@ -84,7 +87,11 @@ class CloudStorageService:
             self._last_failure_time = time.time()
             self._success_count = 0
 
-            if self._failure_count >= self._failure_threshold:
+            # If we were in half-open state, immediately reopen circuit on any failure
+            if not self._circuit_open:
+                self._circuit_open = True
+                logger.warning("Circuit breaker reopened due to failure during recovery test")
+            elif self._failure_count >= self._failure_threshold:
                 self._circuit_open = True
                 logger.warning(f"Circuit breaker opened after {self._failure_count} consecutive failures")
 

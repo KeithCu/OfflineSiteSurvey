@@ -472,7 +472,8 @@ class LocalDatabase:
         if not backup_dir:
             backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
         os.makedirs(backup_dir, exist_ok=True)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        from shared.models import utc_now
+        timestamp = utc_now().strftime('%Y%m%d_%H%M%S')
         backup_filename = f'backup_{timestamp}.zip'
         backup_path = os.path.join(backup_dir, backup_filename)
         try:
@@ -512,7 +513,8 @@ class LocalDatabase:
                         metadata = {}
                     if 'timestamp' in metadata:
                         backup_time = datetime.strptime(metadata['timestamp'], '%Y%m%d_%H%M%S')
-                        age_days = (datetime.now() - backup_time).days
+                        from shared.models import utc_now
+                        age_days = (utc_now() - backup_time.replace(tzinfo=utc_now().tzinfo)).days
                         if age_days > 30:
                             raise ValueError(f"Backup is too old ({age_days} days). Maximum allowed age is 30 days.")
                     db_files = [f for f in os.listdir(temp_dir) if f.endswith('.db')]

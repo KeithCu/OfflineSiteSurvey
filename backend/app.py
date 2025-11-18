@@ -5,7 +5,7 @@ from appdirs import user_data_dir
 from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 from .models import db, create_crr_tables
-from .blueprints import config, projects, sites, surveys, templates, photos, crdt
+from .blueprints import config, projects, sites, surveys, templates, photos, crdt, auth
 from .cli import init_db_command, check_photo_integrity_command, check_referential_integrity_command
 from .logging_config import setup_logging
 
@@ -69,6 +69,7 @@ def create_app(test_config=None):
     event.listen(db.metadata, 'after_create', create_crr_tables)
 
     # Register blueprints
+    app.register_blueprint(auth.bp)
     app.register_blueprint(config.bp)
     app.register_blueprint(projects.bp)
     app.register_blueprint(sites.bp)
@@ -76,6 +77,9 @@ def create_app(test_config=None):
     app.register_blueprint(templates.bp)
     app.register_blueprint(photos.bp)
     app.register_blueprint(crdt.bp)
+
+    # Initialize authentication
+    auth.init_auth(app)
 
     # Register CLI commands
     app.cli.add_command(init_db_command)

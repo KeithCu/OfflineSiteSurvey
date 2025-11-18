@@ -149,6 +149,28 @@ def upload_photo_to_survey(survey_id):
         if image_file.filename == '':
             return jsonify({'error': 'No image file selected'}), 400
 
+        # Validate file type and size
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+        allowed_mime_types = {'image/png', 'image/jpeg', 'image/gif', 'image/webp'}
+        max_file_size = 10 * 1024 * 1024  # 10MB limit
+
+        # Check file extension
+        if not image_file.filename:
+            return jsonify({'error': 'Invalid file name'}), 400
+
+        file_ext = image_file.filename.rsplit('.', 1)[1].lower() if '.' in image_file.filename else ''
+        if file_ext not in allowed_extensions:
+            return jsonify({'error': f'File type not allowed. Allowed types: {", ".join(allowed_extensions)}'}), 400
+
+        # Check MIME type
+        if image_file.mimetype not in allowed_mime_types:
+            return jsonify({'error': f'Invalid file type. Content type {image_file.mimetype} not allowed'}), 400
+
+        # Check file size (if available)
+        if hasattr(image_file, 'content_length') and image_file.content_length:
+            if image_file.content_length > max_file_size:
+                return jsonify({'error': f'File too large. Maximum size: {max_file_size // (1024*1024)}MB'}), 400
+
         # For large files, stream to temporary file to avoid loading into memory
         import tempfile
         import os
@@ -159,11 +181,22 @@ def upload_photo_to_survey(survey_id):
             # Stream the upload in chunks to avoid memory issues
             chunk_size = 8192  # 8KB chunks
             hash_obj = hashlib.sha256()
+            total_size = 0
 
             while True:
                 chunk = image_file.stream.read(chunk_size)
                 if not chunk:
                     break
+
+                chunk_size_actual = len(chunk)
+                total_size += chunk_size_actual
+
+                # Check size limit during streaming
+                if total_size > max_file_size:
+                    temp_file.close()
+                    os.unlink(temp_path)
+                    return jsonify({'error': f'File too large. Maximum size: {max_file_size // (1024*1024)}MB'}), 400
+
                 temp_file.write(chunk)
                 hash_obj.update(chunk)
 
@@ -190,16 +223,15 @@ def upload_photo_to_survey(survey_id):
         # Get hash from streaming computation
         hash_value = hash_obj.hexdigest()
 
-        # Generate thumbnail from file instead of memory
+        # Generate thumbnail from file path to avoid loading large images into memory
         try:
-            with open(temp_path, 'rb') as f:
-                image_data = f.read()
-            thumbnail_data = generate_thumbnail(image_data, max_size=200)
+            thumbnail_data = generate_thumbnail(image_path=temp_path, max_size=200)
         except Exception as e:
             os.unlink(temp_path)
             return jsonify({'error': f'Failed to process image: {str(e)}'}), 400
 
         # Read image data for storage (keeping existing behavior for now)
+        # TODO: Consider streaming this as well for very large files
         with open(temp_path, 'rb') as f:
             image_data = f.read()
 

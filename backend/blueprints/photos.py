@@ -1,9 +1,10 @@
 """Photos blueprint for Flask API."""
 from flask import Blueprint, jsonify, request
 import json
+import secrets
 import uuid
 from urllib.parse import urlparse
-from ..models import db, Photo
+from ..models import db, Photo, Survey, TemplateField
 from shared.utils import compute_photo_hash, generate_thumbnail
 from ..services.upload_queue import get_upload_queue
 
@@ -137,7 +138,6 @@ def upload_photo_to_survey(survey_id):
     """Upload a photo to a survey."""
     try:
         # Validate survey exists
-        from ..models import Survey
         survey = Survey.query.get_or_404(survey_id)
 
         # Check if image file is provided
@@ -153,8 +153,18 @@ def upload_photo_to_survey(survey_id):
         if not image_data:
             return jsonify({'error': 'Empty image file'}), 400
 
+        # Get form data
+        question_id_str = request.form.get('question_id')
+        question_id = int(question_id_str) if question_id_str else None
+        section_name = "general"
+        if question_id:
+            template_field = TemplateField.query.get(question_id)
+            if template_field and template_field.section:
+                section_name = template_field.section.lower().replace(" ", "_")
+
         # Generate unique photo ID
-        photo_id = str(uuid.uuid4())
+        random_string = secrets.token_hex(4)
+        photo_id = f"{survey.site_id}-{section_name}-{random_string}"
 
         # Compute hash and size
         hash_value = compute_photo_hash(image_data)
@@ -163,7 +173,6 @@ def upload_photo_to_survey(survey_id):
         # Generate thumbnail
         thumbnail_data = generate_thumbnail(image_data, max_size=200)
 
-        # Get form data
         description = request.form.get('description', '')
         category = request.form.get('category', 'general')
         latitude = float(request.form.get('latitude', 0.0))
@@ -194,8 +203,9 @@ def upload_photo_to_survey(survey_id):
             category=category,
             hash_value=hash_value,
             size_bytes=size_bytes,
-            hash_algo='sha256'
-            , tags=json.dumps(tags)
+            hash_algo='sha256',
+            question_id=question_id,
+            tags=json.dumps(tags)
         )
 
         db.session.add(photo)

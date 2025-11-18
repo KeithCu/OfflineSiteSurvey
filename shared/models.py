@@ -19,8 +19,8 @@ class Project(Base):
     client_info = Column(Text, server_default="")
     due_date = Column(DateTime)
     priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, server_default=PriorityLevel.MEDIUM.value)
-    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     sites = relationship('Site', backref='project', lazy=True)
 
 
@@ -33,8 +33,8 @@ class Site(Base):
     longitude = Column(Float, server_default="0.0")
     notes = Column(Text, server_default="")
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), index=True)
-    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     surveys = relationship('Survey', backref='site', lazy=True)
 
 Index('idx_site_project_id', Site.project_id)
@@ -46,10 +46,10 @@ class Survey(Base):
     title = Column(String(200), nullable=False, server_default="Untitled Survey")
     description = Column(Text, server_default="")
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False)
-    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, server_default=SurveyStatus.DRAFT.value)
-    template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'), server_default=None)
+    template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'))
     template = relationship('SurveyTemplate', backref='surveys')
     responses = relationship('SurveyResponse', backref='survey')
 
@@ -68,8 +68,8 @@ class SurveyResponse(Base):
     response_type = Column(String(50), index=True, server_default="")
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
-    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
-    question_id = Column(Integer, index=True, server_default="0")
+    created_at = Column(DateTime, default=utc_now)
+    question_id = Column(Integer, index=True)
     field_type = Column(String(50), server_default="")
 
 Index('idx_response_survey_question', SurveyResponse.survey_id, SurveyResponse.question_id)
@@ -83,7 +83,7 @@ class AppConfig(Base):
     value = Column(Text, server_default="")
     description = Column(String(300), server_default="")
     category = Column(String(50), server_default="")
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class SurveyTemplate(Base):
@@ -93,8 +93,8 @@ class SurveyTemplate(Base):
     description = Column(Text, server_default="")
     category = Column(String(50), server_default="")
     is_default = Column(Boolean, default=False, server_default='0')
-    created_at = Column(DateTime, default=utc_now, server_default="1970-01-01 00:00:00")
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     fields = relationship('TemplateField', backref='template', cascade='all, delete-orphan', lazy=True)
     section_tags = Column(Text, server_default="{}")
 
@@ -120,9 +120,9 @@ Index('idx_template_field_order', TemplateField.template_id, TemplateField.order
 
 class Photo(Base):
     __tablename__ = 'photo'
-    id = Column(String, primary_key=True, nullable=False, server_default="")
-    survey_id = Column(Integer, ForeignKey('survey.id', ondelete='CASCADE'), index=True, server_default="0")
-    site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), index=True, server_default="1")
+    id = Column(String, primary_key=True, nullable=False)
+    survey_id = Column(Integer, ForeignKey('survey.id', ondelete='CASCADE'), index=True)
+    site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), index=True)
     cloud_url = Column(String(1000), server_default="")
     thumbnail_url = Column(String(1000), server_default="")
     upload_status = Column(String(20), default='pending', server_default='pending')
@@ -130,7 +130,7 @@ class Photo(Base):
     longitude = Column(Float, server_default="0.0")
     description = Column(Text, server_default="")
     category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL, server_default=PhotoCategory.GENERAL.value)
-    created_at = Column(DateTime, default=utc_now, index=True, server_default="1970-01-01 00:00:00")
+    created_at = Column(DateTime, default=utc_now, index=True)
     hash_algo = Column(String(10), default='sha256', server_default='sha256')
     hash_value = Column(String(128), index=True, server_default="")
     size_bytes = Column(Integer, server_default="0")

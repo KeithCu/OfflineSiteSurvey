@@ -12,23 +12,8 @@ def init_db_command():
     """Clear the existing data and create new tables."""
     db.create_all()
 
-    # Add database indexes for performance
+    # Add CHECK constraints for data validation
     with db.engine.connect() as conn:
-        # Photos indexes
-        conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_photos_survey_id ON photo(survey_id);"))
-        conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_photos_site_id ON photo(site_id);"))
-        conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photo(created_at);"))
-        conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_photos_category ON photo(category);"))
-
-        # Responses indexes
-        conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_responses_survey_id ON survey_response(survey_id);"))
-        conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_responses_question_id ON survey_response(question_id);"))
-
-        # Hierarchy indexes
-        conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_surveys_site_id ON survey(site_id);"))
-        conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_sites_project_id ON site(project_id);"))
-
-        # Add CHECK constraints for data validation
         # Photo hash validation (SHA-256 is 64 characters)
         conn.execute(db.text("ALTER TABLE photo ADD CONSTRAINT IF NOT EXISTS chk_photo_hash_length CHECK (length(hash_value) = 64);"))
         # Image compression quality range

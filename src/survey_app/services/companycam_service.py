@@ -168,7 +168,8 @@ class CompanyCamService:
             return None
 
     def upload_photo(self, project_id: str, image_data: bytes, filename: str,
-                    description: str = "", latitude: float = None, longitude: float = None) -> Optional[Dict[str, Any]]:
+                    description: str = "", latitude: float = None, longitude: float = None,
+                    tag_ids: list = None) -> Optional[Dict[str, Any]]:
         """Upload a photo to a CompanyCam project."""
         if not self._ensure_valid_token():
             return None
@@ -186,6 +187,8 @@ class CompanyCamService:
                 data['description'] = description
             if latitude is not None and longitude is not None:
                 data['coordinates'] = f"{latitude},{longitude}"
+            if tag_ids:
+                data['tag_ids[]'] = tag_ids
 
             headers = {'Authorization': f"Bearer {self.config.companycam_access_token}"}
 
@@ -205,4 +208,91 @@ class CompanyCamService:
             return None
         except Exception as e:
             self.logger.error(f"Failed to upload photo: {e}")
+            return None
+
+    def list_checklist_templates(self) -> Optional[list]:
+        """List all checklist templates."""
+        if not self._ensure_valid_token():
+            return None
+
+        try:
+            url = f"{self.API_BASE_URL}/checklist_templates"
+            response = requests.get(url, headers=self._get_auth_headers(), timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed to list checklist templates: {e}")
+            return None
+
+    def create_project_checklist(self, project_id: str, template_id: str) -> Optional[Dict[str, Any]]:
+        """Create a checklist on a project from a template."""
+        if not self._ensure_valid_token():
+            return None
+
+        try:
+            url = f"{self.API_BASE_URL}/projects/{project_id}/checklists"
+            data = {'template_id': template_id}
+            response = requests.post(url, json=data, headers=self._get_auth_headers(), timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed to create project checklist: {e}")
+            return None
+
+    def get_project_checklist(self, project_id: str, checklist_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a project checklist."""
+        if not self._ensure_valid_token():
+            return None
+
+        try:
+            url = f"{self.API_BASE_URL}/projects/{project_id}/checklists/{checklist_id}"
+            response = requests.get(url, headers=self._get_auth_headers(), timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed to get project checklist: {e}")
+            return None
+
+    def update_checklist_item(self, checklist_id: str, item_id: str, value: str) -> Optional[Dict[str, Any]]:
+        """Update a checklist item."""
+        if not self._ensure_valid_token():
+            return None
+
+        try:
+            url = f"{self.API_BASE_URL}/checklists/{checklist_id}/items/{item_id}"
+            data = {'value': value}
+            response = requests.put(url, json=data, headers=self._get_auth_headers(), timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed to update checklist item: {e}")
+            return None
+
+    def list_tags(self) -> Optional[list]:
+        """List all tags."""
+        if not self._ensure_valid_token():
+            return None
+
+        try:
+            url = f"{self.API_BASE_URL}/tags"
+            response = requests.get(url, headers=self._get_auth_headers(), timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed to list tags: {e}")
+            return None
+
+    def create_tag(self, name: str) -> Optional[Dict[str, Any]]:
+        """Create a new tag."""
+        if not self._ensure_valid_token():
+            return None
+
+        try:
+            url = f"{self.API_BASE_URL}/tags"
+            data = {'name': name}
+            response = requests.post(url, json=data, headers=self._get_auth_headers(), timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed to create tag: {e}")
             return None

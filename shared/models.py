@@ -163,6 +163,7 @@ class Photo(Base):
     requirement_id = Column(String, index=True, server_default="")
     fulfills_requirement = Column(Boolean, default=False, server_default='0')
     tags = Column(Text, server_default="[]")
+    question_id = Column(Integer, ForeignKey('template_field.id'), index=True, nullable=True)
 
 Index('idx_photo_survey_site', Photo.survey_id, Photo.site_id)
 Index('idx_photo_created_at', Photo.created_at)

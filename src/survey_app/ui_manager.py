@@ -90,6 +90,12 @@ class UIManager:
             style=Pack(padding=(5, 10, 10, 10))
         )
 
+        manage_tags_button = toga.Button(
+            'Manage Tags',
+            on_press=self.app.tag_management_handler.show_tag_management_ui,
+            style=Pack(padding=(5, 10, 10, 10))
+        )
+
         config_button = toga.Button(
             'Settings',
             on_press=self.app.show_config_ui,
@@ -224,6 +230,7 @@ class UIManager:
                 photos_button,
                 config_button,
                 sync_button,
+                manage_tags_button,
                 self.question_box,
                 self.photo_box,
                 self.survey_title_label,

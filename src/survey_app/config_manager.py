@@ -39,6 +39,7 @@ class ConfigManager:
         'companycam_access_token': '',
         'companycam_refresh_token': '',
         'companycam_user_id': '',
+        'default_companycam_template_name': '',
     }
 
     def __init__(self):

@@ -295,6 +295,50 @@ class LocalDatabase:
         finally:
             session.close()
 
+    def get_all_unique_tags(self):
+        session = self.get_session()
+        try:
+            all_tags = []
+            photos = session.query(Photo.tags).filter(Photo.tags.isnot(None)).all()
+            unique_tags = set()
+            for photo_tags in photos:
+                try:
+                    tags = json.loads(photo_tags[0])
+                    for tag in tags:
+                        unique_tags.add(tag)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            return [{'name': tag} for tag in sorted(list(unique_tags))]
+        finally:
+            session.close()
+
+    def get_section_for_photo(self, photo_id):
+        session = self.get_session()
+        try:
+            photo = session.query(Photo).filter_by(id=photo_id).first()
+            if not photo or not photo.question_id:
+                return None
+
+            field = session.query(TemplateField).filter_by(id=photo.question_id).first()
+            if field:
+                return field.section
+            return None
+        finally:
+            session.close()
+
+    def get_tags_for_photo(self, photo_id):
+        session = self.get_session()
+        try:
+            photo = session.query(Photo).filter_by(id=photo_id).first()
+            if photo and photo.tags:
+                try:
+                    return json.loads(photo.tags)
+                except (json.JSONDecodeError, TypeError):
+                    return []
+            return []
+        finally:
+            session.close()
+
     def get_changes_since(self, version):
         session = self.get_session()
         try:

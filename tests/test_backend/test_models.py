@@ -49,8 +49,10 @@ def test_survey_model_creation(app):
     """Test creating a survey model."""
     with app.app_context():
         project = Project(name="Parent Project")
+        db.session.add(project)
+        db.session.commit()
         site = Site(name="Parent Site", project_id=project.id)
-        db.session.add_all([project, site])
+        db.session.add(site)
         db.session.commit()
 
         survey = Survey(
@@ -71,9 +73,13 @@ def test_survey_response_model_creation(app):
     """Test creating a survey response model."""
     with app.app_context():
         project = Project(name="Parent Project")
+        db.session.add(project)
+        db.session.commit()
         site = Site(name="Parent Site", project_id=project.id)
+        db.session.add(site)
+        db.session.commit()
         survey = Survey(title="Parent Survey", site_id=site.id)
-        db.session.add_all([project, site, survey])
+        db.session.add(survey)
         db.session.commit()
 
         response = SurveyResponse(
@@ -151,12 +157,17 @@ def test_photo_model_creation(app):
     """Test creating a photo model."""
     with app.app_context():
         project = Project(name="Parent Project")
+        db.session.add(project)
+        db.session.commit()
         site = Site(name="Parent Site", project_id=project.id)
+        db.session.add(site)
+        db.session.commit()
         survey = Survey(title="Parent Survey", site_id=site.id)
-        db.session.add_all([project, site, survey])
+        db.session.add(survey)
         db.session.commit()
 
         photo = Photo(
+            id="testphoto",
             survey_id=survey.id,
             site_id=site.id,
             cloud_url="https://example.com/photos/test.jpg",
@@ -183,10 +194,15 @@ def test_model_relationships(app):
         with app.app_context():
             # Create hierarchy: Project -> Site -> Survey -> Response/Photo
             project = Project(name="Relationship Test Project")
-            site = Site(name="Relationship Test Site", project_id=project.id)
-            survey = Survey(title="Relationship Test Survey", site_id=site.id)
+            db.session.add(project)
+            db.session.commit()
 
-            db.session.add_all([project, site, survey])
+            site = Site(name="Relationship Test Site", project_id=project.id)
+            db.session.add(site)
+            db.session.commit()
+
+            survey = Survey(title="Relationship Test Survey", site_id=site.id)
+            db.session.add(survey)
             db.session.commit()  # Commit parents first to get IDs
 
             response = SurveyResponse(

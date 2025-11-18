@@ -79,13 +79,17 @@ def test_surveys_api_endpoints(client, app):
     with app.app_context():
         # Create test data
         project = Project(name="Parent Project")
+        db.session.add(project)
+        db.session.commit()
         site = Site(name="Parent Site", project_id=project.id)
+        db.session.add(site)
+        db.session.commit()
         survey = Survey(
             title="Test Survey",
             description="Test survey",
             site_id=site.id
         )
-        db.session.add_all([project, site, survey])
+        db.session.add(survey)
         db.session.commit()
 
         # Test GET /api/surveys
@@ -111,13 +115,15 @@ def test_templates_api_endpoints(client, app):
             description="Test template",
             category="commercial"
         )
+        db.session.add(template)
+        db.session.commit()
         field = TemplateField(
             template_id=template.id,
             question="Test question?",
             field_type="text",
             order_index=1
         )
-        db.session.add_all([template, field])
+        db.session.add(field)
         db.session.commit()
 
         # Test GET /api/templates
@@ -156,9 +162,16 @@ def test_photos_api_endpoints(client, app):
     with app.app_context():
         # Create test data
         project = Project(name="Parent Project")
+        db.session.add(project)
+        db.session.commit()
         site = Site(name="Parent Site", project_id=project.id)
+        db.session.add(site)
+        db.session.commit()
         survey = Survey(title="Parent Survey", site_id=site.id)
+        db.session.add(survey)
+        db.session.commit()
         photo = Photo(
+            id="testphoto",
             survey_id=survey.id,
             site_id=site.id,
             cloud_url="https://example.com/photos/test.jpg",
@@ -169,7 +182,7 @@ def test_photos_api_endpoints(client, app):
             size_bytes=16,
             description="Test photo"
         )
-        db.session.add_all([project, site, survey, photo])
+        db.session.add(photo)
         db.session.commit()
 
         # Test GET /api/photos (skip if endpoint not working)

@@ -8,17 +8,35 @@ bp = Blueprint('sites', __name__, url_prefix='/api')
 
 @bp.route('/sites', methods=['GET'])
 def get_sites():
-    sites = Site.query.all()
-    return jsonify([{
-        'id': s.id,
-        'name': s.name,
-        'address': s.address,
-        'latitude': s.latitude,
-        'longitude': s.longitude,
-        'notes': s.notes,
-        'created_at': s.created_at.isoformat(),
-        'updated_at': s.updated_at.isoformat()
-    } for s in sites])
+    # Pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
+
+    # Query with pagination
+    pagination = Site.query.paginate(page=page, per_page=per_page, error_out=False)
+    sites = pagination.items
+
+    return jsonify({
+        'sites': [{
+            'id': s.id,
+            'name': s.name,
+            'address': s.address,
+            'latitude': s.latitude,
+            'longitude': s.longitude,
+            'notes': s.notes,
+            'project_id': s.project_id,
+            'created_at': s.created_at.isoformat(),
+            'updated_at': s.updated_at.isoformat()
+        } for s in sites],
+        'pagination': {
+            'page': pagination.page,
+            'per_page': pagination.per_page,
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'has_next': pagination.has_next,
+            'has_prev': pagination.has_prev
+        }
+    })
 
 
 @bp.route('/sites/<int:site_id>', methods=['GET'])

@@ -157,9 +157,8 @@ class CloudStorageService:
             object_name=object_name
         )
 
-        # Return a placeholder URL since we removed verification
-        # In a real implementation, this would construct the URL from the object
-        return f"https://cloud-storage.example.com/{object_name}"
+        # Return the actual cloud storage URL
+        return obj.get_cdn_url() if hasattr(obj, 'get_cdn_url') else obj.public_url
 
     def _download_object(self, obj):
         """Download object data from cloud storage."""

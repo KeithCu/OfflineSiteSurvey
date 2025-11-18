@@ -49,8 +49,10 @@ def test_projects_api_endpoints(client, app):
         response = client.get('/api/projects')
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert len(data) >= 1
-        assert data[0]['name'] == "Test Project"
+        assert 'projects' in data
+        assert len(data['projects']) >= 1
+        assert data['projects'][0]['name'] == "Test Project"
+        assert 'pagination' in data
 
 
 def test_sites_api_endpoints(client, app):
@@ -70,8 +72,10 @@ def test_sites_api_endpoints(client, app):
         response = client.get('/api/sites')
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert len(data) >= 1
-        assert data[0]['name'] == "Test Site"
+        assert 'sites' in data
+        assert len(data['sites']) >= 1
+        assert data['sites'][0]['name'] == "Test Site"
+        assert 'pagination' in data
 
 
 def test_surveys_api_endpoints(client, app):
@@ -96,8 +100,10 @@ def test_surveys_api_endpoints(client, app):
         response = client.get('/api/surveys')
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert len(data) >= 1
-        assert data[0]['title'] == "Test Survey"
+        assert 'surveys' in data
+        assert len(data['surveys']) >= 1
+        assert data['surveys'][0]['title'] == "Test Survey"
+        assert 'pagination' in data
 
         # Test GET /api/surveys/<id>
         response = client.get(f'/api/surveys/{survey.id}')
@@ -130,8 +136,10 @@ def test_templates_api_endpoints(client, app):
         response = client.get('/api/templates')
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert len(data) >= 1
-        assert data[0]['name'] == "Test Template"
+        assert 'templates' in data
+        assert len(data['templates']) >= 1
+        assert data['templates'][0]['name'] == "Test Template"
+        assert 'pagination' in data
 
         # Test GET /api/templates/<id>
         response = client.get(f'/api/templates/{template.id}')

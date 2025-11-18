@@ -209,8 +209,13 @@ def apply_changes():
                             })
                             # Continue with change (don't skip)
 
-                except (json.JSONDecodeError, AttributeError, TypeError):
-                    pass  # Continue with change if we can't parse
+                except (json.JSONDecodeError, AttributeError, TypeError) as e:
+                    # Log parsing errors but continue with change
+                    integrity_issues.append({
+                        'error': f'Failed to parse photo change data: {str(e)}',
+                        'change': change,
+                        'action': 'logged'
+                    })
 
             cursor.execute(
                 "INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id) VALUES (?, ?, ?, ?, ?, ?, ?)",

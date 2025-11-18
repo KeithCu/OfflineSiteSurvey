@@ -8,16 +8,33 @@ bp = Blueprint('surveys', __name__, url_prefix='/api')
 
 @bp.route('/surveys', methods=['GET'])
 def get_surveys():
-    surveys = Survey.query.all()
-    return jsonify([{
-        'id': s.id,
-        'title': s.title,
-        'description': s.description,
-        'template_id': s.template_id,
-        'status': s.status,
-        'created_at': s.created_at.isoformat(),
-        'updated_at': s.updated_at.isoformat()
-    } for s in surveys])
+    # Pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
+
+    # Query with pagination
+    pagination = Survey.query.paginate(page=page, per_page=per_page, error_out=False)
+    surveys = pagination.items
+
+    return jsonify({
+        'surveys': [{
+            'id': s.id,
+            'title': s.title,
+            'description': s.description,
+            'template_id': s.template_id,
+            'status': s.status,
+            'created_at': s.created_at.isoformat(),
+            'updated_at': s.updated_at.isoformat()
+        } for s in surveys],
+        'pagination': {
+            'page': pagination.page,
+            'per_page': pagination.per_page,
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'has_next': pagination.has_next,
+            'has_prev': pagination.has_prev
+        }
+    })
 
 
 @bp.route('/surveys/<int:survey_id>', methods=['GET'])

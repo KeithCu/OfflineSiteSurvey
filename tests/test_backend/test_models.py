@@ -212,6 +212,7 @@ def test_model_relationships(app):
                 response_type="text"
             )
             photo = Photo(
+                id="test-photo-id",
                 survey_id=survey.id,
                 site_id=site.id,
                 cloud_url="https://example.com/photos/test.jpg",

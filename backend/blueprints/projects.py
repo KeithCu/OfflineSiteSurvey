@@ -11,18 +11,35 @@ bp = Blueprint('projects', __name__, url_prefix='/api')
 
 @bp.route('/projects', methods=['GET'])
 def get_projects():
-    projects = Project.query.all()
-    return jsonify([{
-        'id': p.id,
-        'name': p.name,
-        'description': p.description,
-        'status': p.status,
-        'client_info': p.client_info,
-        'due_date': p.due_date.isoformat() if p.due_date else None,
-        'priority': p.priority,
-        'created_at': p.created_at.isoformat(),
-        'updated_at': p.updated_at.isoformat()
-    } for p in projects])
+    # Pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
+
+    # Query with pagination
+    pagination = Project.query.paginate(page=page, per_page=per_page, error_out=False)
+    projects = pagination.items
+
+    return jsonify({
+        'projects': [{
+            'id': p.id,
+            'name': p.name,
+            'description': p.description,
+            'status': p.status,
+            'client_info': p.client_info,
+            'due_date': p.due_date.isoformat() if p.due_date else None,
+            'priority': p.priority,
+            'created_at': p.created_at.isoformat(),
+            'updated_at': p.updated_at.isoformat()
+        } for p in projects],
+        'pagination': {
+            'page': pagination.page,
+            'per_page': pagination.per_page,
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'has_next': pagination.has_next,
+            'has_prev': pagination.has_prev
+        }
+    })
 
 
 @bp.route('/projects', methods=['POST'])

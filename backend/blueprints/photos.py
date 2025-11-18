@@ -158,7 +158,7 @@ def upload_photo_to_survey(survey_id):
         question_id = int(question_id_str) if question_id_str else None
         section_name = "general"
         if question_id:
-            template_field = TemplateField.query.get(question_id)
+            template_field = db.session.get(TemplateField, question_id)
             if template_field and template_field.section:
                 section_name = template_field.section.lower().replace(" ", "_")
 

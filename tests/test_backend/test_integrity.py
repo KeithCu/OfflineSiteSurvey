@@ -104,11 +104,11 @@ class TestIntegrityUtils:
             assert summary['photos'] == 1
 
             # Verify database is clean
-            assert Project.query.get(project.id) is None
-            assert Site.query.get(site.id) is None
-            assert Survey.query.get(survey.id) is None
-            assert SurveyResponse.query.get(response.id) is None
-            assert Photo.query.get(photo.id) is None
+            assert db.session.get(Project, project.id) is None
+            assert db.session.get(Site, site.id) is None
+            assert db.session.get(Survey, survey.id) is None
+            assert db.session.get(SurveyResponse, response.id) is None
+            assert db.session.get(Photo, photo.id) is None
 
     def test_cascade_delete_site(self, app):
         """Test cascading delete of a site."""
@@ -141,10 +141,10 @@ class TestIntegrityUtils:
             assert summary['photos'] == 1
 
             # Verify database is clean
-            assert Site.query.get(site.id) is None
-            assert Survey.query.get(survey.id) is None
-            assert SurveyResponse.query.get(response.id) is None
-            assert Photo.query.get(photo.id) is None
+            assert db.session.get(Site, site.id) is None
+            assert db.session.get(Survey, survey.id) is None
+            assert db.session.get(SurveyResponse, response.id) is None
+            assert db.session.get(Photo, photo.id) is None
 
     def test_cascade_delete_survey(self, app):
         """Test cascading delete of a survey."""
@@ -172,9 +172,9 @@ class TestIntegrityUtils:
             assert summary['photos'] == 1
 
             # Verify database is clean
-            assert Survey.query.get(survey.id) is None
-            assert SurveyResponse.query.get(response.id) is None
-            assert Photo.query.get(photo.id) is None
+            assert db.session.get(Survey, survey.id) is None
+            assert db.session.get(SurveyResponse, response.id) is None
+            assert db.session.get(Photo, photo.id) is None
 
 
 class TestCRDTValidation:
@@ -454,4 +454,4 @@ class TestIntegrityAudit:
             assert 'sites: 1' in result.output
 
             # Verify record was deleted
-            assert Site.query.get(site.id) is None
+            assert db.session.get(Site, site.id) is None

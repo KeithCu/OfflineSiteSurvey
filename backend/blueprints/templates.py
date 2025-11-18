@@ -10,7 +10,14 @@ bp = Blueprint('templates', __name__, url_prefix='/api')
 
 @bp.route('/templates', methods=['GET'])
 def get_templates():
-    templates = SurveyTemplate.query.all()
+    # Pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
+
+    # Query with pagination
+    pagination = SurveyTemplate.query.paginate(page=page, per_page=per_page, error_out=False)
+    templates = pagination.items
+
     template_list = []
     for t in templates:
         try:
@@ -23,7 +30,17 @@ def get_templates():
             'fields': [{'id': f.id, 'question': f.question} for f in t.fields],
             'section_tags': section_tags
         })
-    return jsonify(template_list)
+    return jsonify({
+        'templates': template_list,
+        'pagination': {
+            'page': pagination.page,
+            'per_page': pagination.per_page,
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'has_next': pagination.has_next,
+            'has_prev': pagination.has_prev
+        }
+    })
 
 
 @bp.route('/templates/<int:template_id>', methods=['GET'])

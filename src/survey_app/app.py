@@ -16,12 +16,14 @@ from .handlers.photo_handler import PhotoHandler
 from .handlers.template_handler import TemplateHandler
 from .handlers.sync_handler import SyncHandler
 from .handlers.companycam_handler import CompanyCamHandler
+from .handlers.tag_management_handler import TagManagementHandler
 from .ui.survey_ui import SurveyUI
 from .ui_manager import UIManager
 from .config_manager import ConfigManager
 from .services.api_service import APIService
 from .services.db_service import DBService
 from .services.companycam_service import CompanyCamService
+from .services.tag_mapper import TagMapper
 from .logging_config import setup_logging
 import asyncio
 import logging
@@ -53,6 +55,7 @@ class SurveyApp(toga.App):
         self.db_service = DBService(self.db)
         self.api_service = APIService(self.config.api_base_url)
         self.companycam_service = CompanyCamService(self.config)
+        self.tag_mapper = TagMapper(self.companycam_service)
 
         # Initialize state
         self.current_project = None
@@ -84,6 +87,7 @@ class SurveyApp(toga.App):
         self.template_handler = TemplateHandler(self)
         self.sync_handler = SyncHandler(self)
         self.companycam_handler = CompanyCamHandler(self)
+        self.tag_management_handler = TagManagementHandler(self)
 
         # Pass config to handlers that need it
         self.photo_handler.config = self.config
@@ -500,6 +504,8 @@ class SurveyApp(toga.App):
         async def capture_with_location():
             lat, long = await self.get_gps_location()
             if self.current_survey:
+                current_field = self.get_next_visible_field()
+                question_id = current_field['id'] if current_field else None
                 # Save photo to database (hash and size computed automatically in save_photo)
                 photo_record = {
                     'id': self.last_photo_id,
@@ -509,7 +515,8 @@ class SurveyApp(toga.App):
                     'longitude': long,
                     'description': f"Photo for: {self.ui_manager.question_label.text}",
                     'category': PhotoCategory.GENERAL.value,
-                    'exif_data': exif_json
+                    'exif_data': exif_json,
+                    'question_id': question_id
                 }
                 self.db.save_photo(photo_record)
 

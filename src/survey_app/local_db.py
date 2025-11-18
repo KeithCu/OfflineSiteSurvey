@@ -17,7 +17,7 @@ from shared.models import (
     SurveyTemplate, TemplateField, Photo
 )
 # Keep local enums for now, can be moved to shared later if needed
-from .enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
+from shared.enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
 # Import shared utilities
 from shared.utils import compute_photo_hash, generate_thumbnail
 

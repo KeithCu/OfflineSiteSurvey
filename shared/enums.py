@@ -23,16 +23,6 @@ class PhotoCategory(str, enum.Enum):
     PROGRESS = "progress"
 
 
-class IssueCategory(str, enum.Enum):
-    STRUCTURAL = "structural"
-    ELECTRICAL = "electrical"
-    PLUMBING = "plumbing"
-    HVAC = "hvac"
-    SAFETY = "safety"
-    COSMETIC = "cosmetic"
-    OTHER = "other"
-
-
 class PriorityLevel(str, enum.Enum):
     CRITICAL = "critical"
     HIGH = "high"

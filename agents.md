@@ -32,7 +32,7 @@ ProjectStatus: ['draft', 'in_progress', 'completed', 'archived']
 PhotoCategory: ['general', 'interior', 'exterior', 'issues', 'progress']
 
 # Priority Levels
-PriorityLevel: ['low', 'medium', 'high']
+PriorityLevel: ['critical', 'high', 'medium', 'low']
 ```
 
 ### Timestamp Conventions

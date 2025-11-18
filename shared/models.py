@@ -6,6 +6,8 @@ from shared.enums import SurveyStatus, ProjectStatus, PhotoCategory, PriorityLev
 Base = declarative_base()
 
 
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
 def utc_now():
     """Return current UTC datetime (timezone-aware)."""
     return datetime.now(timezone.utc)
@@ -19,7 +21,7 @@ class Project(Base):
     client_info = Column(Text, server_default="")
     due_date = Column(DateTime)
     priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, server_default=PriorityLevel.MEDIUM.value)
-    created_at = Column(DateTime, default=utc_now)
+    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     sites = relationship('Site', backref='project', lazy=True)
 
@@ -33,7 +35,7 @@ class Site(Base):
     longitude = Column(Float, server_default="0.0")
     notes = Column(Text, server_default="")
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), index=True)
-    created_at = Column(DateTime, default=utc_now)
+    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     surveys = relationship('Survey', backref='site', lazy=True)
 
@@ -46,7 +48,7 @@ class Survey(Base):
     title = Column(String(200), nullable=False, server_default="Untitled Survey")
     description = Column(Text, server_default="")
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False)
-    created_at = Column(DateTime, default=utc_now)
+    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, server_default=SurveyStatus.DRAFT.value)
     template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'))
@@ -68,7 +70,7 @@ class SurveyResponse(Base):
     response_type = Column(String(50), index=True, server_default="")
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
-    created_at = Column(DateTime, default=utc_now)
+    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
     question_id = Column(Integer, index=True)
     field_type = Column(String(50), server_default="")
 
@@ -134,9 +136,9 @@ class Photo(Base):
     longitude = Column(Float, server_default="0.0")
     description = Column(Text, server_default="")
     category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL, server_default=PhotoCategory.GENERAL.value)
-    created_at = Column(DateTime, default=utc_now, index=True)
+    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"), index=True)
     hash_algo = Column(String(10), default='sha256', server_default='sha256')
-    hash_value = Column(String(128), index=True, server_default="")
+    hash_value = Column(String(64), index=True, server_default="")
     size_bytes = Column(Integer, server_default="0")
     file_path = Column(String(500), server_default="")
     requirement_id = Column(String, index=True, server_default="")

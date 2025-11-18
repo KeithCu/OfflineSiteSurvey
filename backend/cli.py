@@ -151,6 +151,20 @@ def check_referential_integrity_command(fix, relationship):
 
     orphaned = get_orphaned_records(relationship)
 
+    # Add photo-site relationship check
+    if 'photos' in orphaned:
+        photo_ids = orphaned['photos']
+        orphaned_photo_sites = []
+        for photo_id in photo_ids:
+            photo = db.session.get(Photo, photo_id)
+            if photo and photo.site_id:
+                site_exists = db.session.query(Site.query.filter_by(id=photo.site_id).exists()).scalar()
+                if not site_exists:
+                    orphaned_photo_sites.append(photo_id)
+        if orphaned_photo_sites:
+            orphaned.setdefault('photo_sites', []).extend(orphaned_photo_sites)
+            total_orphaned += len(orphaned_photo_sites)
+
     total_orphaned = sum(len(records) for records in orphaned.values())
 
     if total_orphaned == 0:
@@ -191,7 +205,12 @@ def check_referential_integrity_command(fix, relationship):
             for photo_id in record_ids[:10]:
                 photo = db.session.get(Photo, photo_id)
                 if photo:
-                    click.echo(f"  Photo ID {photo_id}: references invalid survey_id {photo.survey_id} or site_id {photo.site_id}")
+                    click.echo(f"  Photo ID {photo_id}: references invalid survey_id {photo.survey_id}")
+        elif relationship_type == 'photo_sites':
+            for photo_id in record_ids[:10]:
+                photo = db.session.get(Photo, photo_id)
+                if photo:
+                    click.echo(f"  Photo ID {photo_id}: references invalid site_id {photo.site_id}")
 
         if len(record_ids) > 10:
             click.echo(f"  ... and {len(record_ids) - 10} more")

@@ -2,6 +2,7 @@
 import re
 import os
 from typing import Any, Optional, Union, List
+from shared.enums import ProjectStatus, SurveyStatus, PriorityLevel
 
 try:
     import bleach
@@ -63,7 +64,7 @@ class Validator:
 
     @staticmethod
     def validate_coordinates(lat: Union[str, float], lng: Union[str, float]) -> tuple[float, float]:
-        """Validate GPS coordinates."""
+        """Validate GPS coordinates with 6-8 decimal precision."""
         try:
             lat_val = float(lat) if isinstance(lat, str) else lat
             lng_val = float(lng) if isinstance(lng, str) else lng
@@ -73,6 +74,16 @@ class Validator:
 
             if not (-180 <= lng_val <= 180):
                 raise ValidationError("Longitude must be between -180 and 180")
+
+            # Check precision
+            if isinstance(lat, str):
+                decimal_places = len(lat.split('.')[1]) if '.' in lat else 0
+                if not 6 <= decimal_places <= 8:
+                    raise ValidationError("Latitude must have 6-8 decimal places")
+            if isinstance(lng, str):
+                decimal_places = len(lng.split('.')[1]) if '.' in lng else 0
+                if not 6 <= decimal_places <= 8:
+                    raise ValidationError("Longitude must have 6-8 decimal places")
 
             return lat_val, lng_val
         except (ValueError, TypeError):
@@ -124,35 +135,16 @@ class Validator:
 
     @staticmethod
     def sanitize_html(text: str) -> str:
-        """Secure HTML sanitization using bleach library or fallback to basic filtering."""
+        """Secure HTML sanitization using bleach library."""
         if not text:
             return text
+            
+        # Use bleach for proper HTML sanitization
+        # Allow only safe tags and attributes, no CSS or JavaScript
+        allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote']
+        allowed_attributes = {}
 
-        if HAS_BLEACH:
-            # Use bleach for proper HTML sanitization
-            # Allow only safe tags and attributes, no CSS or JavaScript
-            allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote']
-            allowed_attributes = {}
-
-            return bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes, strip=True)
-        else:
-            # Fallback to basic filtering if bleach is not available
-            # Remove script tags and their contents
-            text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
-
-            # Remove other potentially dangerous tags
-            dangerous_tags = ['iframe', 'object', 'embed', 'form', 'input', 'button', 'style', 'link']
-            for tag in dangerous_tags:
-                text = re.sub(rf'<{tag}[^>]*>.*?</{tag}>', '', text, flags=re.IGNORECASE | re.DOTALL)
-
-            # Remove javascript: URLs
-            text = re.sub(r'javascript:[^"\'>\s]*', '', text, flags=re.IGNORECASE)
-
-            # Remove event handlers (on*)
-            text = re.sub(r'\s+on\w+="[^"]*"', '', text, flags=re.IGNORECASE)
-            text = re.sub(r"\s+on\w+='[^']*'", '', text, flags=re.IGNORECASE)
-
-            return text
+        return bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes, strip=True)
 
     @staticmethod
     def validate_project_data(data: dict) -> dict:
@@ -174,8 +166,17 @@ class Validator:
                 Validator.validate_string_length(data['client_info'], 'Client info', 0, 500)
             )
 
-        return validated
+        # Validate status and priority
+        if 'status' in data:
+            validated['status'] = Validator.validate_choice(
+                data['status'], 'Project status', [status.value for status in ProjectStatus]
+            )
+        if 'priority' in data:
+            validated['priority'] = Validator.validate_choice(
+                data['priority'], 'Project priority', [priority.value for priority in PriorityLevel]
+            )
 
+        return validated
     @staticmethod
     def validate_site_data(data: dict) -> dict:
         """Validate site data."""
@@ -228,5 +229,11 @@ class Validator:
             Validator.validate_numeric_range(data.get('site_id'), 'Site ID', 1),
             'Site ID'
         )
+        
+        # Validate status
+        if 'status' in data:
+            validated['status'] = Validator.validate_choice(
+                data['status'], 'Survey status', [status.value for status in SurveyStatus]
+            )
 
         return validated

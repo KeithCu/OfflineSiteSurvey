@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from ..models import db, Photo, Survey, TemplateField
 from shared.utils import compute_photo_hash, generate_thumbnail
 from ..services.upload_queue import get_upload_queue
+from ..utils import api_error, handle_api_exception
 
 
 def extract_object_name_from_url(url):
@@ -87,7 +88,7 @@ def mark_requirement_fulfillment():
         })
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': f'Failed to update photo requirement: {str(e)}'}), 500
+        return handle_api_exception(e, "update photo requirement")
 
 
 @bp.route('/photos/<photo_id>/integrity', methods=['GET'])
@@ -230,13 +231,8 @@ def upload_photo_to_survey(survey_id):
             os.unlink(temp_path)
             return jsonify({'error': f'Failed to process image: {str(e)}'}), 400
 
-        # Read image data for storage (keeping existing behavior for now)
-        # TODO: Consider streaming this as well for very large files
-        with open(temp_path, 'rb') as f:
-            image_data = f.read()
-
-        # Clean up temporary file
-        os.unlink(temp_path)
+        # Use file path instead of loading image data into memory to prevent OOM with large files
+        image_path_for_upload = temp_path
 
         description = request.form.get('description', '')
         category = request.form.get('category', 'general')
@@ -278,7 +274,10 @@ def upload_photo_to_survey(survey_id):
 
         # Queue for cloud upload
         upload_queue = get_upload_queue()
-        upload_queue.queue_photo_for_upload(photo_id, image_data, thumbnail_data)
+        upload_queue.queue_photo_for_upload(photo_id, photo_path=image_path_for_upload, thumbnail_data=thumbnail_data)
+
+        # Clean up temporary file after queuing (upload queue has copied it)
+        os.unlink(image_path_for_upload)
 
         # Start upload queue if not already running
         upload_queue.start()

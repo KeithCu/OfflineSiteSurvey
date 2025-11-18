@@ -186,6 +186,11 @@ class Validator:
             'Site name'
         )
 
+        validated['project_id'] = Validator.validate_required(
+            Validator.validate_numeric_range(data.get('project_id'), 'Project ID', 1),
+            'Project ID'
+        )
+
         if 'address' in data:
             validated['address'] = Validator.validate_string_length(
                 data['address'], 'Site address', 0, 500

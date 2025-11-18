@@ -311,14 +311,18 @@ class CloudStorageService:
 
 # Global instance
 _cloud_storage = None
+_cloud_storage_lock = Lock()
 
 def get_cloud_storage():
-    """Get or create cloud storage service instance."""
+    """Get or create cloud storage service instance (thread-safe)."""
     global _cloud_storage
     if _cloud_storage is None:
-        try:
-            _cloud_storage = CloudStorageService()
-        except Exception as e:
-            logger.error(f"Failed to initialize cloud storage: {e}")
-            raise
+        with _cloud_storage_lock:
+            # Double-check pattern for thread safety
+            if _cloud_storage is None:
+                try:
+                    _cloud_storage = CloudStorageService()
+                except Exception as e:
+                    logger.error(f"Failed to initialize cloud storage: {e}")
+                    raise
     return _cloud_storage

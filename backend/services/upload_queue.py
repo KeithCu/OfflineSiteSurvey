@@ -204,10 +204,10 @@ class UploadQueueService:
         processing_path = self._move_to_processing(photo.id)
 
         try:
-            # Generate thumbnail if not exists
+            # Generate thumbnail if not exists (outside transaction)
             thumbnail_path = self._ensure_thumbnail(processing_path)
 
-            # Upload to cloud - organize by site_id
+            # Upload to cloud - organize by site_id (outside transaction to avoid long-running tx)
             result = self.cloud_storage.upload_photo(
                 photo_id=photo.id,
                 photo_path=processing_path,
@@ -215,7 +215,7 @@ class UploadQueueService:
                 site_id=photo.site_id
             )
 
-            # Update photo record with cloud URLs
+            # Update photo record with cloud URLs in a short transaction
             photo.cloud_url = result['photo_url']
             photo.thumbnail_url = result['thumbnail_url']
             photo.upload_status = 'completed'
@@ -272,12 +272,9 @@ class UploadQueueService:
         if os.path.exists(thumbnail_path):
             return thumbnail_path
 
-        # Generate thumbnail
+        # Generate thumbnail from file path to avoid loading large images into memory
         try:
-            with open(photo_path, 'rb') as f:
-                image_data = f.read()
-
-            thumbnail_data = generate_thumbnail(image_data, max_size=200)
+            thumbnail_data = generate_thumbnail(image_path=photo_path, max_size=200)
 
             with open(thumbnail_path, 'wb') as f:
                 f.write(thumbnail_data)
@@ -288,25 +285,36 @@ class UploadQueueService:
             logger.warning(f"Failed to generate thumbnail for {photo_path}: {e}")
             return None
 
-    def queue_photo_for_upload(self, photo_id, photo_data, thumbnail_data=None):
+    def queue_photo_for_upload(self, photo_id, photo_data=None, photo_path=None, thumbnail_data=None):
         """
         Queue a photo for upload to cloud storage.
 
         Args:
             photo_id: Photo identifier
-            photo_data: Raw photo bytes
+            photo_data: Raw photo bytes (optional if photo_path provided)
+            photo_path: Path to photo file (optional if photo_data provided)
             thumbnail_data: Raw thumbnail bytes (optional)
         """
+        if photo_data is None and photo_path is None:
+            raise ValueError("Either photo_data or photo_path must be provided")
+
         with self._queue_lock:
             try:
                 # Save photo data locally
-                photo_path = self._get_local_photo_path(photo_id)
-                with open(photo_path, 'wb') as f:
-                    f.write(photo_data)
+                local_photo_path = self._get_local_photo_path(photo_id)
+
+                if photo_path:
+                    # Copy file from source path
+                    import shutil
+                    shutil.copy2(photo_path, local_photo_path)
+                else:
+                    # Write data to file
+                    with open(local_photo_path, 'wb') as f:
+                        f.write(photo_data)
 
                 # Save thumbnail if provided
                 if thumbnail_data:
-                    thumbnail_path = photo_path.replace('.jpg', '_thumb.jpg')
+                    thumbnail_path = local_photo_path.replace('.jpg', '_thumb.jpg')
                     with open(thumbnail_path, 'wb') as f:
                         f.write(thumbnail_data)
 

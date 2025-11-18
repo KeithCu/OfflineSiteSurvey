@@ -10,6 +10,19 @@ bp = Blueprint('auth', __name__, url_prefix='/api')
 @bp.route('/auth/key', methods=['POST'])
 def generate_api_key():
     """Generate a new API key for authentication."""
+    # Require existing API key to generate new ones (for security)
+    api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+    if api_key:
+        # Validate the existing API key
+        config_entry = AppConfig.query.filter_by(value=api_key, category='auth').first()
+        if not config_entry:
+            return jsonify({'error': 'Invalid existing API key'}), 401
+    else:
+        # Check if this is initial setup (no API keys exist yet)
+        existing_keys = AppConfig.query.filter_by(category='auth').count()
+        if existing_keys > 0:
+            return jsonify({'error': 'Existing API key required to generate new keys'}), 401
+
     try:
         # Generate a secure random API key
         api_key = secrets.token_urlsafe(32)

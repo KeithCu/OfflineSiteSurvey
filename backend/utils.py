@@ -1,10 +1,51 @@
 """Backend utility functions for Site Survey application."""
+from flask import jsonify
 from shared.utils import compute_photo_hash, should_show_field
 from .models import db, Project, Site, Survey, SurveyResponse, SurveyTemplate, TemplateField, Photo
 import logging
 
 
 logger = logging.getLogger(__name__)
+
+
+def api_error(message, status_code=400, log_level='warning', details=None):
+    """
+    Standardized API error response with consistent logging.
+
+    Args:
+        message (str): Error message for the client
+        status_code (int): HTTP status code
+        log_level (str): Logging level ('debug', 'info', 'warning', 'error', 'critical')
+        details (dict, optional): Additional details for logging
+
+    Returns:
+        Flask response: JSON error response
+    """
+    # Log the error with appropriate level
+    log_func = getattr(logger, log_level, logger.warning)
+    if details:
+        log_func(f"API Error ({status_code}): {message} - Details: {details}")
+    else:
+        log_func(f"API Error ({status_code}): {message}")
+
+    # Return consistent JSON error format
+    return jsonify({'error': message}), status_code
+
+
+def handle_api_exception(e, operation="operation", status_code=500):
+    """
+    Handle exceptions in API endpoints with consistent logging and responses.
+
+    Args:
+        e (Exception): The exception that occurred
+        operation (str): Description of the operation being performed
+        status_code (int): HTTP status code to return
+
+    Returns:
+        Flask response: JSON error response
+    """
+    logger.error(f"Exception during {operation}: {str(e)}", exc_info=True)
+    return api_error(f"Failed to {operation}", status_code, 'error')
 
 
 def validate_foreign_key(table_name, column_name, value):

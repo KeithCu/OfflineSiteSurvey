@@ -2,6 +2,7 @@
 from flask import Blueprint, jsonify, request
 import sqlite3
 import json
+import uuid
 from ..models import db, Photo
 from ..utils import compute_photo_hash
 
@@ -26,6 +27,7 @@ def apply_changes():
     cursor = conn.cursor()
 
     integrity_issues = []
+    valid_changes = []
 
     try:
         for change in changes:
@@ -170,8 +172,13 @@ def apply_changes():
                                     })
                                     continue  # Skip this change
                         except Exception as e:
-                            # Log but don't reject - cloud might be temporarily unavailable
-                            pass
+                            # Cloud verification failed - log the issue but don't reject the change
+                            # as cloud might be temporarily unavailable
+                            integrity_issues.append({
+                                'photo_id': photo_id,
+                                'error': f'Hash verification failed due to cloud unavailability: {str(e)}',
+                                'action': 'logged_only'
+                            })
 
                     # Validate upload_status changes to 'completed' - verify cloud data exists and matches hash (with fallback)
                     elif change['cid'] == 'upload_status' and change['val'] == 'completed' and existing_photo and existing_photo.hash_value:
@@ -215,6 +222,11 @@ def apply_changes():
                         'action': 'logged'
                     })
 
+            # Collect valid changes for batch application
+            valid_changes.append(change)
+
+        # Apply all valid changes in a single short transaction
+        for change in valid_changes:
             cursor.execute(
                 "INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (change['table'], change['pk'], change['cid'], change['val'], change['col_version'], change['db_version'], change['site_id'])
@@ -248,15 +260,15 @@ def get_changes():
         except ValueError:
             return jsonify({'error': 'Version must be an integer'}), 400
 
-        # Validate site_id parameter
+        # Validate site_id parameter (client UUID)
         if not site_id:
             return jsonify({'error': 'site_id parameter is required'}), 400
 
-        # Validate that site_id exists in the database
-        from ..models import Site
-        site = db.session.get(Site, site_id)
-        if not site:
-            return jsonify({'error': f'Invalid site_id: site {site_id} does not exist'}), 400
+        # Validate that site_id is a valid UUID format (client identifier)
+        try:
+            uuid.UUID(site_id)
+        except (ValueError, TypeError):
+            return jsonify({'error': f'Invalid site_id format: {site_id} is not a valid UUID'}), 400
 
     except Exception:
         return jsonify({'error': 'Invalid request parameters'}), 400

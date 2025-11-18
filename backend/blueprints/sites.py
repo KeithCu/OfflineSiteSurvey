@@ -1,6 +1,8 @@
 """Sites blueprint for Flask API."""
 from flask import Blueprint, jsonify, request
 from ..models import db, Site
+from shared.validation import Validator, ValidationError
+from ..utils import api_error, handle_api_exception
 
 
 bp = Blueprint('sites', __name__, url_prefix='/api')
@@ -59,59 +61,29 @@ def create_site():
     try:
         data = request.get_json()
     except Exception:
-        return jsonify({'error': 'Invalid JSON data'}), 400
+        return api_error('Invalid JSON data'), 400
 
     if not isinstance(data, dict):
-        return jsonify({'error': 'Request data must be a JSON object'}), 400
+        return api_error('Request data must be a JSON object'), 400
 
-    # Validate required fields
-    if 'name' not in data:
-        return jsonify({'error': 'name field is required'}), 400
+    # Validate input data using Validator
+    try:
+        validated_data = Validator.validate_site_data(data)
+    except ValidationError as e:
+        return api_error(str(e)), 400
 
-    name = data['name']
-    if not isinstance(name, str) or not name.strip():
-        return jsonify({'error': 'name must be a non-empty string'}), 400
+    # Validate that project_id exists
+    from ..utils import validate_foreign_key
+    if not validate_foreign_key('projects', 'id', validated_data['project_id']):
+        return api_error(f'Project with ID {validated_data["project_id"]} does not exist'), 400
 
-    # Validate optional fields
-    address = data.get('address')
-    if address is not None and not isinstance(address, str):
-        return jsonify({'error': 'address must be a string'}), 400
-
-    # Validate project_id exists
-    project_id = data.get('project_id')
-    if project_id is not None:
-        try:
-            project_id = int(project_id)
-        except (ValueError, TypeError):
-            return jsonify({'error': 'project_id must be an integer'}), 400
-
-        from ..utils import validate_foreign_key
-        if not validate_foreign_key('projects', 'id', project_id):
-            return jsonify({'error': f'project_id {project_id} does not exist'}), 400
-    else:
-        return jsonify({'error': 'project_id is required'}), 400
-
-    latitude = data.get('latitude')
-    if latitude is not None:
-        try:
-            latitude = float(latitude)
-            if not (-90 <= latitude <= 90):
-                return jsonify({'error': 'latitude must be between -90 and 90'}), 400
-        except (ValueError, TypeError):
-            return jsonify({'error': 'latitude must be a number'}), 400
-
-    longitude = data.get('longitude')
-    if longitude is not None:
-        try:
-            longitude = float(longitude)
-            if not (-180 <= longitude <= 180):
-                return jsonify({'error': 'longitude must be between -180 and 180'}), 400
-        except (ValueError, TypeError):
-            return jsonify({'error': 'longitude must be a number'}), 400
-
-    notes = data.get('notes')
-    if notes is not None and not isinstance(notes, str):
-        return jsonify({'error': 'notes must be a string'}), 400
+    # Extract validated data
+    name = validated_data['name']
+    project_id = validated_data['project_id']
+    address = validated_data.get('address', '')
+    notes = validated_data.get('notes', '')
+    latitude = validated_data.get('latitude', 0.0)
+    longitude = validated_data.get('longitude', 0.0)
 
     try:
         site = Site(

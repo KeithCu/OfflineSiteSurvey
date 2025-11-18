@@ -15,6 +15,7 @@ class SyncHandler:
         self.sync_scheduler = None
         self.sync_failures = 0
         self.last_sync_success = None
+        self._sync_lock = threading.Lock()  # Prevent concurrent sync operations
 
     def start_sync_scheduler(self):
         """Start the background sync scheduler"""
@@ -52,6 +53,11 @@ class SyncHandler:
 
     def sync_with_server(self, widget=None):
         """Sync local data with server - returns True on success"""
+        # Prevent concurrent sync operations
+        if not self._sync_lock.acquire(blocking=False):
+            self.logger.info("Sync already in progress, skipping")
+            return True  # Consider this a success to avoid error status
+
         try:
             # Get local changes
             local_changes = self.app.db.get_changes_since(self.app.last_sync_version)
@@ -97,6 +103,8 @@ class SyncHandler:
         except Exception as e:
             self.update_sync_status(f"Sync error: {str(e)}")
             return False
+        finally:
+            self._sync_lock.release()
 
     def update_sync_status(self, message):
         """Update sync status with health indicators"""

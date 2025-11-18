@@ -346,7 +346,7 @@ class LocalDatabase:
             raw_conn = conn.connection
             cursor = raw_conn.cursor()
             cursor.execute(
-                "SELECT \"table\", pk, cid, val, col_version, db_version, site_id FROM crsql_changes WHERE db_version > ? AND site_id = ?",
+                "SELECT \"table\", pk, cid, val, col_version, db_version, site_id FROM crsql_changes WHERE db_version > ? AND site_id != ?",
                 (version, self.site_id)
             )
             changes = cursor.fetchall()

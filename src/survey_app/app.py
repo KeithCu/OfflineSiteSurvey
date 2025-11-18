@@ -62,7 +62,6 @@ class SurveyApp(toga.App):
         self.current_survey = None
         self.current_site = None
         self.responses = []
-        self.config = {}  # App configuration
         self.last_sync_version = 0
         self.template_fields = []
         self.total_fields = 0
@@ -166,7 +165,9 @@ class SurveyApp(toga.App):
                 qid: draft for qid, draft in self.draft_responses.items()
                 if current_time - draft['timestamp'] < self.config.draft_retention_time
             }
-        # Header
+
+    def load_survey_from_selection(self):
+        """Load survey from UI selection dropdown"""
         if self.ui_manager.survey_selection.value:
             survey_id_str = self.ui_manager.survey_selection.value.split(':')[0]
             try:

@@ -4,6 +4,8 @@ import os
 import hashlib
 import logging
 import requests
+import time
+from threading import Lock
 from libcloud.storage.types import Provider
 from libcloud.storage.providers import get_driver
 from shared.utils import compute_photo_hash
@@ -39,7 +41,52 @@ class CloudStorageService:
         for path in [self.local_path, self.pending_path, self.processing_path, self.completed_path]:
             os.makedirs(path, exist_ok=True)
 
+        # Circuit breaker initialization
+        self._circuit_lock = Lock()
+        self._failure_count = 0
+        self._last_failure_time = 0
+        self._circuit_open = False
+        self._failure_threshold = 5  # Open circuit after 5 consecutive failures
+        self._recovery_timeout = 300  # Try again after 5 minutes
+        self._success_count = 0
+        self._min_success_threshold = 3  # Close circuit after 3 consecutive successes
+
         logger.info(f"Cloud storage initialized with provider: {self.provider_name}")
+
+    def _is_circuit_open(self):
+        """Check if circuit breaker is open (blocking requests)."""
+        with self._circuit_lock:
+            if not self._circuit_open:
+                return False
+
+            # Check if recovery timeout has passed
+            if time.time() - self._last_failure_time >= self._recovery_timeout:
+                # Allow one request to test recovery
+                logger.info("Circuit breaker recovery timeout reached, allowing test request")
+                return False
+
+            return True
+
+    def _record_success(self):
+        """Record a successful operation for circuit breaker."""
+        with self._circuit_lock:
+            self._success_count += 1
+            if self._circuit_open and self._success_count >= self._min_success_threshold:
+                self._circuit_open = False
+                self._failure_count = 0
+                self._success_count = 0
+                logger.info("Circuit breaker closed - service recovered")
+
+    def _record_failure(self):
+        """Record a failed operation for circuit breaker."""
+        with self._circuit_lock:
+            self._failure_count += 1
+            self._last_failure_time = time.time()
+            self._success_count = 0
+
+            if self._failure_count >= self._failure_threshold:
+                self._circuit_open = True
+                logger.warning(f"Circuit breaker opened after {self._failure_count} consecutive failures")
 
     def _get_driver(self):
         """Get the appropriate libcloud driver based on provider."""
@@ -82,7 +129,7 @@ class CloudStorageService:
 
     def upload_photo(self, photo_id, photo_path, thumbnail_path=None, site_id=None):
         """
-        Upload photo to cloud storage.
+        Upload photo to cloud storage with circuit breaker protection.
 
         Args:
             photo_id: Unique photo identifier
@@ -94,8 +141,12 @@ class CloudStorageService:
             dict: {'photo_url': str, 'thumbnail_url': str|None, 'object_name': str, 'thumbnail_object_name': str|None}
 
         Raises:
-            Exception: If upload fails
+            Exception: If upload fails or circuit breaker is open
         """
+        # Check circuit breaker
+        if self._is_circuit_open():
+            raise Exception("Cloud storage circuit breaker is open - service temporarily unavailable")
+
         if not os.path.exists(photo_path):
             raise FileNotFoundError(f"Photo file not found: {photo_path}")
 
@@ -106,30 +157,39 @@ class CloudStorageService:
             except (ValueError, TypeError):
                 raise ValueError(f"site_id must be an integer, got: {site_id}")
 
-        # Upload main photo - organize by site_id directory if provided
-        if site_id is not None:
-            photo_object_name = f"{site_id}/{photo_id}.jpg"
-        else:
-            photo_object_name = f"{photo_id}.jpg"
-
-        photo_url = self._upload_object(photo_path, photo_object_name)
-
-        # Upload thumbnail if provided
-        thumbnail_url = None
-        thumbnail_object_name = None
-        if thumbnail_path and os.path.exists(thumbnail_path):
+        try:
+            # Upload main photo - organize by site_id directory if provided
             if site_id is not None:
-                thumbnail_object_name = f"{site_id}/thumbnails/{photo_id}_thumb.jpg"
+                photo_object_name = f"{site_id}/{photo_id}.jpg"
             else:
-                thumbnail_object_name = f"thumbnails/{photo_id}_thumb.jpg"
-            thumbnail_url = self._upload_object(thumbnail_path, thumbnail_object_name)
+                photo_object_name = f"{photo_id}.jpg"
 
-        return {
-            'photo_url': photo_url,
-            'thumbnail_url': thumbnail_url,
-            'object_name': photo_object_name,
-            'thumbnail_object_name': thumbnail_object_name
-        }
+            photo_url = self._upload_object(photo_path, photo_object_name)
+
+            # Upload thumbnail if provided
+            thumbnail_url = None
+            thumbnail_object_name = None
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                if site_id is not None:
+                    thumbnail_object_name = f"{site_id}/thumbnails/{photo_id}_thumb.jpg"
+                else:
+                    thumbnail_object_name = f"thumbnails/{photo_id}_thumb.jpg"
+                thumbnail_url = self._upload_object(thumbnail_path, thumbnail_object_name)
+
+            # Record success
+            self._record_success()
+
+            return {
+                'photo_url': photo_url,
+                'thumbnail_url': thumbnail_url,
+                'object_name': photo_object_name,
+                'thumbnail_object_name': thumbnail_object_name
+            }
+
+        except Exception as e:
+            # Record failure for circuit breaker
+            self._record_failure()
+            raise e
 
     def _upload_object(self, file_path, object_name):
         """
@@ -172,18 +232,32 @@ class CloudStorageService:
 
     def download_photo(self, object_name):
         """
-        Download photo from cloud storage.
+        Download photo from cloud storage with circuit breaker protection.
 
         Args:
             object_name: Cloud object name (e.g., 'photos/photo_id.jpg')
 
         Returns:
             bytes: Photo data
+
+        Raises:
+            Exception: If download fails or circuit breaker is open
         """
+        # Check circuit breaker
+        if self._is_circuit_open():
+            raise Exception("Cloud storage circuit breaker is open - service temporarily unavailable")
+
         try:
             obj = self.driver.get_object(self.container.name, object_name)
-            return obj.download(as_stream=False)
+            data = obj.download(as_stream=False)
+
+            # Record success
+            self._record_success()
+            return data
+
         except Exception as e:
+            # Record failure for circuit breaker
+            self._record_failure()
             logger.error(f"Failed to download {object_name}: {e}")
             raise
 

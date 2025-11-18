@@ -6,6 +6,7 @@ import time
 import logging
 import threading
 from datetime import datetime
+from threading import Lock
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from shared.models import Photo
@@ -32,31 +33,43 @@ class UploadQueueService:
         self.max_retries = 5  # maximum retry attempts
         self.base_backoff_seconds = 60  # base delay for exponential backoff
 
+        # Thread synchronization
+        self._running_lock = Lock()
+        self._queue_lock = Lock()
+
     def start(self):
         """Start the background upload queue processor."""
-        if self.running:
-            logger.warning("Upload queue service already running")
-            return
+        with self._running_lock:
+            if self.running:
+                logger.warning("Upload queue service already running")
+                return
 
-        self.running = True
-        self.thread = threading.Thread(target=self._process_queue_loop, daemon=True)
-        self.thread.start()
-        logger.info("Upload queue service started")
+            self.running = True
+            self.thread = threading.Thread(target=self._process_queue_loop, daemon=True)
+            self.thread.start()
+            logger.info("Upload queue service started")
 
     def stop(self):
         """Stop the background upload queue processor."""
-        self.running = False
+        with self._running_lock:
+            self.running = False
+
         if self.thread:
             self.thread.join(timeout=5)
         logger.info("Upload queue service stopped")
 
     def _process_queue_loop(self):
         """Main processing loop for upload queue."""
-        while self.running:
+        while True:
+            with self._running_lock:
+                if not self.running:
+                    break
+
             try:
                 self._process_pending_uploads()
             except Exception as e:
                 logger.error(f"Error in upload queue processing: {e}")
+
             time.sleep(self.check_interval)
 
     def _process_pending_uploads(self):
@@ -233,34 +246,39 @@ class UploadQueueService:
             photo_data: Raw photo bytes
             thumbnail_data: Raw thumbnail bytes (optional)
         """
-        try:
-            # Save photo data locally
-            photo_path = self._get_local_photo_path(photo_id)
-            with open(photo_path, 'wb') as f:
-                f.write(photo_data)
+        with self._queue_lock:
+            try:
+                # Save photo data locally
+                photo_path = self._get_local_photo_path(photo_id)
+                with open(photo_path, 'wb') as f:
+                    f.write(photo_data)
 
-            # Save thumbnail if provided
-            if thumbnail_data:
-                thumbnail_path = photo_path.replace('.jpg', '_thumb.jpg')
-                with open(thumbnail_path, 'wb') as f:
-                    f.write(thumbnail_data)
+                # Save thumbnail if provided
+                if thumbnail_data:
+                    thumbnail_path = photo_path.replace('.jpg', '_thumb.jpg')
+                    with open(thumbnail_path, 'wb') as f:
+                        f.write(thumbnail_data)
 
-            logger.info(f"Queued photo {photo_id} for upload")
+                logger.info(f"Queued photo {photo_id} for upload")
 
-        except Exception as e:
-            logger.error(f"Failed to queue photo {photo_id}: {e}")
-            raise
+            except Exception as e:
+                logger.error(f"Failed to queue photo {photo_id}: {e}")
+                raise
 
 
-# Global instance
+# Global instance with thread-safe lazy initialization
 _upload_queue = None
+_upload_queue_lock = Lock()
 
 def get_upload_queue(db_uri=None):
-    """Get or create upload queue service instance."""
+    """Get or create upload queue service instance (thread-safe)."""
     global _upload_queue
     if _upload_queue is None:
-        if db_uri is None:
-            # Try to get from environment or use default
-            db_uri = os.getenv('DATABASE_URL', 'sqlite:///instance/backend_main.db')
-        _upload_queue = UploadQueueService(db_uri)
+        with _upload_queue_lock:
+            # Double-check pattern for thread safety
+            if _upload_queue is None:
+                if db_uri is None:
+                    # Try to get from environment or use default
+                    db_uri = os.getenv('DATABASE_URL', 'sqlite:///instance/backend_main.db')
+                _upload_queue = UploadQueueService(db_uri)
     return _upload_queue

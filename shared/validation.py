@@ -3,6 +3,12 @@ import re
 import os
 from typing import Any, Optional, Union, List
 
+try:
+    import bleach
+    HAS_BLEACH = True
+except ImportError:
+    HAS_BLEACH = False
+
 
 class ValidationError(Exception):
     """Raised when input validation fails."""
@@ -118,22 +124,35 @@ class Validator:
 
     @staticmethod
     def sanitize_html(text: str) -> str:
-        """Basic HTML sanitization - remove potentially dangerous tags."""
+        """Secure HTML sanitization using bleach library or fallback to basic filtering."""
         if not text:
             return text
 
-        # Remove script tags and their contents
-        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
+        if HAS_BLEACH:
+            # Use bleach for proper HTML sanitization
+            # Allow only safe tags and attributes, no CSS or JavaScript
+            allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote']
+            allowed_attributes = {}
 
-        # Remove other potentially dangerous tags
-        dangerous_tags = ['iframe', 'object', 'embed', 'form', 'input', 'button']
-        for tag in dangerous_tags:
-            text = re.sub(rf'<{tag}[^>]*>.*?</{tag}>', '', text, flags=re.IGNORECASE | re.DOTALL)
+            return bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes, strip=True)
+        else:
+            # Fallback to basic filtering if bleach is not available
+            # Remove script tags and their contents
+            text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
 
-        # Remove javascript: URLs
-        text = re.sub(r'javascript:[^"\'>\s]*', '', text, flags=re.IGNORECASE)
+            # Remove other potentially dangerous tags
+            dangerous_tags = ['iframe', 'object', 'embed', 'form', 'input', 'button', 'style', 'link']
+            for tag in dangerous_tags:
+                text = re.sub(rf'<{tag}[^>]*>.*?</{tag}>', '', text, flags=re.IGNORECASE | re.DOTALL)
 
-        return text
+            # Remove javascript: URLs
+            text = re.sub(r'javascript:[^"\'>\s]*', '', text, flags=re.IGNORECASE)
+
+            # Remove event handlers (on*)
+            text = re.sub(r'\s+on\w+="[^"]*"', '', text, flags=re.IGNORECASE)
+            text = re.sub(r"\s+on\w+='[^']*'", '', text, flags=re.IGNORECASE)
+
+            return text
 
     @staticmethod
     def validate_project_data(data: dict) -> dict:

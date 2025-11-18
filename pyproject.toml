@@ -21,7 +21,8 @@ backend = [
     "psycopg2-binary>=2.9.0",
     "pillow>=10.0.0", # Pillow is often used in backends for image processing
     "appdirs>=1.4.4",
-    "apache-libcloud>=3.8.0"
+    "apache-libcloud>=3.8.0",
+    "bleach>=6.1.0"
 ]
 frontend = [
     "briefcase>=0.3.17",

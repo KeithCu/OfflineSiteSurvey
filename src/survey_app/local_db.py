@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime
 import uuid
+import secrets
 import zipfile
 import tempfile
 import shutil
@@ -225,6 +226,25 @@ class LocalDatabase:
                 # Store photo locally for pending upload (frontend implementation)
                 # In a full implementation, this would save to local pending directory
                 # For now, we'll keep the thumbnail_data for local display
+
+            # Generate photo ID if not provided
+            if 'id' not in photo_data or not photo_data['id']:
+                # Generate ID in format: {site_id}-{section_name}-{random_string}
+                survey_id = photo_data.get('survey_id')
+                if survey_id:
+                    # Get survey to access site_id
+                    survey = session.get(Survey, survey_id)
+                    if survey:
+                        site_id = survey.site_id
+                        section_name = photo_data.get('section', 'general').lower().replace(" ", "_")
+                        random_string = secrets.token_hex(4)
+                        photo_data['id'] = f"{site_id}-{section_name}-{random_string}"
+                    else:
+                        # Fallback to UUID if survey not found
+                        photo_data['id'] = str(uuid.uuid4())
+                else:
+                    # Fallback to UUID if no survey_id
+                    photo_data['id'] = str(uuid.uuid4())
 
             tags = photo_data.get('tags')
             if tags is None:

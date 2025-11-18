@@ -3,6 +3,7 @@ from flask import Blueprint, jsonify, request
 import json
 import secrets
 import uuid
+import hashlib
 from urllib.parse import urlparse
 from ..models import db, Photo, Survey, TemplateField
 from shared.utils import compute_photo_hash, generate_thumbnail
@@ -148,9 +149,29 @@ def upload_photo_to_survey(survey_id):
         if image_file.filename == '':
             return jsonify({'error': 'No image file selected'}), 400
 
-        # Read image data
-        image_data = image_file.read()
-        if not image_data:
+        # For large files, stream to temporary file to avoid loading into memory
+        import tempfile
+        import os
+
+        # Create temporary file for streaming upload
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+            temp_path = temp_file.name
+            # Stream the upload in chunks to avoid memory issues
+            chunk_size = 8192  # 8KB chunks
+            hash_obj = hashlib.sha256()
+
+            while True:
+                chunk = image_file.stream.read(chunk_size)
+                if not chunk:
+                    break
+                temp_file.write(chunk)
+                hash_obj.update(chunk)
+
+            temp_file.flush()
+            size_bytes = temp_file.tell()
+
+        if size_bytes == 0:
+            os.unlink(temp_path)
             return jsonify({'error': 'Empty image file'}), 400
 
         # Get form data
@@ -166,12 +187,24 @@ def upload_photo_to_survey(survey_id):
         random_string = secrets.token_hex(4)
         photo_id = f"{survey.site_id}-{section_name}-{random_string}"
 
-        # Compute hash and size
-        hash_value = compute_photo_hash(image_data)
-        size_bytes = len(image_data)
+        # Get hash from streaming computation
+        hash_value = hash_obj.hexdigest()
 
-        # Generate thumbnail
-        thumbnail_data = generate_thumbnail(image_data, max_size=200)
+        # Generate thumbnail from file instead of memory
+        try:
+            with open(temp_path, 'rb') as f:
+                image_data = f.read()
+            thumbnail_data = generate_thumbnail(image_data, max_size=200)
+        except Exception as e:
+            os.unlink(temp_path)
+            return jsonify({'error': f'Failed to process image: {str(e)}'}), 400
+
+        # Read image data for storage (keeping existing behavior for now)
+        with open(temp_path, 'rb') as f:
+            image_data = f.read()
+
+        # Clean up temporary file
+        os.unlink(temp_path)
 
         description = request.form.get('description', '')
         category = request.form.get('category', 'general')

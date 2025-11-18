@@ -1,14 +1,4 @@
 """Flask application factory for Site Survey backend."""
-try:
-    # The pysqlite3-binary package is required to enable SQLite extensions on some systems.
-    # This code ensures it's used as the default sqlite3 driver.
-    __import__("pysqlite3")
-    import sys
-    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
-except ImportError:
-    # If pysqlite3-binary is not installed, continue with the default driver.
-    pass
-
 from flask import Flask
 import os
 from appdirs import user_data_dir
@@ -58,7 +48,7 @@ def create_app(test_config=None):
     # Only set default database URI if not already set (e.g., by tests)
     if 'SQLALCHEMY_DATABASE_URI' not in app.config:
         DB_NAME = 'backend_main.db'
-        app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_NAME}'
+        app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite+pysqlite:///{DB_NAME}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
@@ -70,7 +60,7 @@ def create_app(test_config=None):
         lib_path = os.path.join(data_dir, 'crsqlite.so')
 
         if not os.path.exists(lib_path):
-            lib_path = os.path.join(os.path.dirname(__file__), 'lib', 'crsqlite.so')
+            lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'lib', 'crsqlite.so'))
 
         db_conn.enable_load_extension(True)
         db_conn.load_extension(lib_path)

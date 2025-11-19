@@ -1,89 +1,65 @@
 """Projects blueprint for Flask API."""
-from flask import Blueprint, jsonify, request
-from ..models import db, Project, ProjectStatus
+from flask import Blueprint, request
+from ..models import Project, ProjectStatus
+from ..base.crud_base import CRUDBase
 from shared.validation import Validator, ValidationError
+from shared.enums import PriorityLevel
 import datetime
-import logging
+from typing import Dict, Any
 
 
 bp = Blueprint('projects', __name__, url_prefix='/api')
 
 
-@bp.route('/projects', methods=['GET'])
-def get_projects():
-    # Pagination parameters
-    page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
-
-    # Query with pagination
-    pagination = Project.query.paginate(page=page, per_page=per_page, error_out=False)
-    projects = pagination.items
-
-    return jsonify({
-        'projects': [{
-            'id': p.id,
-            'name': p.name,
-            'description': p.description,
-            'status': p.status,
-            'client_info': p.client_info,
-            'due_date': p.due_date.isoformat() if p.due_date else None,
-            'priority': p.priority,
-            'created_at': p.created_at.isoformat(),
-            'updated_at': p.updated_at.isoformat()
-        } for p in projects],
-        'pagination': {
-            'page': pagination.page,
-            'per_page': pagination.per_page,
-            'total': pagination.total,
-            'pages': pagination.pages,
-            'has_next': pagination.has_next,
-            'has_prev': pagination.has_prev
+class ProjectCRUD(CRUDBase):
+    """CRUD operations for Project model."""
+    
+    def __init__(self):
+        super().__init__(Project, logger_name='projects')
+    
+    def serialize(self, project: Project) -> Dict[str, Any]:
+        """Serialize project to dictionary."""
+        return {
+            'id': project.id,
+            'name': project.name,
+            'description': project.description,
+            'status': project.status.value if hasattr(project.status, 'value') else str(project.status),
+            'client_info': project.client_info,
+            'due_date': project.due_date.isoformat() if project.due_date else None,
+            'priority': project.priority.value if hasattr(project.priority, 'value') else str(project.priority),
+            'created_at': project.created_at.isoformat(),
+            'updated_at': project.updated_at.isoformat()
         }
-    })
-
-
-@bp.route('/projects', methods=['POST'])
-def create_project():
-    logger = logging.getLogger(__name__)
-
-    try:
-        data = request.get_json()
-    except Exception as e:
-        logger.warning(f"Invalid JSON in project creation: {e}")
-        return jsonify({'error': 'Invalid JSON data'}), 400
-
-    if not isinstance(data, dict):
-        return jsonify({'error': 'Request data must be a JSON object'}), 400
-
-    try:
-        # Validate input data
+    
+    def validate_create_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and prepare data for project creation."""
+        # Validate input data using shared validator
         validated_data = Validator.validate_project_data(data)
-
+        
         # Handle status enum
         status_str = data.get('status', 'draft')
         if not isinstance(status_str, str):
             raise ValidationError('status must be a string')
-
+        
         try:
             status = ProjectStatus(status_str)
         except ValueError:
             raise ValidationError(f'Invalid status: {status_str}')
-
+        
         validated_data['status'] = status
-
+        
         # Handle priority enum
-        from ..models import PriorityLevel
         priority_str = data.get('priority', 'medium')
         if not isinstance(priority_str, str):
             raise ValidationError('priority must be a string')
-
+        
         try:
             priority = PriorityLevel(priority_str)
         except ValueError:
             raise ValidationError(f'Invalid priority: {priority_str}')
-
+        
         validated_data['priority'] = priority
-
+        
         # Handle due date
         due_date = None
         due_date_str = data.get('due_date')
@@ -94,116 +70,104 @@ def create_project():
                 due_date = datetime.datetime.fromisoformat(due_date_str)
             except ValueError:
                 raise ValidationError('due_date must be a valid ISO date string')
+        
         validated_data['due_date'] = due_date
+        
+        return validated_data
+    
+    def validate_update_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and prepare data for project update."""
+        validated_data = {}
+        
+        # Validate and prepare name
+        if 'name' in data:
+            name = data['name']
+            if not isinstance(name, str) or not name.strip():
+                raise ValidationError('name must be a non-empty string')
+            validated_data['name'] = name.strip()
+        
+        # Validate and prepare description
+        if 'description' in data:
+            description = data['description']
+            if description is not None and not isinstance(description, str):
+                raise ValidationError('description must be a string')
+            validated_data['description'] = description.strip() if description else None
+        
+        # Validate and prepare status
+        if 'status' in data:
+            status_str = data['status']
+            if not isinstance(status_str, str):
+                raise ValidationError('status must be a string')
+            try:
+                validated_data['status'] = ProjectStatus(status_str)
+            except ValueError:
+                raise ValidationError(f'status must be one of: {[s.value for s in ProjectStatus]}')
+        
+        # Validate and prepare client_info
+        if 'client_info' in data:
+            client_info = data['client_info']
+            if client_info is not None and not isinstance(client_info, str):
+                raise ValidationError('client_info must be a string')
+            validated_data['client_info'] = client_info.strip() if client_info else None
+        
+        # Validate and prepare due_date
+        if 'due_date' in data:
+            due_date_str = data['due_date']
+            if due_date_str is not None:
+                if not isinstance(due_date_str, str):
+                    raise ValidationError('due_date must be a string in ISO format')
+                try:
+                    validated_data['due_date'] = datetime.datetime.fromisoformat(due_date_str)
+                except ValueError:
+                    raise ValidationError('due_date must be a valid ISO date string')
+            else:
+                validated_data['due_date'] = None
+        
+        # Validate and prepare priority
+        if 'priority' in data:
+            priority_str = data['priority']
+            if not isinstance(priority_str, str):
+                raise ValidationError('priority must be a string')
+            try:
+                validated_data['priority'] = PriorityLevel(priority_str)
+            except ValueError:
+                raise ValidationError(f'priority must be one of: {[p.value for p in PriorityLevel]}')
+        
+        return validated_data
 
-        # Create project
-        project = Project(**validated_data)
-        db.session.add(project)
-        db.session.commit()
 
-        logger.info(f"Created project: {project.id} - {project.name}")
+# Create CRUD instance
+project_crud = ProjectCRUD()
 
-        return jsonify({
-            'id': project.id,
-            'message': 'Project created successfully'
-        }), 201
 
-    except ValidationError as e:
-        logger.warning(f"Validation error in project creation: {e}")
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        logger.error(f"Failed to create project: {e}")
-        db.session.rollback()
-        return jsonify({'error': 'Failed to create project'}), 500
+@bp.route('/projects', methods=['GET'])
+def get_projects():
+    """Get paginated list of projects."""
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)
+    return project_crud.get_list(page=page, per_page=per_page)
+
+
+@bp.route('/projects/<int:project_id>', methods=['GET'])
+def get_project(project_id):
+    """Get single project by ID."""
+    return project_crud.get_detail(project_id)
+
+
+@bp.route('/projects', methods=['POST'])
+def create_project():
+    """Create a new project."""
+    return project_crud.create()
 
 
 @bp.route('/projects/<int:project_id>', methods=['PUT'])
 def update_project(project_id):
-    try:
-        data = request.get_json()
-    except Exception:
-        return jsonify({'error': 'Invalid JSON data'}), 400
-
-    if not isinstance(data, dict):
-        return jsonify({'error': 'Request data must be a JSON object'}), 400
-
-    project = Project.query.get_or_404(project_id)
-
-    # Validate and update name
-    if 'name' in data:
-        name = data['name']
-        if not isinstance(name, str) or not name.strip():
-            return jsonify({'error': 'name must be a non-empty string'}), 400
-        project.name = name.strip()
-
-    # Validate and update description
-    if 'description' in data:
-        description = data['description']
-        if description is not None and not isinstance(description, str):
-            return jsonify({'error': 'description must be a string'}), 400
-        project.description = description.strip() if description else None
-
-    # Validate and update status
-    if 'status' in data:
-        status_str = data['status']
-        if not isinstance(status_str, str):
-            return jsonify({'error': 'status must be a string'}), 400
-        try:
-            project.status = ProjectStatus(status_str)
-        except ValueError:
-            return jsonify({'error': f'status must be one of: {[s.value for s in ProjectStatus]}'}), 400
-
-    # Validate and update client_info
-    if 'client_info' in data:
-        client_info = data['client_info']
-        if client_info is not None and not isinstance(client_info, str):
-            return jsonify({'error': 'client_info must be a string'}), 400
-        project.client_info = client_info.strip() if client_info else None
-
-    # Validate and update due_date
-    if 'due_date' in data:
-        due_date_str = data['due_date']
-        if due_date_str is not None:
-            if not isinstance(due_date_str, str):
-                return jsonify({'error': 'due_date must be a string in ISO format'}), 400
-            try:
-                project.due_date = datetime.datetime.fromisoformat(due_date_str)
-            except ValueError:
-                return jsonify({'error': 'due_date must be a valid ISO date string'}), 400
-        else:
-            project.due_date = None
-
-    # Validate and update priority
-    if 'priority' in data:
-        priority_str = data['priority']
-        if not isinstance(priority_str, str):
-            return jsonify({'error': 'priority must be a string'}), 400
-        from ..models import PriorityLevel
-        try:
-            project.priority = PriorityLevel(priority_str)
-        except ValueError:
-            return jsonify({'error': f'priority must be one of: {[p.value for p in PriorityLevel]}'}), 400
-
-    try:
-        db.session.commit()
-        return jsonify({'message': 'Project updated successfully'})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to update project: {str(e)}'}), 500
+    """Update an existing project."""
+    return project_crud.update(project_id)
 
 
 @bp.route('/projects/<int:project_id>', methods=['DELETE'])
 def delete_project(project_id):
+    """Delete a project."""
     from ..utils import cascade_delete_project
-
-    try:
-        summary = cascade_delete_project(project_id)
-        db.session.commit()
-
-        return jsonify({
-            'message': 'Project deleted successfully',
-            'summary': summary
-        })
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to delete project: {str(e)}'}), 500
+    return project_crud.delete(project_id, cascade_func=cascade_delete_project)

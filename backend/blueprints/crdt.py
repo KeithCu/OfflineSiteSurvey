@@ -37,11 +37,84 @@ def apply_changes():
                 return jsonify({'error': f'Change missing required fields: {required_fields}'}), 400
 
             # Validate foreign key references to prevent orphaned records
+            # Note: Foreign keys are disabled during CRR table creation for CRDT operations,
+            # but we perform application-level validation with warnings (not blocking) to detect issues
             from ..utils import validate_foreign_key
 
-            # Skip foreign key validation for CRDT operations as per agents.md documentation
-            # Foreign keys are disabled during CRR table creation and maintained at application level
-            # This is required for CRDT merge operations to work properly
+            # Application-level FK validation (warnings only, don't block sync)
+            if change['table'] == 'sites' and change['cid'] == 'project_id' and change['val']:
+                if not validate_foreign_key('projects', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Site references non-existent project_id: {change["val"]}',
+                        'action': 'warning'
+                    })
+                    # Continue - don't block sync, but log warning
+
+            elif change['table'] == 'survey' and change['cid'] == 'site_id' and change['val']:
+                if not validate_foreign_key('sites', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Survey references non-existent site_id: {change["val"]}',
+                        'action': 'warning'
+                    })
+                    # Continue - don't block sync, but log warning
+
+            elif change['table'] == 'survey' and change['cid'] == 'template_id' and change['val'] is not None:
+                if not validate_foreign_key('survey_template', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Survey references non-existent template_id: {change["val"]}',
+                        'action': 'warning'
+                    })
+                    # Continue - don't block sync, but log warning
+
+            elif change['table'] == 'survey_response' and change['cid'] == 'survey_id' and change['val']:
+                if not validate_foreign_key('survey', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'SurveyResponse references non-existent survey_id: {change["val"]}',
+                        'action': 'warning'
+                    })
+                    # Continue - don't block sync, but log warning
+
+            elif change['table'] == 'template_field' and change['cid'] == 'template_id' and change['val']:
+                if not validate_foreign_key('survey_template', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'TemplateField references non-existent template_id: {change["val"]}',
+                        'action': 'warning'
+                    })
+                    # Continue - don't block sync, but log warning
+
+            elif change['table'] == 'photo' and change['cid'] == 'survey_id' and change['val']:
+                if not validate_foreign_key('survey', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Photo references non-existent survey_id: {change["val"]}',
+                        'action': 'warning'
+                    })
+                    # Continue - don't block sync, but log warning
+
+            elif change['table'] == 'photo' and change['cid'] == 'site_id' and change['val']:
+                if not validate_foreign_key('sites', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Photo references non-existent site_id: {change["val"]}',
+                        'action': 'warning'
+                    })
+                    # Continue - don't block sync, but log warning
+
+            elif change['table'] == 'photo' and change['cid'] == 'question_id' and change['val'] is not None:
+                if not validate_foreign_key('template_field', 'id', change['val']):
+                    integrity_issues.append({
+                        'change': change,
+                        'error': f'Photo references non-existent question_id: {change["val"]}',
+                        'action': 'warning'
+                    })
+                    # Continue - don't block sync, but log warning
+
+            # Old commented-out code removed - replaced with warning-based validation above
             # if change['table'] == 'sites' and change['cid'] == 'project_id':
             #     if not validate_foreign_key('projects', 'id', change['val']):
     #         integrity_issues.append({
@@ -175,13 +248,14 @@ def apply_changes():
                                     })
                                     continue  # Skip this change
                         except Exception as e:
-                            # Cloud verification failed - log the issue but don't reject the change
-                            # as cloud might be temporarily unavailable
+                            # Cloud verification failed - reject hash changes when cloud is unavailable
+                            # to prevent accepting potentially incorrect hash values
                             integrity_issues.append({
                                 'photo_id': photo_id,
                                 'error': f'Hash verification failed due to cloud unavailability: {str(e)}',
-                                'action': 'logged_only'
+                                'action': 'rejected'
                             })
+                            continue  # Skip this change
 
                     # Validate upload_status changes to 'completed' - verify cloud data exists and matches hash (with fallback)
                     elif change['cid'] == 'upload_status' and change['val'] == 'completed' and existing_photo and existing_photo.hash_value:

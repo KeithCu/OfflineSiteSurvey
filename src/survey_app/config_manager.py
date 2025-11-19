@@ -36,6 +36,7 @@ class ConfigManager:
 
         # CompanyCam settings
         'companycam_client_id': '',
+        'companycam_client_secret': '',
         'companycam_access_token': '',
         'companycam_refresh_token': '',
         'companycam_user_id': '',
@@ -60,6 +61,8 @@ class ConfigManager:
             'SURVEY_MAX_VISIBLE_PHOTOS': ('max_visible_photos', int),
             'SURVEY_GPS_TIMEOUT': ('gps_timeout', float),
             'SURVEY_GPS_ACCURACY_THRESHOLD': ('gps_accuracy_threshold', float),
+            'COMPANYCAM_CLIENT_ID': ('companycam_client_id', str),
+            'COMPANYCAM_CLIENT_SECRET': ('companycam_client_secret', str),
         }
 
         for env_var, (config_key, converter) in env_mappings.items():
@@ -128,3 +131,7 @@ class ConfigManager:
     @property
     def companycam_user_id(self) -> str:
         return self.get('companycam_user_id')
+
+    @property
+    def companycam_client_secret(self) -> str:
+        return self.get('companycam_client_secret')

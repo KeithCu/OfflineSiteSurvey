@@ -370,7 +370,9 @@ class LocalDatabase:
         try:
             photo = session.get(Photo, photo_id)
             if photo:
-                photo.upload_status = 'uploaded'  # Local state indicating sent to server
+                # Use 'pending' status since server queues uploads asynchronously
+                # The CRDT sync will update to 'completed' when cloud upload finishes
+                photo.upload_status = 'pending'  # Server will update to 'completed' after cloud upload
                 if cloud_url:
                     photo.cloud_url = cloud_url
                 if thumbnail_url:
@@ -569,9 +571,13 @@ class LocalDatabase:
                     else:
                         metadata = {}
                     if 'timestamp' in metadata:
-                        backup_time = datetime.strptime(metadata['timestamp'], '%Y%m%d_%H%M%S')
                         from shared.models import utc_now
-                        age_days = (utc_now() - backup_time.replace(tzinfo=utc_now().tzinfo)).days
+                        from datetime import timezone
+                        # Parse timestamp and ensure it's timezone-aware
+                        backup_time_naive = datetime.strptime(metadata['timestamp'], '%Y%m%d_%H%M%S')
+                        # Assume backup timestamps are UTC (as per backup creation)
+                        backup_time = backup_time_naive.replace(tzinfo=timezone.utc)
+                        age_days = (utc_now() - backup_time).days
                         if age_days > 30:
                             raise ValueError(f"Backup is too old ({age_days} days). Maximum allowed age is 30 days.")
                     

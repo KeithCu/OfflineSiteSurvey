@@ -18,9 +18,15 @@ class CompanyCamService:
         self.config = config_manager
         self.logger = logging.getLogger(self.__class__.__name__)
 
-        # OAuth configuration (these would be registered with CompanyCam)
-        self.client_id = self.config.companycam_client_id or 'your_client_id_here'
+        # OAuth configuration - load from environment variables or config
+        self.client_id = self.config.companycam_client_id
+        self.client_secret = self.config.companycam_client_secret
         self.redirect_uri = 'mysurveyapp://auth'  # Custom URL scheme
+        
+        if not self.client_id:
+            self.logger.warning("CompanyCam client_id not configured. Set COMPANYCAM_CLIENT_ID environment variable.")
+        if not self.client_secret:
+            self.logger.warning("CompanyCam client_secret not configured. Set COMPANYCAM_CLIENT_SECRET environment variable.")
 
     def is_connected(self) -> bool:
         """Check if we have valid CompanyCam credentials."""
@@ -43,12 +49,16 @@ class CompanyCamService:
 
     def handle_oauth_callback(self, auth_code: str) -> bool:
         """Handle the OAuth callback with authorization code."""
+        if not self.client_id or not self.client_secret:
+            self.logger.error("CompanyCam OAuth credentials not configured")
+            return False
+            
         try:
             # Exchange code for tokens
             token_url = f"{self.BASE_URL}/oauth/token"
             data = {
                 'client_id': self.client_id,
-                'client_secret': 'your_client_secret_here',  # Would be stored securely
+                'client_secret': self.client_secret,
                 'code': auth_code,
                 'grant_type': 'authorization_code',
                 'redirect_uri': self.redirect_uri
@@ -76,12 +86,15 @@ class CompanyCamService:
         """Refresh the access token using refresh token."""
         if not self.config.companycam_refresh_token:
             return False
+        if not self.client_id or not self.client_secret:
+            self.logger.error("CompanyCam OAuth credentials not configured")
+            return False
 
         try:
             token_url = f"{self.BASE_URL}/oauth/token"
             data = {
                 'client_id': self.client_id,
-                'client_secret': 'your_client_secret_here',
+                'client_secret': self.client_secret,
                 'refresh_token': self.config.companycam_refresh_token,
                 'grant_type': 'refresh_token'
             }

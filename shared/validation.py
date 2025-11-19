@@ -75,15 +75,33 @@ class Validator:
             if not (-180 <= lng_val <= 180):
                 raise ValidationError("Longitude must be between -180 and 180")
 
-            # Check precision
+            # Check precision - for strings, check original precision; for floats, check formatted precision
             if isinstance(lat, str):
-                decimal_places = len(lat.split('.')[1]) if '.' in lat else 0
+                lat_str = lat.strip()
+            else:
+                # For floats, format with enough precision to detect 6-8 decimal places
+                # Use a format that preserves significant digits without excessive trailing zeros
+                lat_str = f"{lat_val:.8f}".rstrip('0').rstrip('.')
+            
+            if '.' in lat_str:
+                decimal_places = len(lat_str.split('.')[1])
                 if not 6 <= decimal_places <= 8:
                     raise ValidationError("Latitude must have 6-8 decimal places")
+            else:
+                raise ValidationError("Latitude must have 6-8 decimal places")
+                
             if isinstance(lng, str):
-                decimal_places = len(lng.split('.')[1]) if '.' in lng else 0
+                lng_str = lng.strip()
+            else:
+                # For floats, format with enough precision to detect 6-8 decimal places
+                lng_str = f"{lng_val:.8f}".rstrip('0').rstrip('.')
+                
+            if '.' in lng_str:
+                decimal_places = len(lng_str.split('.')[1])
                 if not 6 <= decimal_places <= 8:
                     raise ValidationError("Longitude must have 6-8 decimal places")
+            else:
+                raise ValidationError("Longitude must have 6-8 decimal places")
 
             return lat_val, lng_val
         except (ValueError, TypeError):

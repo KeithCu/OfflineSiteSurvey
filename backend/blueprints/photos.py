@@ -176,139 +176,143 @@ def upload_photo_to_survey(survey_id):
         import tempfile
         import os
 
-        # Create temporary file for streaming upload
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
-            temp_path = temp_file.name
-            # Stream the upload in chunks to avoid memory issues
-            chunk_size = 8192  # 8KB chunks
-            hash_obj = hashlib.sha256()
-            total_size = 0
-
-            while True:
-                chunk = image_file.stream.read(chunk_size)
-                if not chunk:
-                    break
-
-                chunk_size_actual = len(chunk)
-                total_size += chunk_size_actual
-
-                # Check size limit during streaming
-                if total_size > max_file_size:
-                    temp_file.close()
-                    os.unlink(temp_path)
-                    return jsonify({'error': f'File too large. Maximum size: {max_file_size // (1024*1024)}MB'}), 400
-
-                temp_file.write(chunk)
-                hash_obj.update(chunk)
-
-            temp_file.flush()
-            size_bytes = temp_file.tell()
-
-        if size_bytes == 0:
-            os.unlink(temp_path)
-            return jsonify({'error': 'Empty image file'}), 400
-
-        # Get form data
-        question_id_str = request.form.get('question_id')
-        question_id = int(question_id_str) if question_id_str else None
-        section_name = "general"
-        if question_id:
-            template_field = db.session.get(TemplateField, question_id)
-            if template_field and template_field.section:
-                section_name = template_field.section.lower().replace(" ", "_")
-
-        # Use provided ID or generate unique photo ID
-        photo_id = request.form.get('id')
-        if not photo_id:
-            random_string = secrets.token_hex(4)
-            photo_id = f"{survey.site_id}-{section_name}-{random_string}"
-
-        # Check if photo already exists
-        existing_photo = Photo.query.get(photo_id)
-
-        # Get hash from streaming computation
-        hash_value = hash_obj.hexdigest()
-
-        # Generate thumbnail from file path to avoid loading large images into memory
+        temp_path = None
         try:
+            # Create temporary file for streaming upload
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                temp_path = temp_file.name
+                # Stream the upload in chunks to avoid memory issues
+                chunk_size = 8192  # 8KB chunks
+                hash_obj = hashlib.sha256()
+                total_size = 0
+
+                while True:
+                    chunk = image_file.stream.read(chunk_size)
+                    if not chunk:
+                        break
+
+                    chunk_size_actual = len(chunk)
+                    total_size += chunk_size_actual
+
+                    # Check size limit during streaming
+                    if total_size > max_file_size:
+                        return jsonify({'error': f'File too large. Maximum size: {max_file_size // (1024*1024)}MB'}), 400
+
+                    temp_file.write(chunk)
+                    hash_obj.update(chunk)
+
+                temp_file.flush()
+                size_bytes = temp_file.tell()
+
+            if size_bytes == 0:
+                return jsonify({'error': 'Empty image file'}), 400
+
+            # Get form data
+            question_id_str = request.form.get('question_id')
+            question_id = int(question_id_str) if question_id_str else None
+            section_name = "general"
+            if question_id:
+                template_field = db.session.get(TemplateField, question_id)
+                if template_field and template_field.section:
+                    section_name = template_field.section.lower().replace(" ", "_")
+
+            # Use provided ID or generate unique photo ID
+            photo_id = request.form.get('id')
+            if not photo_id:
+                random_string = secrets.token_hex(4)
+                photo_id = f"{survey.site_id}-{section_name}-{random_string}"
+
+            # Check if photo already exists
+            existing_photo = Photo.query.get(photo_id)
+
+            # Get hash from streaming computation
+            hash_value = hash_obj.hexdigest()
+
+            # Generate thumbnail from file path to avoid loading large images into memory
             thumbnail_data = generate_thumbnail(image_path=temp_path, max_size=200)
-        except Exception as e:
-            os.unlink(temp_path)
-            return jsonify({'error': f'Failed to process image: {str(e)}'}), 400
 
-        # Use file path instead of loading image data into memory to prevent OOM with large files
-        image_path_for_upload = temp_path
+            # Use file path instead of loading image data into memory to prevent OOM with large files
+            image_path_for_upload = temp_path
 
-        description = request.form.get('description', '')
-        category = request.form.get('category', 'general')
-        latitude = float(request.form.get('latitude', 0.0))
-        longitude = float(request.form.get('longitude', 0.0))
-        tags_payload = request.form.get('tags', '')
-        tags = []
-        if tags_payload:
-            try:
-                parsed = json.loads(tags_payload)
-                if isinstance(parsed, list):
-                    tags = parsed
-                else:
-                    tags = [str(parsed)]
-            except json.JSONDecodeError:
-                tags = [tag.strip() for tag in tags_payload.split(',') if tag.strip()]
+            description = request.form.get('description', '')
+            category = request.form.get('category', 'general')
+            latitude = float(request.form.get('latitude', 0.0))
+            longitude = float(request.form.get('longitude', 0.0))
+            tags_payload = request.form.get('tags', '')
+            tags = []
+            if tags_payload:
+                try:
+                    parsed = json.loads(tags_payload)
+                    if isinstance(parsed, list):
+                        tags = parsed
+                    else:
+                        tags = [str(parsed)]
+                except json.JSONDecodeError:
+                    tags = [tag.strip() for tag in tags_payload.split(',') if tag.strip()]
 
-        # Create or update photo record
-        if existing_photo:
-            photo = existing_photo
-            # Update all fields from the client upload
-            photo.upload_status = 'pending'
-            photo.hash_value = hash_value
-            photo.size_bytes = size_bytes
-            photo.latitude = latitude
-            photo.longitude = longitude
-            photo.description = description
-            photo.category = category
-            photo.tags = json.dumps(tags)
-            photo.question_id = question_id
-            # Reset cloud URLs since we're uploading a new version
-            photo.cloud_url = ''
-            photo.thumbnail_url = ''
-        else:
-            photo = Photo(
-                id=photo_id,
-                survey_id=survey_id,
-                site_id=survey.site_id,  # Get site_id from survey
-                cloud_url='',  # Will be set after upload
-                thumbnail_url='',  # Will be set after upload
-                upload_status='pending',  # Initially pending
-                latitude=latitude,
-                longitude=longitude,
-                description=description,
-                category=category,
-                hash_value=hash_value,
-                size_bytes=size_bytes,
-                hash_algo='sha256',
-                question_id=question_id,
-                tags=json.dumps(tags)
-            )
-            db.session.add(photo)
-            
-        db.session.commit()
+            # Create or update photo record
+            if existing_photo:
+                photo = existing_photo
+                # Update all fields from the client upload
+                photo.upload_status = 'pending'
+                photo.hash_value = hash_value
+                photo.size_bytes = size_bytes
+                photo.latitude = latitude
+                photo.longitude = longitude
+                photo.description = description
+                photo.category = category
+                photo.tags = json.dumps(tags)
+                photo.question_id = question_id
+                # Reset cloud URLs since we're uploading a new version
+                photo.cloud_url = ''
+                photo.thumbnail_url = ''
+            else:
+                photo = Photo(
+                    id=photo_id,
+                    survey_id=survey_id,
+                    site_id=survey.site_id,  # Get site_id from survey
+                    cloud_url='',  # Will be set after upload
+                    thumbnail_url='',  # Will be set after upload
+                    upload_status='pending',  # Initially pending
+                    latitude=latitude,
+                    longitude=longitude,
+                    description=description,
+                    category=category,
+                    hash_value=hash_value,
+                    size_bytes=size_bytes,
+                    hash_algo='sha256',
+                    question_id=question_id,
+                    tags=json.dumps(tags)
+                )
+                db.session.add(photo)
 
-        # Queue for cloud upload
-        upload_queue = get_upload_queue()
-        upload_queue.queue_photo_for_upload(photo_id, photo_path=image_path_for_upload, thumbnail_data=thumbnail_data)
+            db.session.commit()
 
-        # Clean up temporary file after queuing (upload queue has copied it)
-        os.unlink(image_path_for_upload)
+            # Queue for cloud upload
+            upload_queue = get_upload_queue()
+            upload_queue.queue_photo_for_upload(photo_id, photo_path=image_path_for_upload, thumbnail_data=thumbnail_data)
 
-        # Start upload queue if not already running
-        upload_queue.start()
+            # Clean up temporary file after queuing (upload queue has copied it)
+            os.unlink(image_path_for_upload)
 
-        return jsonify({
-            'id': photo_id,
-            'survey_id': survey_id,
-            'upload_status': 'pending',
-            'message': 'Photo uploaded and queued for cloud storage'
-        }), 201
+            # Start upload queue if not already running
+            upload_queue.start()
+
+            return jsonify({
+                'id': photo_id,
+                'survey_id': survey_id,
+                'upload_status': 'pending',
+                'message': 'Photo uploaded and queued for cloud storage'
+            }), 201
+
+        finally:
+            # Ensure temporary file is cleaned up even if exceptions occur
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    # Ignore cleanup errors to avoid masking the original exception
+                    pass
 
     except Exception as e:
         db.session.rollback()

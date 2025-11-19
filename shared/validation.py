@@ -64,7 +64,12 @@ class Validator:
 
     @staticmethod
     def validate_coordinates(lat: Union[str, float], lng: Union[str, float]) -> tuple[float, float]:
-        """Validate GPS coordinates with 6-8 decimal precision."""
+        """Validate GPS coordinates.
+
+        Accepts coordinates with reasonable precision (0-10 decimal places).
+        GPS coordinates are stored with 6-8 decimal precision internally,
+        but input validation should be flexible to accept various formats.
+        """
         try:
             lat_val = float(lat) if isinstance(lat, str) else lat
             lng_val = float(lng) if isinstance(lng, str) else lng
@@ -75,33 +80,27 @@ class Validator:
             if not (-180 <= lng_val <= 180):
                 raise ValidationError("Longitude must be between -180 and 180")
 
-            # Check precision - for strings, check original precision; for floats, check formatted precision
+            # Optional: Validate reasonable precision (avoid excessive decimal places)
+            # GPS coordinates typically don't need more than 10 decimal places
             if isinstance(lat, str):
                 lat_str = lat.strip()
             else:
-                # For floats, format with enough precision to detect 6-8 decimal places
-                # Use a format that preserves significant digits without excessive trailing zeros
-                lat_str = f"{lat_val:.8f}".rstrip('0').rstrip('.')
-            
+                lat_str = f"{lat_val:.10f}".rstrip('0').rstrip('.')
+
             if '.' in lat_str:
                 decimal_places = len(lat_str.split('.')[1])
-                if not 6 <= decimal_places <= 8:
-                    raise ValidationError("Latitude must have 6-8 decimal places")
-            else:
-                raise ValidationError("Latitude must have 6-8 decimal places")
-                
+                if decimal_places > 10:
+                    raise ValidationError("Latitude must not have more than 10 decimal places")
+
             if isinstance(lng, str):
                 lng_str = lng.strip()
             else:
-                # For floats, format with enough precision to detect 6-8 decimal places
-                lng_str = f"{lng_val:.8f}".rstrip('0').rstrip('.')
-                
+                lng_str = f"{lng_val:.10f}".rstrip('0').rstrip('.')
+
             if '.' in lng_str:
                 decimal_places = len(lng_str.split('.')[1])
-                if not 6 <= decimal_places <= 8:
-                    raise ValidationError("Longitude must have 6-8 decimal places")
-            else:
-                raise ValidationError("Longitude must have 6-8 decimal places")
+                if decimal_places > 10:
+                    raise ValidationError("Longitude must not have more than 10 decimal places")
 
             return lat_val, lng_val
         except (ValueError, TypeError):

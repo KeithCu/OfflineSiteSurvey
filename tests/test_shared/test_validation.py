@@ -58,18 +58,58 @@ class TestValidator:
                 Validator.validate_email(email)
 
     def test_validate_coordinates_success(self):
-        """Test successful coordinate validation."""
-        lat, lng = Validator.validate_coordinates(40.7128, -74.0060)
-        assert lat == 40.7128
-        assert lng == -74.0060
+        """Test successful coordinate validation with various decimal precisions."""
+        # Test various decimal precisions that should all pass
+        test_cases = [
+            # (lat, lng, description)
+            (40.7128, -74.0060, "4 decimal places"),
+            (40.71280000, -74.00600000, "8 decimal places"),
+            (40.7, -74.0, "1 decimal place"),
+            (40, -74, "no decimal places"),
+            ("40.7128", "-74.0060", "string inputs"),
+            (90.0, 180.0, "maximum values"),
+            (-90.0, -180.0, "minimum values"),
+            (0.0, 0.0, "zero coordinates"),
+            (45.123456789, 90.987654321, "high precision within limits"),
+        ]
+
+        for lat, lng, description in test_cases:
+            with self.subTest(description=description):
+                result_lat, result_lng = Validator.validate_coordinates(lat, lng)
+                assert result_lat == float(lat) if isinstance(lat, str) else lat
+                assert result_lng == float(lng) if isinstance(lng, str) else lng
 
     def test_validate_coordinates_failure(self):
         """Test coordinate validation failures."""
+        # Test range violations
         with pytest.raises(ValidationError, match="Latitude must be between -90 and 90"):
             Validator.validate_coordinates(91, 0)
 
+        with pytest.raises(ValidationError, match="Latitude must be between -90 and 90"):
+            Validator.validate_coordinates(-91, 0)
+
         with pytest.raises(ValidationError, match="Longitude must be between -180 and 180"):
             Validator.validate_coordinates(0, 181)
+
+        with pytest.raises(ValidationError, match="Longitude must be between -180 and 180"):
+            Validator.validate_coordinates(0, -181)
+
+        # Test excessive decimal places (>10)
+        with pytest.raises(ValidationError, match="Latitude must not have more than 10 decimal places"):
+            Validator.validate_coordinates("40.12345678901", "-74.0060")
+
+        with pytest.raises(ValidationError, match="Longitude must not have more than 10 decimal places"):
+            Validator.validate_coordinates("40.7128", "-74.12345678901")
+
+        # Test invalid formats
+        with pytest.raises(ValidationError, match="Invalid coordinate format"):
+            Validator.validate_coordinates("invalid", "coords")
+
+        with pytest.raises(ValidationError, match="Invalid coordinate format"):
+            Validator.validate_coordinates(None, 0)
+
+        with pytest.raises(ValidationError, match="Invalid coordinate format"):
+            Validator.validate_coordinates(40.7128, None)
 
     def test_validate_choice_success(self):
         """Test successful choice validation."""

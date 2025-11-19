@@ -193,26 +193,18 @@ def test_photos_api_endpoints(client, app):
         db.session.add(photo)
         db.session.commit()
 
-        # Test GET /api/photos (skip if endpoint not working)
-        try:
-            response = client.get('/api/photos')
-            if response.status_code == 200:
-                data = json.loads(response.data)
-                assert len(data) >= 1
-                assert data[0]['description'] == "Test photo"
-        except Exception:
-            # Photos endpoint may not be working
-            pass
+        # Test GET /api/photos
+        response = client.get('/api/photos')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert len(data) >= 1
+        assert data[0]['description'] == "Test photo"
 
-        # Test GET /api/photos/<id>/integrity (skip if not working)
-        try:
-            response = client.get(f'/api/photos/{photo.id}/integrity')
-            if response.status_code == 200:
-                data = json.loads(response.data)
-                assert 'hash_matches' in data
-        except Exception:
-            # Integrity endpoint may not be working
-            pass
+        # Test GET /api/photos/<id>/integrity
+        response = client.get(f'/api/photos/{photo.id}/integrity')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'hash_matches' in data
 
 
 def test_crdt_api_endpoints(client, app):

@@ -193,10 +193,17 @@ def apply_changes():
                 try:
                     pk_data = json.loads(change['pk'])
                     photo_id = pk_data.get('id')
-                    existing_photo = db.session.get(Photo, photo_id)
+                    # Use raw SQL on the same connection to avoid session inconsistency
+                    cursor.execute("SELECT * FROM photo WHERE id = ?", (photo_id,))
+                    photo_row = cursor.fetchone()
+                    if photo_row:
+                        # Convert row to dict for easier access
+                        existing_photo = dict(zip([col[0] for col in cursor.description], photo_row))
+                    else:
+                        existing_photo = None
 
                     # Validate cloud URL changes - download and verify hash (with fallback)
-                    if change['cid'] == 'cloud_url' and change['val'] and existing_photo and existing_photo.hash_value:
+                    if change['cid'] == 'cloud_url' and change['val'] and existing_photo and existing_photo.get('hash_value'):
                         try:
                             from ..services.cloud_storage import get_cloud_storage
                             cloud_storage = get_cloud_storage()
@@ -213,10 +220,10 @@ def apply_changes():
                             if object_name:
                                 downloaded_data = cloud_storage.download_photo(object_name)
                                 downloaded_hash = compute_photo_hash(downloaded_data)
-                                if downloaded_hash != existing_photo.hash_value:
+                                if downloaded_hash != existing_photo.get('hash_value'):
                                     integrity_issues.append({
                                         'photo_id': photo_id,
-                                        'expected_hash': existing_photo.hash_value,
+                                        'expected_hash': existing_photo.get('hash_value'),
                                         'received_hash': downloaded_hash,
                                         'action': 'rejected'
                                     })
@@ -231,11 +238,11 @@ def apply_changes():
                             continue  # Skip this change
 
                     # Validate hash_value changes - ensure they match any existing cloud data
-                    elif change['cid'] == 'hash_value' and change['val'] and existing_photo and existing_photo.cloud_url and existing_photo.upload_status == 'completed':
+                    elif change['cid'] == 'hash_value' and change['val'] and existing_photo and existing_photo.get('cloud_url') and existing_photo.get('upload_status') == 'completed':
                         try:
                             from ..services.cloud_storage import get_cloud_storage
                             cloud_storage = get_cloud_storage()
-                            object_name = extract_object_name_from_url(existing_photo.cloud_url)
+                            object_name = extract_object_name_from_url(existing_photo.get('cloud_url'))
                             if object_name:
                                 downloaded_data = cloud_storage.download_photo(object_name)
                                 downloaded_hash = compute_photo_hash(downloaded_data)
@@ -258,8 +265,8 @@ def apply_changes():
                             continue  # Skip this change
 
                     # Validate upload_status changes to 'completed' - verify cloud data exists and matches hash (with fallback)
-                    elif change['cid'] == 'upload_status' and change['val'] == 'completed' and existing_photo and existing_photo.hash_value:
-                        if not existing_photo.cloud_url:
+                    elif change['cid'] == 'upload_status' and change['val'] == 'completed' and existing_photo and existing_photo.get('hash_value'):
+                        if not existing_photo.get('cloud_url'):
                             integrity_issues.append({
                                 'photo_id': photo_id,
                                 'error': 'Cannot mark upload as completed without cloud_url',
@@ -270,14 +277,14 @@ def apply_changes():
                         try:
                             from ..services.cloud_storage import get_cloud_storage
                             cloud_storage = get_cloud_storage()
-                            object_name = extract_object_name_from_url(existing_photo.cloud_url)
+                            object_name = extract_object_name_from_url(existing_photo.get('cloud_url'))
                             if object_name:
                                 downloaded_data = cloud_storage.download_photo(object_name)
                                 downloaded_hash = compute_photo_hash(downloaded_data)
-                                if downloaded_hash != existing_photo.hash_value:
+                                if downloaded_hash != existing_photo.get('hash_value'):
                                     integrity_issues.append({
                                         'photo_id': photo_id,
-                                        'expected_hash': existing_photo.hash_value,
+                                        'expected_hash': existing_photo.get('hash_value'),
                                         'received_hash': downloaded_hash,
                                         'action': 'rejected'
                                     })

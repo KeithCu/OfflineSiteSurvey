@@ -30,17 +30,11 @@ def test_basic_crdt_operations(app):
 
         # Check that changes are tracked (basic test)
         # In a real CRDT system, we'd check the crsql_changes table
-        # Skip this test if CRDT is not working due to foreign key constraints
-        try:
-            with db.engine.connect() as conn:
-                result = conn.execute(db.text("SELECT COUNT(*) FROM crsql_changes"))
-                change_count = result.fetchone()[0]
-                # Should have at least one change recorded if CRDT is working
-                assert change_count >= 1
-        except Exception:
-            # CRDT may not be working due to foreign key constraints
-            # Just pass the test for now
-            pass
+        with db.engine.connect() as conn:
+            result = conn.execute(db.text("SELECT COUNT(*) FROM crsql_changes"))
+            change_count = result.fetchone()[0]
+            # Should have at least one change recorded if CRDT is working
+            assert change_count >= 1
 
 
 def test_changes_api_with_data(client, app):
@@ -56,10 +50,9 @@ def test_changes_api_with_data(client, app):
         assert response.status_code == 200
         data = json.loads(response.data)
 
-        # Should return some changes (may be empty if CRDT not working)
+        # Should return some changes
         assert isinstance(data, list)
-        # Skip assertion if CRDT is not working due to foreign key constraints
-        # assert len(data) > 0
+        assert len(data) > 0
 
         # Each change should have required CRDT fields
         for change in data:
@@ -84,19 +77,14 @@ def test_changes_api_post(client, app):
         'site_id': 'test_site'
     }]
 
-    # Skip POST test if CRDT is not working due to foreign key constraints
-    try:
-        response = client.post('/api/changes', json=changes)
-        assert response.status_code == 200
+    # Test POST /api/changes
+    response = client.post('/api/changes', json=changes)
+    assert response.status_code == 200
 
-        # Verify the change was applied (would need more complex logic in real test)
-        # For now, just check that the request succeeded
-        data = json.loads(response.data)
-        assert 'status' in data or isinstance(data, dict)
-    except Exception:
-        # CRDT may not be working due to foreign key constraints
-        # Just pass the test for now
-        pass
+    # Verify the change was applied (would need more complex logic in real test)
+    # For now, just check that the request succeeded
+    data = json.loads(response.data)
+    assert 'status' in data or isinstance(data, dict)
 
 
 def test_sync_version_tracking(client, app):
@@ -118,15 +106,15 @@ def test_sync_version_tracking(client, app):
         db.session.add(project2)
         db.session.commit()
 
-        # Skip version tracking test if no changes (CRDT not working)
+        # Test version tracking
         if changes_v0:
             # Get changes since a higher version
             max_version = max(change['db_version'] for change in changes_v0)
             response = client.get(f'/api/changes?version={max_version}&site_id=test_site')
             changes_later = json.loads(response.data)
 
-            # Should have fewer or equal changes (may be empty if CRDT not working)
-            # assert len(changes_later) <= len(changes_v0)
+            # Should have fewer or equal changes
+            assert len(changes_later) <= len(changes_v0)
         else:
-            # No changes to track versions for
-            pass
+            # Should have changes if we created projects
+            assert False, "Expected changes but none found"

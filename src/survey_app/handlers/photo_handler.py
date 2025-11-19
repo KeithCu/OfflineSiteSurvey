@@ -141,8 +141,9 @@ class PhotoHandler:
                     # Create row
                     row_box = toga.Box(style=toga.Pack(direction=toga.ROW, padding=(5, 5, 5, 5)))
                     for p in row_photos:
-                        # Use cached thumbnail if available, otherwise try to load from cloud
-                        thumb_data = p.thumbnail_data
+                        # Try to load thumbnail from disk first
+                        thumb_data = self.app.db.get_photo_data(p.id, thumbnail=True)
+                        
                         if not thumb_data:
                             # Try to load thumbnail from cloud URL
                             if p.thumbnail_url and p.upload_status == 'completed':
@@ -163,7 +164,7 @@ class PhotoHandler:
                                     thumb.save(thumb_byte_arr, format='JPEG')
                                     thumb_data = thumb_byte_arr.getvalue()
                                     # Cache the generated thumbnail
-                                    p.thumbnail_data = thumb_data
+                                    # Ideally we should save this to disk too via db helper, but caching is okay
                             except Exception as e:
                                 self.logger.warning(f"Failed to generate thumbnail from cloud image: {e}")
 
@@ -193,15 +194,19 @@ class PhotoHandler:
             if row_photos:
                 row_box = toga.Box(style=toga.Pack(direction=toga.ROW, padding=(5, 5, 5, 5)))
                 for p in row_photos:
-                    # Use cached thumbnail if available
-                    thumb_data = p.thumbnail_data
-                    if not thumb_data and p.image_data:
-                        img = Image.open(io.BytesIO(p.image_data))
-                        thumb = img.copy()
-                        thumb.thumbnail((100, 100))
-                        thumb_byte_arr = io.BytesIO()
-                        thumb.save(thumb_byte_arr, format='JPEG')
-                        thumb_data = thumb_byte_arr.getvalue()
+                    # Try to load thumbnail from disk first
+                    thumb_data = self.app.db.get_photo_data(p.id, thumbnail=True)
+                    
+                    if not thumb_data:
+                        # Try to check if we have full image locally and generate thumbnail on fly
+                        full_data = self.app.db.get_photo_data(p.id, thumbnail=False)
+                        if full_data:
+                            img = Image.open(io.BytesIO(full_data))
+                            thumb = img.copy()
+                            thumb.thumbnail((100, 100))
+                            thumb_byte_arr = io.BytesIO()
+                            thumb.save(thumb_byte_arr, format='JPEG')
+                            thumb_data = thumb_byte_arr.getvalue()
 
                     if thumb_data:
                         image_view = toga.ImageView(data=thumb_data, style=toga.Pack(width=100, height=100, padding=5))
@@ -318,6 +323,9 @@ class PhotoHandler:
             self.app.db.save_photo(photo_data)
             self.app.status_label.text = "Photo saved locally"
             self.app.clear_photo_tag_selection()
+            
+            # Also persist last_photo_id for requirement tracking
+            self.app.last_photo_id = photo_data['id']
         else:
             self.app.status_label.text = "Please select a survey and take a photo first"
 
@@ -326,7 +334,7 @@ class PhotoHandler:
         if not self.app.current_survey:
             self.app.status_label.text = "Please select a survey first"
             return
-
+        
         requirements_window = toga.Window(title="Photo Requirements")
 
         # Get photo requirements

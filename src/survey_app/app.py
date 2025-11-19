@@ -53,7 +53,7 @@ class SurveyApp(toga.App):
         # Initialize services
         self.db = LocalDatabase()
         self.db_service = DBService(self.db)
-        self.api_service = APIService(self.config.api_base_url)
+        self.api_service = APIService(self.config.api_base_url, offline_queue=self.offline_queue)
         self.companycam_service = CompanyCamService(self.config)
         self.tag_mapper = TagMapper(self.companycam_service)
 

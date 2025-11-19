@@ -217,9 +217,14 @@ def upload_photo_to_survey(survey_id):
             if template_field and template_field.section:
                 section_name = template_field.section.lower().replace(" ", "_")
 
-        # Generate unique photo ID
-        random_string = secrets.token_hex(4)
-        photo_id = f"{survey.site_id}-{section_name}-{random_string}"
+        # Use provided ID or generate unique photo ID
+        photo_id = request.form.get('id')
+        if not photo_id:
+            random_string = secrets.token_hex(4)
+            photo_id = f"{survey.site_id}-{section_name}-{random_string}"
+
+        # Check if photo already exists
+        existing_photo = Photo.query.get(photo_id)
 
         # Get hash from streaming computation
         hash_value = hash_obj.hexdigest()
@@ -250,26 +255,42 @@ def upload_photo_to_survey(survey_id):
             except json.JSONDecodeError:
                 tags = [tag.strip() for tag in tags_payload.split(',') if tag.strip()]
 
-        # Create photo record
-        photo = Photo(
-            id=photo_id,
-            survey_id=survey_id,
-            site_id=survey.site_id,  # Get site_id from survey
-            cloud_url='',  # Will be set after upload
-            thumbnail_url='',  # Will be set after upload
-            upload_status='pending',  # Initially pending
-            latitude=latitude,
-            longitude=longitude,
-            description=description,
-            category=category,
-            hash_value=hash_value,
-            size_bytes=size_bytes,
-            hash_algo='sha256',
-            question_id=question_id,
-            tags=json.dumps(tags)
-        )
-
-        db.session.add(photo)
+        # Create or update photo record
+        if existing_photo:
+            photo = existing_photo
+            # Update all fields from the client upload
+            photo.upload_status = 'pending'
+            photo.hash_value = hash_value
+            photo.size_bytes = size_bytes
+            photo.latitude = latitude
+            photo.longitude = longitude
+            photo.description = description
+            photo.category = category
+            photo.tags = json.dumps(tags)
+            photo.question_id = question_id
+            # Reset cloud URLs since we're uploading a new version
+            photo.cloud_url = ''
+            photo.thumbnail_url = ''
+        else:
+            photo = Photo(
+                id=photo_id,
+                survey_id=survey_id,
+                site_id=survey.site_id,  # Get site_id from survey
+                cloud_url='',  # Will be set after upload
+                thumbnail_url='',  # Will be set after upload
+                upload_status='pending',  # Initially pending
+                latitude=latitude,
+                longitude=longitude,
+                description=description,
+                category=category,
+                hash_value=hash_value,
+                size_bytes=size_bytes,
+                hash_algo='sha256',
+                question_id=question_id,
+                tags=json.dumps(tags)
+            )
+            db.session.add(photo)
+            
         db.session.commit()
 
         # Queue for cloud upload

@@ -94,6 +94,16 @@ def should_show_field(conditions, response_lookup):
         - 'in': Value in list
         - 'not_in': Value not in list
 
+    Edge Cases:
+        - Missing responses: If a question_id is not in response_lookup, the condition
+          evaluates to False (conservative approach - hide field until dependency is answered)
+        - None values: Explicit None values are treated as missing (False)
+        - Empty strings: Empty strings are handled explicitly:
+          * For 'equals'/'in': Empty string never equals non-empty value (False)
+          * For 'not_equals'/'not_in': Empty string is not equal to any non-empty value (True)
+        - OR logic: If any condition is True, field shows (even if others are missing)
+        - AND logic: All conditions must be True (missing responses cause False)
+
     Examples:
         >>> conditions = {
         ...     'conditions': [{'question_id': 'q1', 'operator': 'equals', 'value': 'yes'}],
@@ -102,6 +112,22 @@ def should_show_field(conditions, response_lookup):
         >>> responses = [{'question_id': 'q1', 'answer': 'yes'}]
         >>> lookup = build_response_lookup(responses)
         >>> should_show_field(conditions, lookup)
+        True
+        
+        >>> # Missing response - field hidden
+        >>> should_show_field(conditions, {})
+        False
+        
+        >>> # OR logic with one missing - still evaluates correctly
+        >>> conditions_or = {
+        ...     'conditions': [
+        ...         {'question_id': 'q1', 'operator': 'equals', 'value': 'yes'},
+        ...         {'question_id': 'q2', 'operator': 'equals', 'value': 'yes'}
+        ...     ],
+        ...     'logic': 'OR'
+        ... }
+        >>> lookup = {'q2': 'yes'}  # q1 missing, q2 matches
+        >>> should_show_field(conditions_or, lookup)
         True
     """
     if not conditions:
@@ -125,14 +151,35 @@ def should_show_field(conditions, response_lookup):
         expected_value = condition['value']
 
         # O(1) lookup instead of O(n) linear search
-        actual_value = response_lookup.get(question_id)
+        # Check if question_id exists in lookup (distinguishes missing vs None value)
+        if question_id not in response_lookup:
+            # Response not provided yet - conservative approach: hide field until answered
+            # This prevents fields from showing erroneously when dependencies aren't met
+            results.append(False)
+            continue
+
+        actual_value = response_lookup[question_id]
+        
+        # Handle explicit None or empty string values
+        # None means no answer provided, empty string means explicitly empty answer
         if actual_value is None:
+            # Explicit None value - treat as missing for all operators
             results.append(False)
             continue
 
         # Convert to strings once per comparison
         actual_str = str(actual_value)
         expected_str = str(expected_value)
+
+        # Handle empty string explicitly for better edge case handling
+        if actual_str == '' and operator in ('equals', 'in'):
+            # Empty string never equals non-empty value
+            results.append(False)
+            continue
+        elif actual_str == '' and operator in ('not_equals', 'not_in'):
+            # Empty string is not equal to any non-empty value
+            results.append(True)
+            continue
 
         if operator == 'equals':
             results.append(actual_str == expected_str)
@@ -151,6 +198,10 @@ def should_show_field(conditions, response_lookup):
                 results.append(actual_str not in expected_strs)
             else:
                 results.append(actual_str != expected_str)
+        else:
+            # Unknown operator - conservative approach: hide field
+            logger.warning(f"Unknown operator '{operator}' in conditional logic for question_id '{question_id}'")
+            results.append(False)
 
     return all(results) if logic == 'AND' else any(results)
 

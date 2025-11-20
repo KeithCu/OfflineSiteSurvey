@@ -7,6 +7,7 @@ import re
 import logging
 from ..models import db, Photo
 from ..utils import compute_photo_hash
+from ..services.crdt_service import CRDTService
 
 logger = logging.getLogger(__name__)
 bp = Blueprint('crdt', __name__, url_prefix='/api')
@@ -90,85 +91,13 @@ def apply_changes():
             except (ValueError, TypeError):
                 return jsonify({'error': f'site_id must be a valid UUID: {site_id}'}), 400
 
-            # Validate foreign key references to prevent orphaned records
+            # Validate foreign key references using unified CRDTService
             # Note: Foreign keys are disabled during CRR table creation for CRDT operations,
             # but we perform application-level validation with warnings (not blocking) to detect issues
-            from ..utils import validate_foreign_key
-
-            # Application-level FK validation (warnings only, don't block sync)
-            if change['table'] == 'sites' and change['cid'] == 'project_id' and change['val']:
-                if not validate_foreign_key('projects', 'id', change['val']):
-                    integrity_issues.append({
-                        'change': change,
-                        'error': f'Site references non-existent project_id: {change["val"]}',
-                        'action': 'warning'
-                    })
-                    # Continue - don't block sync, but log warning
-
-            elif change['table'] == 'survey' and change['cid'] == 'site_id' and change['val']:
-                if not validate_foreign_key('sites', 'id', change['val']):
-                    integrity_issues.append({
-                        'change': change,
-                        'error': f'Survey references non-existent site_id: {change["val"]}',
-                        'action': 'warning'
-                    })
-                    # Continue - don't block sync, but log warning
-
-            elif change['table'] == 'survey' and change['cid'] == 'template_id' and change['val'] is not None:
-                if not validate_foreign_key('survey_template', 'id', change['val']):
-                    integrity_issues.append({
-                        'change': change,
-                        'error': f'Survey references non-existent template_id: {change["val"]}',
-                        'action': 'warning'
-                    })
-                    # Continue - don't block sync, but log warning
-
-            elif change['table'] == 'survey_response' and change['cid'] == 'survey_id' and change['val']:
-                if not validate_foreign_key('survey', 'id', change['val']):
-                    integrity_issues.append({
-                        'change': change,
-                        'error': f'SurveyResponse references non-existent survey_id: {change["val"]}',
-                        'action': 'warning'
-                    })
-                    # Continue - don't block sync, but log warning
-
-            elif change['table'] == 'template_field' and change['cid'] == 'template_id' and change['val']:
-                if not validate_foreign_key('survey_template', 'id', change['val']):
-                    integrity_issues.append({
-                        'change': change,
-                        'error': f'TemplateField references non-existent template_id: {change["val"]}',
-                        'action': 'warning'
-                    })
-                    # Continue - don't block sync, but log warning
-
-            elif change['table'] == 'photo' and change['cid'] == 'survey_id' and change['val']:
-                if not validate_foreign_key('survey', 'id', change['val']):
-                    integrity_issues.append({
-                        'change': change,
-                        'error': f'Photo references non-existent survey_id: {change["val"]}',
-                        'action': 'warning'
-                    })
-                    # Continue - don't block sync, but log warning
-
-            elif change['table'] == 'photo' and change['cid'] == 'site_id' and change['val']:
-                if not validate_foreign_key('sites', 'id', change['val']):
-                    integrity_issues.append({
-                        'change': change,
-                        'error': f'Photo references non-existent site_id: {change["val"]}',
-                        'action': 'warning'
-                    })
-                    # Continue - don't block sync, but log warning
-
-            elif change['table'] == 'photo' and change['cid'] == 'question_id' and change['val'] is not None:
-                if not validate_foreign_key('template_field', 'id', change['val']):
-                    integrity_issues.append({
-                        'change': change,
-                        'error': f'Photo references non-existent question_id: {change["val"]}',
-                        'action': 'warning'
-                    })
-                    # Continue - don't block sync, but log warning
-
-            # Old commented-out code removed - replaced with warning-based validation above
+            fk_issue = CRDTService.validate_foreign_key_change(change)
+            if fk_issue:
+                integrity_issues.append(fk_issue)
+                # Continue - don't block sync, but log warning
             # if change['table'] == 'sites' and change['cid'] == 'project_id':
             #     if not validate_foreign_key('projects', 'id', change['val']):
     #         integrity_issues.append({

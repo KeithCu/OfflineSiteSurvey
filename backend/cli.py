@@ -103,11 +103,19 @@ def check_photo_integrity_command(fix):
         current_hash = None
         actual_size = None
 
-        # Check local data first (legacy support)
-        if photo.image_data:
-            current_hash = compute_photo_hash(photo.image_data)
-            actual_size = len(photo.image_data)
-        # Check cloud data if no local data or if we want to verify cloud integrity
+        # Check local file path first (if available)
+        if photo.file_path:
+            try:
+                current_hash = compute_photo_hash(photo.file_path)
+                import os
+                actual_size = os.path.getsize(photo.file_path) if os.path.exists(photo.file_path) else None
+                if actual_size is None:
+                    click.echo(f"  Skipping photo {photo.id}: file not found at {photo.file_path}")
+                    continue
+            except Exception as e:
+                click.echo(f"  Error reading photo file {photo.id}: {e}")
+                continue
+        # Check cloud data if no local file path
         elif photo.cloud_url and photo.upload_status == 'completed':
             try:
                 from .services.cloud_storage import get_cloud_storage

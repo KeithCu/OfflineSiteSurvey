@@ -7,6 +7,7 @@ components of the Site Survey application.
 import hashlib
 import json
 import logging
+import operator
 from functools import lru_cache
 from PIL import Image, UnidentifiedImageError
 import io
@@ -21,31 +22,56 @@ class CorruptedImageError(Exception):
 # Photo hash algorithm constant - always SHA256
 PHOTO_HASH_ALGO = 'sha256'
 
+# Operator dispatch for conditional logic evaluation
+OPERATORS = {
+    'equals': operator.eq,
+    'not_equals': operator.ne,
+    'in': lambda x, y: str(x) in [str(v) for v in y] if isinstance(y, list) else str(x) == str(y),
+    'not_in': lambda x, y: str(x) not in [str(v) for v in y] if isinstance(y, list) else str(x) != str(y),
+}
 
-def compute_photo_hash(image_data):
+
+def compute_photo_hash(image_data_or_path):
     """Compute cryptographic hash of image data for integrity verification.
 
     Used to ensure photo data integrity during sync and storage operations.
-    Always uses SHA256 algorithm.
+    Always uses SHA256 algorithm. Can accept either bytes or file path.
 
     Args:
-        image_data (bytes): Raw image data bytes to hash
+        image_data_or_path (bytes | str): Raw image data bytes or path to image file
 
     Returns:
         str: Hexadecimal hash string (64 characters for SHA256)
 
     Raises:
-        TypeError: If image_data is not bytes type
+        TypeError: If image_data_or_path is not bytes or str type
         ValueError: If hash algorithm is invalid or unsupported
+        FileNotFoundError: If image_data_or_path is a path and file doesn't exist
 
     Examples:
         >>> data = b"test image data"
         >>> hash_value = compute_photo_hash(data)
         >>> len(hash_value)
         64
+        >>> hash_value = compute_photo_hash("/path/to/image.jpg")
+        >>> len(hash_value)
+        64
     """
-    if not isinstance(image_data, bytes):
-        raise TypeError(f"compute_photo_hash expected bytes, got {type(image_data).__name__}")
+    # Handle file path
+    if isinstance(image_data_or_path, str):
+        try:
+            with open(image_data_or_path, 'rb') as f:
+                image_data = f.read()
+        except FileNotFoundError:
+            logger.error(f"Photo file not found: {image_data_or_path}")
+            raise
+        except Exception as e:
+            logger.error(f"Error reading photo file '{image_data_or_path}': {e}")
+            raise
+    elif isinstance(image_data_or_path, bytes):
+        image_data = image_data_or_path
+    else:
+        raise TypeError(f"compute_photo_hash expected bytes or str (file path), got {type(image_data_or_path).__name__}")
     
     try:
         return hashlib.new(PHOTO_HASH_ALGO, image_data).hexdigest()
@@ -193,23 +219,10 @@ def should_show_field(conditions, response_lookup):
             results.append(True)
             continue
 
-        if operator == 'equals':
-            results.append(actual_str == expected_str)
-        elif operator == 'not_equals':
-            results.append(actual_str != expected_str)
-        elif operator == 'in':
-            # Pre-convert expected_value list once if it's a list
-            if isinstance(expected_value, list):
-                expected_strs = tuple(str(v) for v in expected_value)
-                results.append(actual_str in expected_strs)
-            else:
-                results.append(actual_str == expected_str)
-        elif operator == 'not_in':
-            if isinstance(expected_value, list):
-                expected_strs = tuple(str(v) for v in expected_value)
-                results.append(actual_str not in expected_strs)
-            else:
-                results.append(actual_str != expected_str)
+        # Use operator dispatch for O(1) lookup instead of O(n) if/elif chain
+        op_func = OPERATORS.get(operator)
+        if op_func:
+            results.append(op_func(actual_str, expected_value))
         else:
             # Unknown operator - conservative approach: hide field
             logger.warning(f"Unknown operator '{operator}' in conditional logic for question_id '{question_id}'")

@@ -35,7 +35,7 @@ class Project(Base):
     priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, nullable=False)
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
-    sites = relationship('Site', backref='project', lazy=True)
+    sites = relationship('Site', backref='project', lazy=True, cascade="all, delete-orphan")
 
 
 class Site(Base):
@@ -49,7 +49,8 @@ class Site(Base):
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), index=True)
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
-    surveys = relationship('Survey', backref='site', lazy=True)
+    surveys = relationship('Survey', backref='site', lazy=True, cascade="all, delete-orphan")
+    photos = relationship('Photo', backref='site', lazy=True, cascade="all, delete-orphan")
 
 Index('idx_site_project_id', Site.project_id)
 
@@ -65,7 +66,8 @@ class Survey(Base):
     status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, nullable=False)
     template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'))
     template = relationship('SurveyTemplate', backref='surveys')
-    responses = relationship('SurveyResponse', backref='survey')
+    responses = relationship('SurveyResponse', backref='survey', cascade="all, delete-orphan")
+    photos = relationship('Photo', backref='survey', lazy=True, cascade="all, delete-orphan")
 
 Index('idx_survey_site_id', Survey.site_id)
 Index('idx_survey_template_id', Survey.template_id)

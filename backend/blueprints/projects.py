@@ -78,5 +78,4 @@ def update_project(project_id):
 @bp.route('/projects/<int:project_id>', methods=['DELETE'])
 def delete_project(project_id):
     """Delete a project."""
-    from ..utils import cascade_delete_project
-    return project_crud.delete(project_id, cascade_func=cascade_delete_project)
+    return project_crud.delete(project_id)

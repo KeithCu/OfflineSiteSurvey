@@ -130,5 +130,4 @@ def create_survey():
 @bp.route('/surveys/<int:survey_id>', methods=['DELETE'])
 def delete_survey(survey_id):
     """Delete a survey."""
-    from ..utils import cascade_delete_survey
-    return survey_crud.delete(survey_id, cascade_func=cascade_delete_survey)
+    return survey_crud.delete(survey_id)

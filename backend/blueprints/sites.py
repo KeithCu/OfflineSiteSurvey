@@ -132,5 +132,4 @@ def update_site(site_id):
 @bp.route('/sites/<int:site_id>', methods=['DELETE'])
 def delete_site(site_id):
     """Delete a site."""
-    from ..utils import cascade_delete_site
-    return site_crud.delete(site_id, cascade_func=cascade_delete_site)
+    return site_crud.delete(site_id)

@@ -1,28 +1,43 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey, Index, text, Enum
 from sqlalchemy.orm import relationship, declarative_base
 from shared.enums import SurveyStatus, ProjectStatus, PhotoCategory, PriorityLevel
 
 Base = declarative_base()
 
+# Global timezone configuration - Eastern Time (US/Eastern)
+# Change this variable to use a different timezone if needed
+# Uses zoneinfo for proper DST handling (EST/EDT)
+from zoneinfo import ZoneInfo
+APP_TIMEZONE = ZoneInfo('America/New_York')  # Eastern Time with automatic DST handling
 
-EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+EPOCH = datetime(1970, 1, 1, tzinfo=APP_TIMEZONE)
 
+def now():
+    """Return current datetime in application timezone (Eastern Time, timezone-aware)."""
+    return datetime.now(APP_TIMEZONE)
+
+# Deprecated: Use now() instead. Kept for backward compatibility only.
 def utc_now():
-    """Return current UTC datetime (timezone-aware)."""
-    return datetime.now(timezone.utc)
+    """Deprecated: Use now() instead. Returns current datetime in application timezone (Eastern Time).
+    
+    Note: Despite the name, this function returns Eastern Time, not UTC.
+    This function is deprecated and will be removed in a future version.
+    Use now() instead for clarity.
+    """
+    return now()
 
 class Project(Base):
     __tablename__ = 'projects'
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String(200), nullable=False, server_default="")
     description = Column(Text, server_default="")
-    status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT, server_default=ProjectStatus.DRAFT.value)
+    status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT, nullable=False)
     client_info = Column(Text, server_default="")
     due_date = Column(DateTime)
-    priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, server_default=PriorityLevel.MEDIUM.value)
+    priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, nullable=False)
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    updated_at = Column(DateTime, default=now, onupdate=now)
     sites = relationship('Site', backref='project', lazy=True)
 
 
@@ -36,7 +51,7 @@ class Site(Base):
     notes = Column(Text, server_default="")
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), index=True)
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    updated_at = Column(DateTime, default=now, onupdate=now)
     surveys = relationship('Survey', backref='site', lazy=True)
 
 Index('idx_site_project_id', Site.project_id)
@@ -49,8 +64,8 @@ class Survey(Base):
     description = Column(Text, server_default="")
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False)
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-    status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, server_default=SurveyStatus.DRAFT.value)
+    updated_at = Column(DateTime, default=now, onupdate=now)
+    status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, nullable=False)
     template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'))
     template = relationship('SurveyTemplate', backref='surveys')
     responses = relationship('SurveyResponse', backref='survey')
@@ -85,7 +100,7 @@ class AppConfig(Base):
     value = Column(Text, server_default="")
     description = Column(String(300), server_default="")
     category = Column(String(50), server_default="")
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    updated_at = Column(DateTime, default=now, onupdate=now)
 
 
 class SurveyTemplate(Base):
@@ -95,8 +110,8 @@ class SurveyTemplate(Base):
     description = Column(Text, server_default="")
     category = Column(String(50), server_default="")
     is_default = Column(Boolean, default=False, server_default='0')
-    created_at = Column(DateTime, default=utc_now)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    created_at = Column(DateTime, default=now)
+    updated_at = Column(DateTime, default=now, onupdate=now)
     fields = relationship('TemplateField', backref='template', cascade='all, delete-orphan', lazy=True)
     section_tags = Column(Text, server_default="{}")
 
@@ -136,7 +151,7 @@ class Photo(Base):
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
     description = Column(Text, server_default="")
-    category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL, server_default=PhotoCategory.GENERAL.value)
+    category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL, nullable=False)
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"), index=True)
     hash_algo = Column(String(10), default='sha256', server_default='sha256')
     hash_value = Column(String(64), index=True, server_default="")

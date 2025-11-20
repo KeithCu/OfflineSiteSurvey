@@ -36,9 +36,11 @@ PriorityLevel: ['critical', 'high', 'medium', 'low']
 ```
 
 ### Timestamp Conventions
-- All timestamps are UTC timezone-aware (`datetime` with `timezone.utc`)
+- All timestamps are Eastern Time timezone-aware (`datetime` with `APP_TIMEZONE` from `shared.models`)
 - Fields: `created_at`, `updated_at`
-- Server default: `'1970-01-01 00:00:00'` (Unix epoch)
+- Server default: `'1970-01-01 00:00:00'` (Unix epoch in Eastern Time)
+- Use `now()` or `utc_now()` from `shared.models` to get current time (both return Eastern Time)
+- To change timezone, modify `APP_TIMEZONE` in `shared/models.py`
 
 ### Field Length Limits
 - Project name: 200 characters
@@ -455,7 +457,7 @@ db_conn.load_extension(lib_path)
 - **Foreign Keys Disabled**: Required for CRDT but means referential integrity is app-level
 - **App Config Not CRR**: Configuration changes don't sync between clients
 - **Photo IDs are Strings**: Unlike other models that use integers
-- **Timestamps are UTC**: Always timezone-aware datetime objects
+- **Timestamps are Eastern Time**: Always timezone-aware datetime objects using `APP_TIMEZONE` from `shared.models`
 - **Session Management**: Always use proper commit/rollback patterns
 - **Extension Loading**: cr-sqlite must be loaded before any CRR operations
 - **Site ID Uniqueness**: Each app instance must have unique site_id for proper sync
@@ -846,3 +848,6 @@ tests/
 
 ## IMPORTANT: Always activate .venv first
 **CRITICAL**: Remember to activate the virtual environment with `source .venv/bin/activate` before running ANY commands. All `uv run` commands must be executed from within the activated virtual environment.
+
+## Code Style Preferences
+- **Type Hints**: Do not use type hints in this codebase. The project is small and maintained by a single developer, so type hints are not needed.

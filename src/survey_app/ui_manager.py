@@ -1,11 +1,7 @@
 """UI Manager for Survey App - handles all UI creation and management."""
-try:
-    import toga
-    from toga.style import Pack
-    from toga.style.pack import COLUMN, ROW
-except (ImportError, RuntimeError):
-    from . import toga_mock as toga
-    from .toga_mock import Pack, COLUMN, ROW
+import toga
+from toga.style import Pack
+from toga.style.pack import COLUMN, ROW
 
 
 class UIManager:

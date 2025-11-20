@@ -5,11 +5,12 @@ import json
 import time
 import logging
 import threading
-from datetime import datetime
+import shutil
+from datetime import datetime, timedelta
 from threading import Lock
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
-from shared.models import Photo
+from sqlalchemy import create_engine, or_
+from shared.models import Photo, now
 from .cloud_storage import get_cloud_storage
 from shared.utils import generate_thumbnail, compute_photo_hash
 
@@ -112,6 +113,9 @@ class UploadQueueService:
         """Process all pending and failed photo uploads with retry logic."""
         session = self.SessionLocal()
         try:
+            # Check for stale pending photos (pending for too long without retry tracking)
+            self._handle_stale_pending_photos(session)
+
             # Get pending photos (never failed before)
             pending_photos = session.query(Photo).filter_by(upload_status='pending').all()
 
@@ -132,9 +136,7 @@ class UploadQueueService:
 
     def _get_retryable_failed_photos(self, session):
         """Get failed photos that are eligible for retry based on backoff logic."""
-        from datetime import datetime, timedelta
-        from shared.models import utc_now
-        current_time = utc_now()
+        current_time = now()
 
         failed_photos = session.query(Photo).filter_by(upload_status='failed').all()
         retryable_photos = []
@@ -173,11 +175,18 @@ class UploadQueueService:
         return retryable_photos
 
     def _handle_upload_failure(self, session, photo, error):
-        """Handle upload failure with retry tracking."""
-        from datetime import datetime
+        """Handle upload failure with retry tracking.
+        
+        Ensures that any photo failure (whether from pending or failed status)
+        gets proper retry tracking so it can be retried later.
+        """
+        # Initialize retry_count if it's None or 0 for pending photos
+        if photo.retry_count is None or photo.retry_count == 0:
+            photo.retry_count = 0
+        
+        # Increment retry count
         photo.retry_count += 1
-        from shared.models import utc_now
-        photo.last_retry_at = utc_now()
+        photo.last_retry_at = now()
 
         if photo.retry_count >= self.max_retries:
             photo.upload_status = 'permanently_failed'
@@ -188,6 +197,31 @@ class UploadQueueService:
 
         session.commit()
 
+    def _handle_stale_pending_photos(self, session):
+        """Convert stale pending photos to failed status for retry logic.
+        
+        Photos that have been pending for more than 1 hour without any retry tracking
+        are considered stale and should be marked as failed so they can be retried.
+        """
+        # Find pending photos that are older than 1 hour and have no retry tracking
+        stale_threshold = now() - timedelta(hours=1)
+        stale_photos = session.query(Photo).filter(
+            Photo.upload_status == 'pending',
+            Photo.created_at < stale_threshold,
+            or_(Photo.retry_count == 0, Photo.retry_count.is_(None)),
+            Photo.last_retry_at.is_(None)
+        ).all()
+        
+        for photo in stale_photos:
+            logger.warning(f"Photo {photo.id} has been pending for over 1 hour, marking as failed for retry")
+            photo.upload_status = 'failed'
+            photo.retry_count = 0  # Initialize retry count
+            photo.last_retry_at = None  # Allow immediate retry
+        
+        if stale_photos:
+            session.commit()
+            logger.info(f"Converted {len(stale_photos)} stale pending photos to failed status")
+
     def _process_single_upload(self, session, photo):
         """Process upload for a single photo."""
         logger.info(f"Processing upload for photo {photo.id}")
@@ -196,8 +230,8 @@ class UploadQueueService:
         local_path = self._get_local_photo_path(photo.id)
         if not os.path.exists(local_path):
             logger.warning(f"Local photo file not found: {local_path}")
-            photo.upload_status = 'failed'
-            session.commit()
+            # Properly handle failure with retry tracking
+            self._handle_upload_failure(session, photo, FileNotFoundError(f"Local photo file not found: {local_path}"))
             return
 
         # Move to processing directory
@@ -305,7 +339,6 @@ class UploadQueueService:
 
                 if photo_path:
                     # Copy file from source path
-                    import shutil
                     shutil.copy2(photo_path, local_photo_path)
                 else:
                     # Write data to file

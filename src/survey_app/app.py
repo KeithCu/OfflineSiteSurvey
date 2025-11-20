@@ -1,11 +1,7 @@
 """Site Survey App - Main application."""
-try:
-    import toga
-    from toga.style import Pack
-    from toga.style.pack import COLUMN, ROW
-except (ImportError, RuntimeError):
-    from . import toga_mock as toga
-    from .toga_mock import Pack, COLUMN, ROW
+import toga
+from toga.style import Pack
+from toga.style.pack import COLUMN, ROW
 
 from .local_db import LocalDatabase
 from .enums import ProjectStatus, PriorityLevel, PhotoCategory

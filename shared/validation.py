@@ -1,13 +1,8 @@
 """Input validation utilities."""
 import re
 import os
+import bleach
 from shared.enums import ProjectStatus, SurveyStatus, PriorityLevel
-
-try:
-    import bleach
-    HAS_BLEACH = True
-except ImportError:
-    HAS_BLEACH = False
 
 
 class ValidationError(Exception):
@@ -18,9 +13,10 @@ class ValidationError(Exception):
 class Validator:
     """Input validation utilities."""
 
-    # Common validation patterns
+    # Common validation patterns (pre-compiled for performance)
     EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
     PHONE_PATTERN = re.compile(r'^\+?1?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})$')
+    PHONE_CLEAN_PATTERN = re.compile(r'[^\d+()-.\s]')  # Pre-compiled for phone cleaning
     ZIP_PATTERN = re.compile(r'^\d{5}(-\d{4})?$')
     COORDINATE_PATTERN = re.compile(r'^-?([1-8]?\d(\.\d+)?|90(\.0+)?),\s*-?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$')
 
@@ -55,11 +51,18 @@ class Validator:
 
     @staticmethod
     def validate_phone(phone):
-        """Validate phone number format."""
-        phone = re.sub(r'[^\d+()-.\s]', '', phone.strip())
-        if not Validator.PHONE_PATTERN.match(phone):
+        """Validate phone number format.
+        
+        Optimized: strip first, then apply regex substitution.
+        """
+        phone_stripped = phone.strip()
+        # Only apply regex if there are non-digit characters to remove
+        # Most phone numbers are already clean, so this avoids regex overhead
+        if any(c not in '0123456789+()-.' for c in phone_stripped):
+            phone_stripped = Validator.PHONE_CLEAN_PATTERN.sub('', phone_stripped)
+        if not Validator.PHONE_PATTERN.match(phone_stripped):
             raise ValidationError("Invalid phone number format")
-        return phone
+        return phone_stripped
 
     @staticmethod
     def validate_coordinates(lat, lng):
@@ -68,6 +71,8 @@ class Validator:
         Accepts coordinates with reasonable precision (0-10 decimal places).
         GPS coordinates are stored with 6-8 decimal precision internally,
         but input validation should be flexible to accept various formats.
+        
+        Optimized to minimize string operations and conversions.
         """
         try:
             lat_val = float(lat) if isinstance(lat, str) else lat
@@ -81,25 +86,40 @@ class Validator:
 
             # Optional: Validate reasonable precision (avoid excessive decimal places)
             # GPS coordinates typically don't need more than 10 decimal places
+            # Optimized: only check precision if value has decimal component
             if isinstance(lat, str):
-                lat_str = lat.strip()
-            else:
+                # Check string format directly without conversion
+                lat_stripped = lat.strip()
+                if '.' in lat_stripped:
+                    decimal_part = lat_stripped.split('.', 1)[1]
+                    # Remove trailing zeros before counting
+                    decimal_part = decimal_part.rstrip('0')
+                    if decimal_part and len(decimal_part) > 10:
+                        raise ValidationError("Latitude must not have more than 10 decimal places")
+            elif lat_val != int(lat_val):
+                # Float has decimal component, check precision
                 lat_str = f"{lat_val:.10f}".rstrip('0').rstrip('.')
-
-            if '.' in lat_str:
-                decimal_places = len(lat_str.split('.')[1])
-                if decimal_places > 10:
-                    raise ValidationError("Latitude must not have more than 10 decimal places")
+                if '.' in lat_str:
+                    decimal_places = len(lat_str.split('.', 1)[1])
+                    if decimal_places > 10:
+                        raise ValidationError("Latitude must not have more than 10 decimal places")
 
             if isinstance(lng, str):
-                lng_str = lng.strip()
-            else:
+                # Check string format directly without conversion
+                lng_stripped = lng.strip()
+                if '.' in lng_stripped:
+                    decimal_part = lng_stripped.split('.', 1)[1]
+                    # Remove trailing zeros before counting
+                    decimal_part = decimal_part.rstrip('0')
+                    if decimal_part and len(decimal_part) > 10:
+                        raise ValidationError("Longitude must not have more than 10 decimal places")
+            elif lng_val != int(lng_val):
+                # Float has decimal component, check precision
                 lng_str = f"{lng_val:.10f}".rstrip('0').rstrip('.')
-
-            if '.' in lng_str:
-                decimal_places = len(lng_str.split('.')[1])
-                if decimal_places > 10:
-                    raise ValidationError("Longitude must not have more than 10 decimal places")
+                if '.' in lng_str:
+                    decimal_places = len(lng_str.split('.', 1)[1])
+                    if decimal_places > 10:
+                        raise ValidationError("Longitude must not have more than 10 decimal places")
 
             return lat_val, lng_val
         except (ValueError, TypeError):
@@ -150,8 +170,17 @@ class Validator:
 
     @staticmethod
     def sanitize_html(text):
-        """Secure HTML sanitization using bleach library."""
+        """Secure HTML sanitization using bleach library.
+        
+        Optimized with early returns for simple cases to avoid expensive
+        HTML parsing when not needed.
+        """
         if not text:
+            return text
+        
+        # Fast path: if text contains no HTML tags or special characters, return as-is
+        # This avoids expensive bleach parsing for plain text (common case)
+        if '<' not in text and '>' not in text and '&' not in text:
             return text
             
         # Use bleach for proper HTML sanitization

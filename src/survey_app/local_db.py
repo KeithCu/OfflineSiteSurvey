@@ -23,7 +23,7 @@ from shared.models import (
 # Keep local enums for now, can be moved to shared later if needed
 from shared.enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
 # Import shared utilities
-from shared.utils import compute_photo_hash, generate_thumbnail
+from shared.utils import compute_photo_hash, generate_thumbnail, should_show_field
 
 
 class LocalDatabase:
@@ -522,8 +522,8 @@ class LocalDatabase:
         if not backup_dir:
             backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
         os.makedirs(backup_dir, exist_ok=True)
-        from shared.models import utc_now
-        timestamp = utc_now().strftime('%Y%m%d_%H%M%S')
+        from shared.models import now
+        timestamp = now().strftime('%Y%m%d_%H%M%S')
         backup_filename = f'backup_{timestamp}.zip'
         backup_path = os.path.join(backup_dir, backup_filename)
         try:
@@ -571,13 +571,12 @@ class LocalDatabase:
                     else:
                         metadata = {}
                     if 'timestamp' in metadata:
-                        from shared.models import utc_now
-                        from datetime import timezone
+                        from shared.models import now, APP_TIMEZONE
                         # Parse timestamp and ensure it's timezone-aware
                         backup_time_naive = datetime.strptime(metadata['timestamp'], '%Y%m%d_%H%M%S')
-                        # Assume backup timestamps are UTC (as per backup creation)
-                        backup_time = backup_time_naive.replace(tzinfo=timezone.utc)
-                        age_days = (utc_now() - backup_time).days
+                        # Assume backup timestamps are in application timezone (Eastern Time)
+                        backup_time = backup_time_naive.replace(tzinfo=APP_TIMEZONE)
+                        age_days = (now() - backup_time).days
                         if age_days > 30:
                             raise ValueError(f"Backup is too old ({age_days} days). Maximum allowed age is 30 days.")
                     
@@ -692,29 +691,9 @@ class LocalDatabase:
             session.close()
 
     def should_show_field(self, conditions, responses):
-        if not conditions:
-            return True
-        condition_list = conditions.get('conditions', [])
-        logic = conditions.get('logic', 'AND')
-        results = []
-        for condition in condition_list:
-            question_id = condition['question_id']
-            operator = condition['operator']
-            expected_value = condition['value']
-            response = next((r for r in responses if r.get('question_id') == question_id), None)
-            if not response:
-                results.append(False)
-                continue
-            actual_value = response.get('answer')
-            if operator == 'equals':
-                results.append(str(actual_value) == str(expected_value))
-            elif operator == 'not_equals':
-                results.append(str(actual_value) != str(expected_value))
-            elif operator == 'in':
-                results.append(str(actual_value) in [str(v) for v in expected_value])
-            elif operator == 'not_in':
-                results.append(str(actual_value) not in [str(v) for v in expected_value])
-        return all(results) if logic == 'AND' else any(results)
+        """Optimized version using response lookup dictionary for O(1) access."""
+        # Use the optimized shared utility function
+        return should_show_field(conditions, responses)
 
     def get_survey_progress(self, survey_id):
         session = self.get_session()

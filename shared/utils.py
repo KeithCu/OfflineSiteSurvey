@@ -6,8 +6,11 @@ components of the Site Survey application.
 
 import hashlib
 import json
+import logging
 from PIL import Image
 import io
+
+logger = logging.getLogger(__name__)
 
 
 def compute_photo_hash(image_data, algo='sha256'):
@@ -29,7 +32,13 @@ def compute_photo_hash(image_data, algo='sha256'):
         64
     """
     if isinstance(image_data, bytes):
-        return hashlib.new(algo, image_data).hexdigest()
+        try:
+            return hashlib.new(algo, image_data).hexdigest()
+        except Exception as e:
+            logger.error(f"Failed to compute photo hash with algorithm '{algo}': {e}")
+            return None
+    
+    logger.warning(f"compute_photo_hash called with invalid input type: {type(image_data).__name__}, expected bytes")
     return None
 
 
@@ -38,6 +47,9 @@ def should_show_field(conditions, responses):
 
     Supports AND/OR logic with various comparison operators for building
     dynamic survey forms based on previous responses.
+
+    Optimized for large surveys by using response lookup dictionary instead of
+    linear search through responses for each condition.
 
     Args:
         conditions (dict): Condition specification with 'conditions' list and 'logic' key
@@ -71,7 +83,18 @@ def should_show_field(conditions, responses):
         return True
 
     condition_list = conditions.get('conditions', [])
+    if not condition_list:
+        return True
+
     logic = conditions.get('logic', 'AND')
+
+    # Build response lookup dictionary once for O(1) access
+    # This is critical for large surveys with many responses
+    response_lookup = {}
+    for r in responses:
+        qid = r.get('question_id')
+        if qid is not None:
+            response_lookup[qid] = r.get('answer')
 
     results = []
     for condition in condition_list:
@@ -79,22 +102,33 @@ def should_show_field(conditions, responses):
         operator = condition['operator']
         expected_value = condition['value']
 
-        # Find response for this question
-        response = next((r for r in responses if r.get('question_id') == question_id), None)
-        if not response:
+        # O(1) lookup instead of O(n) linear search
+        actual_value = response_lookup.get(question_id)
+        if actual_value is None:
             results.append(False)
             continue
 
-        actual_value = response.get('answer')
+        # Convert to strings once per comparison
+        actual_str = str(actual_value)
+        expected_str = str(expected_value)
 
         if operator == 'equals':
-            results.append(str(actual_value) == str(expected_value))
+            results.append(actual_str == expected_str)
         elif operator == 'not_equals':
-            results.append(str(actual_value) != str(expected_value))
+            results.append(actual_str != expected_str)
         elif operator == 'in':
-            results.append(str(actual_value) in [str(v) for v in expected_value])
+            # Pre-convert expected_value list once if it's a list
+            if isinstance(expected_value, list):
+                expected_strs = tuple(str(v) for v in expected_value)
+                results.append(actual_str in expected_strs)
+            else:
+                results.append(actual_str == expected_str)
         elif operator == 'not_in':
-            results.append(str(actual_value) not in [str(v) for v in expected_value])
+            if isinstance(expected_value, list):
+                expected_strs = tuple(str(v) for v in expected_value)
+                results.append(actual_str not in expected_strs)
+            else:
+                results.append(actual_str != expected_str)
 
     return all(results) if logic == 'AND' else any(results)
 
@@ -119,6 +153,7 @@ def generate_thumbnail(image_data=None, image_path=None, max_size=200):
         Either image_data or image_path must be provided.
     """
     if not image_data and not image_path:
+        logger.warning("generate_thumbnail called without image_data or image_path")
         return None
 
     try:
@@ -134,6 +169,10 @@ def generate_thumbnail(image_data=None, image_path=None, max_size=200):
         thumb_buffer = io.BytesIO()
         img.save(thumb_buffer, format='JPEG', quality=85)
         return thumb_buffer.getvalue()
-    except Exception:
-        # Log error but don't expose internal details
+    except Exception as e:
+        # Log error with details for debugging photo integrity issues
+        if image_path:
+            logger.error(f"Failed to generate thumbnail from file '{image_path}': {e}", exc_info=True)
+        else:
+            logger.error(f"Failed to generate thumbnail from image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
         return None

@@ -5,6 +5,7 @@ import time
 import logging
 import webbrowser
 import urllib.parse
+from .network_queue import get_network_queue
 
 
 class CompanyCamService:
@@ -16,6 +17,7 @@ class CompanyCamService:
     def __init__(self, config_manager):
         self.config = config_manager
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.network_queue = get_network_queue()
 
         # OAuth configuration - load from environment variables or config
         self.client_id = self.config.companycam_client_id
@@ -306,3 +308,80 @@ class CompanyCamService:
         except Exception as e:
             self.logger.error(f"Failed to create tag: {e}")
             return None
+
+    # Asynchronous versions for non-blocking operations
+    def create_project_async(self, name, description="", address=""):
+        """Asynchronous project creation - returns request ID for polling."""
+        if not self._ensure_valid_token():
+            return None
+
+        url = f"{self.API_BASE_URL}/projects"
+        data = {
+            'name': name,
+            'description': description,
+            'address': address
+        }
+
+        return self.network_queue.submit_request(
+            operation='companycam_request',
+            args=('POST', url),
+            kwargs={
+                'headers': self._get_auth_headers(),
+                'json_data': data,
+                'timeout': 30
+            }
+        )
+
+    def upload_photo_async(self, project_id, image_data, filename, description="", latitude=None, longitude=None, tag_ids=None):
+        """Asynchronous photo upload - returns request ID for polling."""
+        if not self._ensure_valid_token():
+            return None
+
+        url = f"{self.API_BASE_URL}/projects/{project_id}/photos"
+
+        # Prepare multipart form data
+        files = {
+            'photo': (filename, image_data, 'image/jpeg')
+        }
+
+        data = {}
+        if description:
+            data['description'] = description
+        if latitude is not None and longitude is not None:
+            data['coordinates'] = f"{latitude},{longitude}"
+        if tag_ids:
+            data['tag_ids[]'] = tag_ids
+
+        headers = {'Authorization': f"Bearer {self.config.companycam_access_token}"}
+
+        return self.network_queue.submit_request(
+            operation='companycam_request',
+            args=('POST', url),
+            kwargs={
+                'headers': headers,
+                'data': data,
+                'files': files,
+                'timeout': 60
+            }
+        )
+
+    def poll_request_result(self, request_id):
+        """Poll for the result of an asynchronous CompanyCam request.
+
+        Returns:
+            dict or None: {'success': bool, 'response': Response, 'error': str} or None if not complete
+        """
+        result = self.network_queue.poll_result(request_id)
+        if result:
+            operation_result = result['result']
+            if operation_result['success']:
+                return {
+                    'success': True,
+                    'response': operation_result['data']
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': operation_result.get('error', 'Unknown error')
+                }
+        return None

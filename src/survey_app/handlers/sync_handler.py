@@ -117,18 +117,18 @@ class SyncHandler:
         """Upload pending photos to server."""
         pending_photos = self.app.db.get_pending_upload_photos()
         all_success = True
-        
+
         for photo in pending_photos:
             try:
                 # Get local path using the db helper or fallback to file_path
                 photo_path = self.app.db.get_photo_path(photo.id)
-                
+
                 if not photo_path or not os.path.exists(photo_path):
                     self.logger.warning(f"Photo file not found for {photo.id}, skipping upload")
-                    # Mark as failed? Or just leave pending? 
+                    # Mark as failed? Or just leave pending?
                     # Leaving pending so we retry later if file appears (unlikely) or user fixes it
                     continue
-                
+
                 # Prepare metadata
                 data = {
                     'id': photo.id,
@@ -139,14 +139,14 @@ class SyncHandler:
                     'tags': photo.tags,
                     'question_id': photo.question_id
                 }
-                
+
                 # Upload
                 response = self.app.api_service.upload_photo(
                     f'/api/surveys/{photo.survey_id}/photos',
                     photo_path,
                     data=data
                 )
-                
+
                 if response.status_code in [200, 201]:
                     # Mark as uploaded
                     # Note: Server might return cloud_url/thumbnail_url if it uploads synchronously,
@@ -158,12 +158,71 @@ class SyncHandler:
                 else:
                     self.logger.error(f"Failed to upload photo {photo.id}: {response.status_code}")
                     all_success = False
-                    
+
             except Exception as e:
                 self.logger.error(f"Exception uploading photo {photo.id}: {e}")
                 all_success = False
-                
+
         return all_success
+
+    def sync_pending_photos_async(self):
+        """Start asynchronous upload of pending photos - returns list of request IDs."""
+        pending_photos = self.app.db.get_pending_upload_photos()
+        request_ids = []
+
+        for photo in pending_photos:
+            try:
+                # Get local path using the db helper or fallback to file_path
+                photo_path = self.app.db.get_photo_path(photo.id)
+
+                if not photo_path or not os.path.exists(photo_path):
+                    self.logger.warning(f"Photo file not found for {photo.id}, skipping upload")
+                    continue
+
+                # Prepare metadata
+                data = {
+                    'id': photo.id,
+                    'description': photo.description,
+                    'category': photo.category,
+                    'latitude': photo.latitude,
+                    'longitude': photo.longitude,
+                    'tags': photo.tags,
+                    'question_id': photo.question_id
+                }
+
+                # Submit async upload
+                request_id = self.app.api_service.upload_photo_async(
+                    f'/api/surveys/{photo.survey_id}/photos',
+                    photo_path,
+                    data=data
+                )
+
+                if request_id:
+                    request_ids.append((request_id, photo.id))
+                    self.logger.info(f"Submitted async upload for photo {photo.id}")
+
+            except Exception as e:
+                self.logger.error(f"Exception submitting async upload for photo {photo.id}: {e}")
+
+        return request_ids
+
+    def poll_photo_upload_results(self, request_ids):
+        """Poll for completion of async photo uploads and update database."""
+        completed_photos = []
+        failed_photos = []
+
+        for request_id, photo_id in request_ids:
+            result = self.app.api_service.poll_request_result(request_id)
+            if result:
+                if result['success'] and result['response'].status_code in [200, 201]:
+                    self.app.db.mark_photo_uploaded(photo_id)
+                    completed_photos.append(photo_id)
+                    self.logger.info(f"Async upload completed for photo {photo_id}")
+                else:
+                    failed_photos.append(photo_id)
+                    self.logger.error(f"Async upload failed for photo {photo_id}: {result.get('error', 'Unknown error')}")
+
+        return completed_photos, failed_photos
 
     def update_sync_status(self, message):
         """Update sync status with health indicators"""

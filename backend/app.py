@@ -1,4 +1,13 @@
 """Flask application factory for Site Survey backend."""
+# Monkey patch sqlite3 to use pysqlite3-binary if available
+# This is required for load_extension support on many Linux systems
+import sys
+try:
+    import pysqlite3
+    sys.modules['sqlite3'] = pysqlite3
+except ImportError:
+    pass
+
 from flask import Flask
 import os
 import logging
@@ -7,7 +16,7 @@ from appdirs import user_data_dir
 from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 from .models import db, create_crr_tables
-from .blueprints import config, projects, sites, surveys, templates, photos, crdt, auth
+from .blueprints import config, projects, sites, surveys, templates, photos, crdt, auth, teams
 from .cli import init_db_command, check_photo_integrity_command, check_referential_integrity_command
 from .logging_config import setup_logging
 
@@ -117,6 +126,8 @@ def create_app(test_config=None):
     logger.info("Registering API blueprints")
     app.register_blueprint(auth.bp)
     logger.debug("Registered auth blueprint")
+    app.register_blueprint(teams.bp)
+    logger.debug("Registered teams blueprint")
     app.register_blueprint(config.bp)
     logger.debug("Registered config blueprint")
     app.register_blueprint(projects.bp)

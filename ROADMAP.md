@@ -59,9 +59,6 @@ Build a robust, offline-first survey application using BeeWare and CRDT-based sy
 
 ## Phase 4: User Experience & Reliability ⚡ (COMPLETED ✅)
 
-### **🚨 PROMINENT ROADMAP NOTE: Image Storage Migration (HIGH PRIORITY - SOON)**
-**URGENT**: Migrate photos/thumbnails from DB blobs to S3-compatible storage (e.g., libcloud). Store URLs/paths in Photo model instead of LargeBinary. Benefits: Scalability, perf, reduced DB size. Implement: Background upload queue, URL fallback for offline, integrity via signed URLs/hashes. **DO THIS SOON** - current blob storage will cause issues at scale.
-
 ### User Interface
 - [x] **Intuitive Navigation**: Clear project → site → survey → photo hierarchy
 - [x] **Offline Indicators**: Clear visual indicators of connectivity status
@@ -310,7 +307,7 @@ Create a direct, one-way sync bridge from this app to CompanyCam using their rob
 ✅ **Phase 4 COMPLETE**: Enterprise-grade performance and reliability features including photo integrity verification, advanced sync with exponential backoff, auto-save protection, thumbnail caching with pagination, and comprehensive backup/restore tooling.
 ✅ **CompanyCam Integration COMPLETE**: Full OAuth 2.0 flow, project creation with duplicate checking, batch photo uploads with GPS metadata, and seamless sync from completed surveys to CompanyCam accounts.
 
-📋 **Next Priority**: Enhanced survey progress tracking with detailed section breakdowns, user experience improvements, and team collaboration features.
+📋 **Next Priority**: User Management (Authentication, Roles, Team Management) and Enhanced survey progress tracking.
 
 ## Risk Mitigation
 

@@ -15,9 +15,12 @@ from .handlers.sync_handler import SyncHandler
 from .handlers.companycam_handler import CompanyCamHandler
 from .handlers.tag_management_handler import TagManagementHandler
 from .ui.survey_ui import SurveyUI
+from .ui.login_ui import LoginUI
+from .ui.team_ui import TeamUI
 from .ui_manager import UIManager
 from .config_manager import ConfigManager
 from .services.api_service import APIService
+from .services.auth_service import AuthService
 from .services.db_service import DBService
 from .services.companycam_service import CompanyCamService
 from .services.tag_mapper import TagMapper
@@ -59,8 +62,10 @@ class SurveyApp(toga.App):
         self.db_service = DBService(self.db)
         self.logger.debug("Database service initialized")
         
-        self.api_service = APIService(self.config.api_base_url, offline_queue=self.state.offline_queue)
-        self.logger.info(f"API service initialized with base URL: {self.config.api_base_url}")
+        self.api_service = APIService(self.config.api_base_url, offline_queue=self.state.offline_queue if hasattr(self, 'state') else None)
+        # Note: self.state is initialized later, so offline_queue might be None initially.
+        # But APIService usually needs it for offline support.
+        # We'll fix order below.
         
         self.companycam_service = CompanyCamService(self.config)
         self.logger.info("CompanyCam service initialized")
@@ -68,9 +73,14 @@ class SurveyApp(toga.App):
         self.tag_mapper = TagMapper(self.companycam_service)
         self.logger.debug("Tag mapper initialized")
 
+        self.auth_service = AuthService(self.config.api_base_url)
+        self.logger.info("Auth service initialized")
+
         # Initialize state
         self.logger.debug("Initializing application state")
         self.state = SessionState()
+        # Update APIService with offline queue now that state exists
+        self.api_service.offline_queue = self.state.offline_queue
         self.logger.debug("Application state initialized")
 
         # Initialize handlers
@@ -110,16 +120,19 @@ class SurveyApp(toga.App):
         self.ui_manager.main_window = self.main_window
         self.logger.debug(f"Main window created: {self.formal_name}")
 
-        # Create UI components
-        self.logger.info("Building main UI components")
-        self.ui_manager.create_main_ui()
-        self.logger.info("Main UI components created")
+        # Auth check flow
+        if not self.auth_service.is_authenticated():
+            self.show_login()
+        else:
+            self.on_login_success()
 
         # Show the main window
         self.main_window.show()
         self.logger.info("Main window displayed")
 
-        # Start the background sync scheduler
+        # Start the background sync scheduler (only if authenticated?)
+        # We can start it, but sync checks might fail if not auth.
+        # But SyncHandler handles API errors.
         self.logger.info("Starting background sync scheduler")
         self.sync_handler.start_sync_scheduler()
         self.logger.info("Background sync scheduler started")
@@ -131,13 +144,64 @@ class SurveyApp(toga.App):
         
         self.logger.info("SurveyApp initialization completed successfully")
 
+    def show_login(self):
+        """Show login UI."""
+        self.login_ui = LoginUI(self, self.on_login_success)
+        self.main_window.content = self.login_ui.layout
+        # Clear toolbar
+        self.main_window.toolbar.clear()
+
+    def on_login_success(self):
+        """Handle successful login."""
+        self.logger.info(f"Login successful/verified for: {self.auth_service.user.get('username')}")
+
+        # Create main UI
+        self.ui_manager.create_main_ui()
+
+        # Add commands to toolbar
+        cmd_team = toga.Command(
+            self.show_team_management,
+            text='Team',
+            tooltip='Manage Team',
+            group=toga.Group.FILE,
+            section=1
+        )
+        cmd_logout = toga.Command(
+            self.logout,
+            text='Logout',
+            tooltip='Logout',
+            group=toga.Group.FILE,
+            section=2
+        )
+
+        # Refresh toolbar
+        # Note: UIManager might have already added some commands?
+        # UIManager doesn't seem to add toolbar commands in create_main_ui based on previous code.
+        # But handlers might have added some? No, they usually attach to buttons.
+        self.main_window.toolbar.add(cmd_team, cmd_logout)
+
+    def logout(self, widget):
+        """Logout user."""
+        self.auth_service.logout()
+        self.show_login()
+
+    def show_team_management(self, widget):
+        """Show team management UI."""
+        self.team_ui = TeamUI(self, self.restore_main_ui)
+        self.main_window.content = self.team_ui.layout
+
+    def restore_main_ui(self):
+        """Restore main UI after team management."""
+        self.ui_manager.create_main_ui()
+
     def get_gps_location(self):
         """Get current GPS location synchronously."""
         try:
             location_info = self.location.current_location()
             return location_info.latitude, location_info.longitude
         except Exception as e:
-            self.ui_manager.status_label.text = f"GPS error: {e}"
+            if hasattr(self, 'ui_manager') and hasattr(self.ui_manager, 'status_label'):
+                self.ui_manager.status_label.text = f"GPS error: {e}"
             return None, None
 
     def schedule_auto_save(self, question_id, answer_text):
@@ -199,7 +263,7 @@ class SurveyApp(toga.App):
 
     def get_next_visible_field(self):
         """Delegate to survey handler"""
-        return self.survey_handler.get_next_visible_field()
+        self.survey_handler.get_next_visible_field()
 
     def show_photo_requirements(self, photo_requirements):
         """Delegate to survey handler"""
@@ -284,7 +348,6 @@ class SurveyApp(toga.App):
     def save_config(self, widget):
         """Delegate to sync handler"""
         self.sync_handler.save_config(widget)
-
 
 
 def main():

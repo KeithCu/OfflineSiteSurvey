@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import OperationalError, IntegrityError
 import json
 import os
 from pathlib import Path
@@ -54,19 +55,35 @@ class LocalDatabase:
 
         @event.listens_for(self.engine, "connect")
         def load_crsqlite_extension(db_conn, conn_record):
-            data_dir = user_data_dir("crsqlite", "vlcn.io")
-            lib_path = Path(data_dir) / 'crsqlite.so'
+            # Check environment variable first (for deployment flexibility)
+            lib_path = os.getenv('CRSQLITE_LIB_PATH')
+            
+            if lib_path and Path(lib_path).exists():
+                lib_path = Path(lib_path)
+                self.logger.debug(f"Using cr-sqlite extension from CRSQLITE_LIB_PATH: {lib_path}")
+            else:
+                # Fallback to user data directory
+                data_dir = user_data_dir("crsqlite", "vlcn.io")
+                lib_path = Path(data_dir) / 'crsqlite.so'
+                
+                if not lib_path.exists():
+                    # Last resort: relative to project root (development only)
+                    lib_path = Path(__file__).parent.parent.parent / 'lib' / 'crsqlite.so'
+                    self.logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
+                else:
+                    self.logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")
 
             if not lib_path.exists():
-                # Adjust path for local development if extension is not installed system-wide
-                lib_path = Path(__file__).parent.parent.parent / 'lib' / 'crsqlite.so'
-                self.logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
-            else:
-                self.logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")
+                error_msg = (
+                    f"cr-sqlite extension not found. "
+                    f"Set CRSQLITE_LIB_PATH environment variable or install via setup_crsqlite.sh"
+                )
+                self.logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
             try:
                 db_conn.enable_load_extension(True)
-                db_conn.load_extension(lib_path)
+                db_conn.load_extension(str(lib_path))
                 self.logger.info("Successfully loaded cr-sqlite extension for CRDT support")
             except Exception as e:
                 self.logger.error(f"Failed to load cr-sqlite extension from {lib_path}: {e}", exc_info=True)
@@ -91,7 +108,8 @@ class LocalDatabase:
                     connection.execute(text(f"SELECT crsql_as_crr('{table.name}');"))
                     crr_success_count += 1
                     self.logger.debug(f"Made table '{table.name}' CRR-enabled")
-                except Exception as e:
+                except (OperationalError, IntegrityError) as e:
+                    # If table is already CRR-enabled, SQLite/CRDT may raise OperationalError
                     error_msg = str(e).lower()
                     if 'already' in error_msg or 'exists' in error_msg or 'duplicate' in error_msg:
                         self.logger.debug(f"Table '{table.name}' is already CRR-enabled")
@@ -99,6 +117,10 @@ class LocalDatabase:
                     else:
                         self.logger.warning(f"Failed to make {table.name} CRR: {e}")
                         # Continue with other tables
+                except Exception as e:
+                    # Catch any other unexpected exceptions
+                    self.logger.warning(f"Unexpected error making {table.name} CRR: {e}")
+                    # Continue with other tables
             
             self.logger.info(f"CRR initialization completed: {crr_success_count} tables configured")
 

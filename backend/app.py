@@ -11,6 +11,7 @@ except ImportError:
 from flask import Flask
 import os
 import logging
+import platform
 from pathlib import Path
 from appdirs import user_data_dir
 from sqlalchemy import event, text
@@ -91,11 +92,14 @@ def create_app(test_config=None):
         else:
             # Fallback to user data directory
             data_dir = user_data_dir("crsqlite", "vlcn.io")
-            lib_path = Path(data_dir) / 'crsqlite.so'
-            
+            # Determine extension based on platform
+            system = platform.system()
+            ext = '.dll' if system == 'Windows' else '.dylib' if system == 'Darwin' else '.so'
+            lib_path = Path(data_dir) / f'crsqlite{ext}'
+
             if not lib_path.exists():
                 # Last resort: relative to backend directory (development only)
-                lib_path = Path(__file__).parent / 'lib' / 'crsqlite.so'
+                lib_path = Path(__file__).parent / 'lib' / f'crsqlite{ext}'
                 logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
             else:
                 logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")

@@ -14,6 +14,7 @@ import hashlib
 import logging
 import io
 import requests
+import platform
 from PIL import Image
 from appdirs import user_data_dir
 
@@ -64,11 +65,14 @@ class LocalDatabase:
             else:
                 # Fallback to user data directory
                 data_dir = user_data_dir("crsqlite", "vlcn.io")
-                lib_path = Path(data_dir) / 'crsqlite.so'
-                
+                # Determine extension based on platform
+                system = platform.system()
+                ext = '.dll' if system == 'Windows' else '.dylib' if system == 'Darwin' else '.so'
+                lib_path = Path(data_dir) / f'crsqlite{ext}'
+
                 if not lib_path.exists():
                     # Last resort: relative to project root (development only)
-                    lib_path = Path(__file__).parent.parent.parent / 'lib' / 'crsqlite.so'
+                    lib_path = Path(__file__).parent.parent.parent / 'lib' / f'crsqlite{ext}'
                     self.logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
                 else:
                     self.logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")

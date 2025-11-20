@@ -299,9 +299,13 @@ class PhotoHandler:
             raise
 
     def take_photo(self, widget):
-        """Take a photo (legacy method)"""
-        # In a real app, this would open the camera.
-        # For now, we'll create a dummy image.
+        """Take a photo (legacy method)
+
+        NOTE: Toga currently does not provide camera access APIs.
+        Real camera integration would require platform-specific code.
+        For now, this uses a mock photo for development/testing.
+        """
+        # Create mock photo for development/testing
         img = Image.new('RGB', (640, 480), color='red')
         img_byte_arr = io.BytesIO()
         img.save(img_byte_arr, format='JPEG', quality=75)

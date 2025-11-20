@@ -118,24 +118,26 @@ def compute_photo_hash(image_data_or_path):
         >>> len(hash_value)
         64
     """
-    # Handle file path
-    if isinstance(image_data_or_path, str):
-        try:
-            with open(image_data_or_path, 'rb') as f:
-                image_data = f.read()
-        except FileNotFoundError:
-            logger.error(f"Photo file not found: {image_data_or_path}")
-            raise
-        except Exception as e:
-            logger.error(f"Error reading photo file '{image_data_or_path}': {e}")
-            raise
-    elif isinstance(image_data_or_path, bytes):
-        image_data = image_data_or_path
-    else:
-        raise TypeError(f"compute_photo_hash expected bytes or str (file path), got {type(image_data_or_path).__name__}")
-    
     try:
-        return hashlib.new(PHOTO_HASH_ALGO, image_data).hexdigest()
+        hasher = hashlib.new(PHOTO_HASH_ALGO)
+        if isinstance(image_data_or_path, str):
+            # Read file in chunks to avoid loading large files into memory
+            try:
+                with open(image_data_or_path, 'rb') as f:
+                    while chunk := f.read(8192):  # Read 8KB chunks
+                        hasher.update(chunk)
+            except FileNotFoundError:
+                logger.error(f"Photo file not found: {image_data_or_path}")
+                raise
+            except Exception as e:
+                logger.error(f"Error reading photo file '{image_data_or_path}': {e}")
+                raise
+        elif isinstance(image_data_or_path, bytes):
+            hasher.update(image_data_or_path)
+        else:
+            raise TypeError(f"compute_photo_hash expected bytes or str (file path), got {type(image_data_or_path).__name__}")
+
+        return hasher.hexdigest()
     except ValueError as e:
         logger.error(f"Failed to compute photo hash with algorithm '{PHOTO_HASH_ALGO}': {e}")
         raise ValueError(f"Invalid hash algorithm '{PHOTO_HASH_ALGO}': {e}") from e

@@ -403,12 +403,54 @@ class SurveyHandler:
         self.show_question()
 
     def take_photo_enhanced(self, widget):
-        """Take a photo in enhanced UI"""
-        # Create dummy photo data (same as take_photo)
+        """Take a photo in enhanced UI
+
+        NOTE: Toga currently does not provide camera access APIs.
+        Real camera integration would require platform-specific code:
+        - iOS: AVFoundation framework
+        - Android: Camera2 API
+        - Desktop: Platform-specific camera libraries
+
+        For now, this uses a file picker fallback for development/testing.
+        """
+        try:
+            # Try to use file picker as fallback (if Toga supports it)
+            if hasattr(self.app.main_window, 'open_file_dialog'):
+                def on_file_selected(file_path):
+                    if file_path:
+                        with open(file_path, 'rb') as f:
+                            photo_data = f.read()
+                        self._process_photo_data(photo_data)
+                    else:
+                        # User cancelled - create mock photo for development
+                        self._create_mock_photo()
+
+                # Open file dialog for image selection
+                self.app.main_window.open_file_dialog(
+                    title="Select Photo",
+                    file_types=['jpg', 'jpeg', 'png'],
+                    on_result=on_file_selected
+                )
+            else:
+                # Fallback to mock photo if no file dialog available
+                self._create_mock_photo()
+
+        except Exception as e:
+            self.app.logger.warning(f"Photo capture failed, using mock: {e}")
+            self._create_mock_photo()
+
+    def _create_mock_photo(self):
+        """Create a mock photo for development/testing"""
         img = Image.new('RGB', (640, 480), color='red')
         img_byte_arr = io.BytesIO()
         img.save(img_byte_arr, format='JPEG', quality=75)
         photo_data = img_byte_arr.getvalue()
+        self._process_photo_data(photo_data)
+
+    def _process_photo_data(self, photo_data):
+        """Process the captured/selected photo data"""
+        # Load image from bytes to extract EXIF data
+        img = Image.open(io.BytesIO(photo_data))
 
         # Store photo ID for requirement tracking
         self.app.last_photo_id = str(uuid.uuid4())

@@ -11,7 +11,7 @@ class APIService:
     Now uses background threading for non-blocking network operations.
     """
 
-    def __init__(self, base_url='http://localhost:5000', max_retries=3, retry_delay=1.0, offline_queue=None, auth_service=None):
+    def __init__(self, base_url='http://localhost:5000', max_retries=3, retry_delay=1.0, offline_queue=None, auth_service=None, access_token=None):
         self.base_url = base_url.rstrip('/')
         self.max_retries = max_retries
         self.retry_delay = retry_delay
@@ -19,15 +19,43 @@ class APIService:
         self.offline_queue = offline_queue or []
         self.network_queue = get_network_queue()
         self.auth_service = auth_service
+        self.access_token = access_token
+
+    def _get_auth_headers(self):
+        """Get authorization headers for API requests.
+        
+        Supports both auth_service and access_token approaches.
+        auth_service takes precedence if both are provided.
+        """
+        headers = {}
+        # Prefer auth_service if available
+        if self.auth_service:
+            headers.update(self.auth_service.get_headers())
+        elif self.access_token:
+            headers['Authorization'] = f"Bearer {self.access_token}"
+        return headers
+
+    def _merge_headers(self, kwargs):
+        """Merge auth headers with any provided headers in kwargs."""
+        auth_headers = self._get_auth_headers()
+        if not auth_headers:
+            return kwargs
+        
+        # Get existing headers or create new dict
+        existing_headers = kwargs.get('headers', {})
+        if not isinstance(existing_headers, dict):
+            existing_headers = {}
+        
+        # Merge auth headers with existing headers (auth headers take precedence)
+        merged_headers = {**existing_headers, **auth_headers}
+        kwargs['headers'] = merged_headers
+        return kwargs
 
     def _make_request(self, method, url, **kwargs):
         """Make HTTP request with retry logic (synchronous - for backward compatibility)."""
-        # Inject Auth Header
-        if self.auth_service:
-            headers = kwargs.get('headers', {})
-            headers.update(self.auth_service.get_headers())
-            kwargs['headers'] = headers
-
+        # Merge auth headers with any provided headers
+        kwargs = self._merge_headers(kwargs)
+        
         last_exception = None
 
         for attempt in range(self.max_retries):
@@ -79,6 +107,9 @@ class APIService:
 
         Returns a request ID that can be used to poll for completion.
         """
+        # Merge auth headers with any provided headers
+        kwargs = self._merge_headers(kwargs)
+        
         url = f"{self.base_url}{endpoint}"
         return self.network_queue.submit_request(
             operation='api_request',

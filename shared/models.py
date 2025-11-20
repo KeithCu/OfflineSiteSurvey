@@ -155,6 +155,7 @@ class Photo(Base):
     fulfills_requirement = Column(Boolean, default=False, server_default='0')
     tags = Column(Text, server_default="[]")
     question_id = Column(Integer, ForeignKey('template_field.id', ondelete='SET NULL'), index=True, nullable=True)
+    corrupted = Column(Boolean, default=False, server_default='0', index=True)
 
 Index('idx_photo_survey_site', Photo.survey_id, Photo.site_id)
 Index('idx_photo_created_at', Photo.created_at)

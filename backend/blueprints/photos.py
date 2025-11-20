@@ -7,7 +7,7 @@ import hashlib
 import logging
 from urllib.parse import urlparse
 from ..models import db, Photo, Survey, TemplateField
-from shared.utils import compute_photo_hash, generate_thumbnail
+from shared.utils import compute_photo_hash, generate_thumbnail, CorruptedImageError
 from shared.validation import Validator, ValidationError
 from shared.enums import PhotoCategory
 from ..services.upload_queue import get_upload_queue
@@ -254,7 +254,15 @@ def upload_photo_to_survey(survey_id):
             hash_value = hash_obj.hexdigest()
 
             # Generate thumbnail from file path to avoid loading large images into memory
-            thumbnail_data = generate_thumbnail(image_path=temp_path, max_size=200)
+            thumbnail_data = None
+            is_corrupted = False
+            try:
+                thumbnail_data = generate_thumbnail(image_path=temp_path, max_size=200)
+            except CorruptedImageError as e:
+                # Image is corrupted - flag it in database but allow upload to proceed
+                logger.error(f"Corrupted image detected for photo {photo_id}: {e}")
+                is_corrupted = True
+                thumbnail_data = None  # No thumbnail for corrupted images
 
             # Use file path instead of loading image data into memory to prevent OOM with large files
             image_path_for_upload = temp_path
@@ -315,6 +323,7 @@ def upload_photo_to_survey(survey_id):
                 photo.category = category
                 photo.tags = json.dumps(tags)
                 photo.question_id = question_id
+                photo.corrupted = is_corrupted  # Flag corrupted images
                 # Reset cloud URLs since we're uploading a new version
                 photo.cloud_url = ''
                 photo.thumbnail_url = ''
@@ -333,7 +342,8 @@ def upload_photo_to_survey(survey_id):
                     hash_value=hash_value,
                     size_bytes=size_bytes,
                     question_id=question_id,
-                    tags=json.dumps(tags)
+                    tags=json.dumps(tags),
+                    corrupted=is_corrupted  # Flag corrupted images
                 )
                 db.session.add(photo)
 

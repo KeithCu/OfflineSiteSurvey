@@ -23,7 +23,7 @@ from shared.models import (
 # Keep local enums for now, can be moved to shared later if needed
 from shared.enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
 # Import shared utilities
-from shared.utils import compute_photo_hash, generate_thumbnail, should_show_field, build_response_lookup
+from shared.utils import compute_photo_hash, generate_thumbnail, should_show_field, build_response_lookup, CorruptedImageError
 
 
 class LocalDatabase:
@@ -320,7 +320,13 @@ class LocalDatabase:
 
                 # Generate thumbnail for local storage if not provided
                 if not thumbnail_data:
-                    thumbnail_data = generate_thumbnail(image_data, max_size=200)
+                    try:
+                        thumbnail_data = generate_thumbnail(image_data, max_size=200)
+                    except CorruptedImageError as e:
+                        # Image is corrupted - flag it in database but allow save to proceed
+                        self.logger.error(f"Corrupted image detected for photo {photo_data.get('id', 'unknown')}: {e}")
+                        photo_data['corrupted'] = True
+                        thumbnail_data = None  # No thumbnail for corrupted images
 
                 # Save to disk
                 filename = self._save_photo_file(photo_data['id'], image_data, thumbnail_data)
@@ -335,6 +341,10 @@ class LocalDatabase:
                 photo_data['tags'] = tags
             else:
                 photo_data['tags'] = json.dumps([])
+
+            # Ensure corrupted field is set (defaults to False if not already set)
+            if 'corrupted' not in photo_data:
+                photo_data['corrupted'] = False
 
             photo = Photo(**photo_data)
             # Do NOT try to set image_data/thumbnail_data attributes as they don't exist in schema

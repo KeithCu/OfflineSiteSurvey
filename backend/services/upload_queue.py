@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, or_
 from shared.models import Photo, now
 from .cloud_storage import get_cloud_storage
-from shared.utils import generate_thumbnail, compute_photo_hash
+from shared.utils import generate_thumbnail, compute_photo_hash, CorruptedImageError
 
 
 logger = logging.getLogger(__name__)
@@ -239,7 +239,7 @@ class UploadQueueService:
 
         try:
             # Generate thumbnail if not exists (outside transaction)
-            thumbnail_path = self._ensure_thumbnail(processing_path)
+            thumbnail_path = self._ensure_thumbnail(processing_path, photo, session)
 
             # Upload to cloud - organize by site_id (outside transaction to avoid long-running tx)
             result = self.cloud_storage.upload_photo(
@@ -299,8 +299,14 @@ class UploadQueueService:
         if os.path.exists(processing_path):
             os.rename(processing_path, pending_path)
 
-    def _ensure_thumbnail(self, photo_path):
-        """Ensure thumbnail exists for photo."""
+    def _ensure_thumbnail(self, photo_path, photo, session):
+        """Ensure thumbnail exists for photo.
+        
+        Args:
+            photo_path: Path to the photo file
+            photo: Photo database object to update if corrupted
+            session: Database session for updating photo corruption flag
+        """
         thumbnail_path = photo_path.replace('.jpg', '_thumb.jpg')
 
         if os.path.exists(thumbnail_path):
@@ -309,13 +315,25 @@ class UploadQueueService:
         # Generate thumbnail from file path to avoid loading large images into memory
         try:
             thumbnail_data = generate_thumbnail(image_path=photo_path, max_size=200)
+            
+            if thumbnail_data is None:
+                # Non-corruption error (e.g., file not found) - return None
+                return None
 
             with open(thumbnail_path, 'wb') as f:
                 f.write(thumbnail_data)
 
             return thumbnail_path
 
+        except CorruptedImageError as e:
+            # Image is corrupted - flag it in database
+            logger.error(f"Corrupted image detected for photo {photo.id}: {e}")
+            photo.corrupted = True
+            session.commit()
+            return None
+        
         except Exception as e:
+            # Other errors (file I/O, etc.) - log but don't flag as corrupted
             logger.warning(f"Failed to generate thumbnail for {photo_path}: {e}")
             return None
 

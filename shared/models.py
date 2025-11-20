@@ -11,21 +11,18 @@ Base = declarative_base()
 from zoneinfo import ZoneInfo
 APP_TIMEZONE = ZoneInfo('America/New_York')  # Eastern Time with automatic DST handling
 
-EPOCH = datetime(1970, 1, 1, tzinfo=APP_TIMEZONE)
+# EPOCH: Naive datetime representing Unix epoch in Eastern Time
+# Stored as naive in SQLite (SQLite limitation), but conceptually represents Eastern Time
+# This matches server_default format and ensures consistency
+EPOCH = datetime(1970, 1, 1)  # Naive datetime, represents Eastern Time epoch
 
 def now():
-    """Return current datetime in application timezone (Eastern Time, timezone-aware)."""
-    return datetime.now(APP_TIMEZONE)
-
-# Deprecated: Use now() instead. Kept for backward compatibility only.
-def utc_now():
-    """Deprecated: Use now() instead. Returns current datetime in application timezone (Eastern Time).
+    """Return current datetime in application timezone (Eastern Time, timezone-aware).
     
-    Note: Despite the name, this function returns Eastern Time, not UTC.
-    This function is deprecated and will be removed in a future version.
-    Use now() instead for clarity.
+    Note: When stored in SQLite, timezone info is stripped (SQLite limitation).
+    All stored datetimes should be treated as Eastern Time, even though they're stored naive.
     """
-    return now()
+    return datetime.now(APP_TIMEZONE)
 
 class Project(Base):
     __tablename__ = 'projects'

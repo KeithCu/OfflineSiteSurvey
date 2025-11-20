@@ -4,9 +4,94 @@ Script to concatenate all Python source files in logical order.
 Automatically includes current date in filename.
 """
 import os
+import argparse
 from datetime import datetime
 
+def remove_comments(content):
+    """Remove comments and docstrings from Python code to reduce token count."""
+    lines = content.split('\n')
+    result = []
+    in_triple_quote = False
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Check for single-line docstrings (starts and ends with triple quotes)
+        if (stripped.startswith('"""') and stripped.endswith('"""') and len(stripped) > 6) or \
+           (stripped.startswith("'''") and stripped.endswith("'''") and len(stripped) > 6):
+            # Single-line docstring - skip it
+            continue
+        
+        # Track triple-quoted strings (docstrings) that span multiple lines
+        triple_double = line.count('"""')
+        triple_single = line.count("'''")
+        
+        # Check if we're entering or exiting a triple-quoted string
+        if triple_double > 0:
+            if triple_double % 2 == 1:
+                in_triple_quote = not in_triple_quote
+        if triple_single > 0:
+            if triple_single % 2 == 1:
+                in_triple_quote = not in_triple_quote
+        
+        # If we're inside a triple-quoted string, skip the line entirely
+        if in_triple_quote:
+            continue
+        
+        # Remove single-line comments (# ...) but preserve # inside strings
+        in_string = False
+        string_char = None
+        comment_pos = -1
+        
+        i = 0
+        while i < len(line):
+            char = line[i]
+            
+            # Handle escape sequences
+            if char == '\\' and i + 1 < len(line):
+                i += 2
+                continue
+            
+            # Track string boundaries (single and double quotes)
+            if char in ('"', "'"):
+                # Check for triple quotes first
+                if i + 2 < len(line) and line[i:i+3] == char * 3:
+                    i += 3
+                    continue
+                # Regular string quote
+                if not in_string:
+                    in_string = True
+                    string_char = char
+                elif char == string_char:
+                    in_string = False
+                    string_char = None
+            
+            # Found # outside of string - this is a comment
+            if char == '#' and not in_string:
+                comment_pos = i
+                break
+            
+            i += 1
+        
+        # Remove comment if found
+        if comment_pos >= 0:
+            line = line[:comment_pos].rstrip()
+        
+        # Keep the line (even if empty, to preserve structure)
+        result.append(line)
+    
+    return '\n'.join(result)
+
 def main():
+    parser = argparse.ArgumentParser(description='Concatenate Python source files')
+    parser.add_argument('--keep-comments', action='store_true', 
+                       help='Keep comments in output (default: remove comments)')
+    parser.add_argument('--output', type=str, default=None,
+                       help='Output filename (default: source_code_YYYYMMDD.txt)')
+    args = parser.parse_args()
+    
+    remove_comments_flag = not args.keep_comments
+    
     # Define the ordered list of files
     ordered_files = [
         # Shared code
@@ -48,6 +133,10 @@ def main():
         # Backend template storage
         'backend/store_survey_template.py',
         
+        # Database migrations
+        'migrations/versions/001_add_phase2_fields.py',
+        'migrations/versions/002_section_tags.py',
+        
         # Frontend core
         'src/survey_app/__main__.py',
         'src/survey_app/app.py',
@@ -62,6 +151,7 @@ def main():
         'src/survey_app/services/api_service.py',
         'src/survey_app/services/companycam_service.py',
         'src/survey_app/services/db_service.py',
+        'src/survey_app/services/network_queue.py',
         'src/survey_app/services/tag_mapper.py',
         
         # Frontend handlers
@@ -86,7 +176,11 @@ def main():
     
     # Create output filename with current date
     current_date = datetime.now().strftime('%Y%m%d')
-    output_file = f'source_code_{current_date}.txt'
+    if args.output:
+        output_file = args.output
+    else:
+        suffix = '_no_comments' if remove_comments_flag else ''
+        output_file = f'source_code_{current_date}{suffix}.txt'
     
     with open(output_file, 'w') as outfile:
         # Write header
@@ -109,6 +203,8 @@ Generated: {current_time}
                 try:
                     with open(file_path, 'r', encoding='utf-8') as infile:
                         content = infile.read()
+                        if remove_comments_flag:
+                            content = remove_comments(content)
                         outfile.write(content)
                         outfile.write('\n')
                     print(f"Added: {file_path}")
@@ -123,6 +219,8 @@ Generated: {current_time}
     
     print(f"\nConcatenation complete! Output written to: {output_file}")
     print(f"Total files processed: {len(ordered_files)}")
+    if remove_comments_flag:
+        print("Comments and docstrings removed for API usage")
 
 if __name__ == '__main__':
     main()

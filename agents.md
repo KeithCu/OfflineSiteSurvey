@@ -36,10 +36,12 @@ PriorityLevel: ['critical', 'high', 'medium', 'low']
 ```
 
 ### Timestamp Conventions
-- All timestamps are Eastern Time timezone-aware (`datetime` with `APP_TIMEZONE` from `shared.models`)
+- All timestamps conceptually represent Eastern Time (using `APP_TIMEZONE` from `shared.models`)
 - Fields: `created_at`, `updated_at`
-- Server default: `'1970-01-01 00:00:00'` (Unix epoch in Eastern Time)
-- Use `now()` or `utc_now()` from `shared.models` to get current time (both return Eastern Time)
+- Storage: SQLite stores datetimes as naive (timezone info stripped), but all datetimes should be treated as Eastern Time
+- Server default: `'1970-01-01 00:00:00'` (naive datetime, represents Unix epoch in Eastern Time)
+- EPOCH constant: Naive datetime matching server_default format for consistency
+- Use `now()` from `shared.models` to get current time (returns timezone-aware Eastern Time; timezone stripped when stored)
 - To change timezone, modify `APP_TIMEZONE` in `shared/models.py`
 
 ### Field Length Limits

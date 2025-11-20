@@ -148,7 +148,7 @@ class CloudStorageService:
 
     def _upload_object(self, file_path, object_name):
         """
-        Upload file to cloud storage.
+        Upload file to cloud storage using streaming to avoid loading entire file into memory.
 
         Args:
             file_path: Local file path
@@ -160,14 +160,21 @@ class CloudStorageService:
         Raises:
             Exception: If upload fails
         """
-        # Read local file
-        with open(file_path, 'rb') as f:
-            local_data = f.read()
+        # Stream file in chunks to avoid loading entire file into memory
+        def file_chunk_iterator():
+            """Generator that yields file chunks for streaming upload."""
+            chunk_size = 8192  # 8KB chunks
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
 
-        # Upload to cloud
-        logger.info(f"Uploading {file_path} to {object_name}")
+        # Upload to cloud using streaming
+        logger.info(f"Uploading {file_path} to {object_name} (streaming)")
         obj = self.driver.upload_object_via_stream(
-            iterator=iter([local_data]),
+            iterator=file_chunk_iterator(),
             container=self.container,
             object_name=object_name
         )

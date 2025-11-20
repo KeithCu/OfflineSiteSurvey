@@ -73,18 +73,35 @@ def create_app(test_config=None):
     # Load the cr-sqlite extension
     @event.listens_for(Engine, "connect")
     def load_crsqlite_extension(db_conn, conn_record):
-        data_dir = user_data_dir("crsqlite", "vlcn.io")
-        lib_path = Path(data_dir) / 'crsqlite.so'
+        # Check environment variable first (for deployment flexibility)
+        lib_path = os.getenv('CRSQLITE_LIB_PATH')
+        
+        if lib_path and Path(lib_path).exists():
+            lib_path = Path(lib_path)
+            logger.debug(f"Using cr-sqlite extension from CRSQLITE_LIB_PATH: {lib_path}")
+        else:
+            # Fallback to user data directory
+            data_dir = user_data_dir("crsqlite", "vlcn.io")
+            lib_path = Path(data_dir) / 'crsqlite.so'
+            
+            if not lib_path.exists():
+                # Last resort: relative to backend directory (development only)
+                lib_path = Path(__file__).parent / 'lib' / 'crsqlite.so'
+                logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
+            else:
+                logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")
 
         if not lib_path.exists():
-            lib_path = Path(__file__).parent / 'lib' / 'crsqlite.so'
-            logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
-        else:
-            logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")
+            error_msg = (
+                f"cr-sqlite extension not found. "
+                f"Set CRSQLITE_LIB_PATH environment variable or install via setup_crsqlite.sh"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
 
         try:
             db_conn.enable_load_extension(True)
-            db_conn.load_extension(lib_path)
+            db_conn.load_extension(str(lib_path))
             logger.info("Successfully loaded cr-sqlite extension for CRDT support")
         except Exception as e:
             logger.error(f"Failed to load cr-sqlite extension from {lib_path}: {e}", exc_info=True)
@@ -124,7 +141,9 @@ def create_app(test_config=None):
     app.cli.add_command(init_db_command)
     app.cli.add_command(check_photo_integrity_command)
     app.cli.add_command(check_referential_integrity_command)
-    logger.info("CLI commands registered: init-db, check-photo-integrity, check-referential-integrity")
+    from .cli import run_worker_command
+    app.cli.add_command(run_worker_command)
+    logger.info("CLI commands registered: init-db, check-photo-integrity, check-referential-integrity, run-worker")
 
     logger.info("Flask application initialization completed successfully")
     return app

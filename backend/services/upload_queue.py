@@ -1,6 +1,7 @@
 """Photo upload queue service for background cloud storage uploads."""
 
 import json
+import os
 import time
 import logging
 import threading
@@ -9,6 +10,7 @@ import queue
 from pathlib import Path
 from datetime import datetime, timedelta
 from threading import Lock
+from contextlib import contextmanager
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, or_
 from shared.models import Photo, now
@@ -18,6 +20,20 @@ from ..utils import safe_db_transaction
 
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def session_scope(session_factory):
+    """Provide a transactional scope around a series of operations."""
+    session = session_factory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 class UploadQueueService:
@@ -74,8 +90,7 @@ class UploadQueueService:
         Args:
             photo_ids: List of photo IDs to recover. If None, recovers all permanently failed uploads.
         """
-        session = self.SessionLocal()
-        try:
+        with session_scope(self.SessionLocal) as session:
             query = session.query(Photo).filter_by(upload_status='permanently_failed')
 
             if photo_ids:
@@ -92,14 +107,8 @@ class UploadQueueService:
                 logger.info(f"Recovered permanently failed upload for photo {photo.id}")
                 recovered_count += 1
 
-            session.commit()
             logger.info(f"Recovered {recovered_count} permanently failed uploads")
             return recovered_count
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
 
     def _process_queue_loop(self):
         """Main processing loop for upload queue."""
@@ -129,8 +138,7 @@ class UploadQueueService:
 
     def _process_pending_uploads(self):
         """Process all pending and failed photo uploads with retry logic."""
-        session = self.SessionLocal()
-        try:
+        with session_scope(self.SessionLocal) as session:
             # Check for stale pending photos (pending for too long without retry tracking)
             self._handle_stale_pending_photos(session)
 
@@ -148,9 +156,6 @@ class UploadQueueService:
                 except Exception as e:
                     logger.error(f"Failed to upload photo {photo.id}: {e}")
                     self._handle_upload_failure(session, photo, e)
-
-        finally:
-            session.close()
 
     def _get_retryable_failed_photos(self, session):
         """Get failed photos that are eligible for retry based on backoff logic."""
@@ -398,8 +403,7 @@ class UploadQueueService:
 
     def _process_queued_photo(self, photo_id):
         """Process a single photo from the work queue."""
-        session = self.SessionLocal()
-        try:
+        with session_scope(self.SessionLocal) as session:
             photo = session.query(Photo).filter_by(id=photo_id).first()
             if not photo:
                 logger.warning(f"Photo {photo_id} not found in database")
@@ -412,8 +416,6 @@ class UploadQueueService:
                 except Exception as e:
                     logger.error(f"Failed to upload photo {photo_id}: {e}")
                     self._handle_upload_failure(session, photo, e)
-        finally:
-            session.close()
 
 
 # Global instance with thread-safe lazy initialization

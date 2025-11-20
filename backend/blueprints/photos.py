@@ -337,9 +337,6 @@ def upload_photo_to_survey(survey_id):
             # Clean up temporary file after queuing (upload queue has copied it)
             os.unlink(image_path_for_upload)
 
-            # Start upload queue if not already running
-            upload_queue.start()
-
             return jsonify({
                 'id': photo_id,
                 'survey_id': survey_id,

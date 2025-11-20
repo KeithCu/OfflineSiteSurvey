@@ -1,10 +1,14 @@
 import click
 import json
 import logging
+import signal
+import sys
+import time
 from flask import current_app
 from flask.cli import with_appcontext
 from .models import db, AppConfig, SurveyTemplate, TemplateField, Photo
 from .utils import compute_photo_hash
+from .services.upload_queue import get_upload_queue
 
 logger = logging.getLogger(__name__)
 
@@ -336,3 +340,47 @@ def check_referential_integrity_command(fix, relationship):
         db.session.rollback()
         click.echo(f"Error deleting orphaned records: {e}")
         return 1
+
+
+@click.command('run-worker')
+@click.option('--check-interval', default=30, help='Interval in seconds between queue checks')
+@with_appcontext
+def run_worker_command(check_interval):
+    """Run the upload queue worker as a standalone process.
+    
+    This command runs the photo upload queue worker in a separate process,
+    suitable for deployment as a systemd service. The worker processes
+    pending photo uploads to cloud storage.
+    
+    Use Ctrl+C to stop the worker gracefully.
+    """
+    logger.info("Starting upload queue worker")
+    
+    upload_queue = get_upload_queue()
+    upload_queue.check_interval = check_interval
+    
+    # Set up signal handlers for graceful shutdown
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, shutting down worker gracefully")
+        upload_queue.stop()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        upload_queue.start()
+        logger.info(f"Upload queue worker started (check interval: {check_interval}s)")
+        click.echo(f"Upload queue worker running (check interval: {check_interval}s)")
+        click.echo("Press Ctrl+C to stop")
+        
+        # Keep the process alive - sleep loop allows graceful shutdown
+        while upload_queue.running:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Worker interrupted by user")
+        upload_queue.stop()
+    except Exception as e:
+        logger.error(f"Worker error: {e}", exc_info=True)
+        upload_queue.stop()
+        raise

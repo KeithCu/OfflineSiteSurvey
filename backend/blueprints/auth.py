@@ -1,10 +1,48 @@
 """Authentication blueprint for API key management."""
 from flask import Blueprint, request, jsonify
 import secrets
+import re
 from ..models import db, AppConfig
+from shared.validation import ValidationError
 
 
 bp = Blueprint('auth', __name__, url_prefix='/api')
+
+# API key validation constants
+# Generated keys use secrets.token_urlsafe(32) which creates ~43 char URL-safe base64 strings
+API_KEY_MIN_LENGTH = 20
+API_KEY_MAX_LENGTH = 200
+# URL-safe base64 pattern: A-Z, a-z, 0-9, -, _
+API_KEY_PATTERN = re.compile(r'^[A-Za-z0-9_-]+$')
+
+
+def validate_api_key_format(api_key):
+    """Validate API key format and length.
+    
+    Args:
+        api_key: API key string to validate
+        
+    Raises:
+        ValidationError: If API key format is invalid
+    """
+    if not api_key:
+        raise ValidationError('API key is required')
+    
+    if not isinstance(api_key, str):
+        raise ValidationError('API key must be a string')
+    
+    api_key = api_key.strip()
+    
+    if len(api_key) < API_KEY_MIN_LENGTH:
+        raise ValidationError(f'API key must be at least {API_KEY_MIN_LENGTH} characters')
+    
+    if len(api_key) > API_KEY_MAX_LENGTH:
+        raise ValidationError(f'API key must be no more than {API_KEY_MAX_LENGTH} characters')
+    
+    if not API_KEY_PATTERN.match(api_key):
+        raise ValidationError('API key contains invalid characters (must be alphanumeric, dash, or underscore only)')
+    
+    return api_key
 
 
 @bp.route('/auth/key', methods=['POST'])
@@ -58,6 +96,12 @@ def validate_api_key():
     if not api_key:
         return jsonify({'error': 'API key required'}), 401
 
+    # Validate API key format
+    try:
+        api_key = validate_api_key_format(api_key)
+    except ValidationError as e:
+        return jsonify({'valid': False, 'error': str(e)}), 400
+
     # Check if the API key exists in app config
     config_entry = AppConfig.query.filter_by(value=api_key, category='auth').first()
 
@@ -78,6 +122,12 @@ def require_api_key(f):
 
         if not api_key:
             return jsonify({'error': 'API key required'}), 401
+
+        # Validate API key format
+        try:
+            api_key = validate_api_key_format(api_key)
+        except ValidationError as e:
+            return jsonify({'error': str(e)}), 400
 
         # Check if the API key exists in app config
         config_entry = AppConfig.query.filter_by(value=api_key, category='auth').first()
@@ -112,6 +162,13 @@ def init_auth(app):
         if not api_key:
             from flask import jsonify
             return jsonify({'error': 'API key required'}), 401
+
+        # Validate API key format
+        try:
+            api_key = validate_api_key_format(api_key)
+        except ValidationError as e:
+            from flask import jsonify
+            return jsonify({'error': str(e)}), 400
 
         # Check if the API key exists in app config
         config_entry = AppConfig.query.filter_by(value=api_key, category='auth').first()

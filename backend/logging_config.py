@@ -2,6 +2,7 @@
 import logging
 import os
 import json
+from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from shared.models import now
 
@@ -40,8 +41,8 @@ def setup_logging(app=None):
     log_level = getattr(logging, log_level_str, logging.INFO)
 
     # Create logs directory if it doesn't exist
-    logs_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
-    os.makedirs(logs_dir, exist_ok=True)
+    logs_dir = Path(__file__).parent.parent / 'logs'
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     # Configure root logger
     logger = logging.getLogger()
@@ -54,7 +55,7 @@ def setup_logging(app=None):
     )
 
     # File handler with rotation (structured JSON)
-    log_file = os.path.join(logs_dir, 'backend.log')
+    log_file = logs_dir / 'backend.log'
     file_handler = RotatingFileHandler(
         log_file,
         maxBytes=10*1024*1024,  # 10MB

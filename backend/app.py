@@ -2,6 +2,7 @@
 from flask import Flask
 import os
 import logging
+from pathlib import Path
 from appdirs import user_data_dir
 from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
@@ -50,7 +51,7 @@ def create_app(test_config=None):
 
     # Ensure the instance folder exists
     try:
-        os.makedirs(app.instance_path)
+        Path(app.instance_path).mkdir(parents=True, exist_ok=True)
         logger.debug(f"Created instance directory: {app.instance_path}")
     except OSError:
         logger.debug(f"Instance directory already exists: {app.instance_path}")
@@ -73,10 +74,10 @@ def create_app(test_config=None):
     @event.listens_for(Engine, "connect")
     def load_crsqlite_extension(db_conn, conn_record):
         data_dir = user_data_dir("crsqlite", "vlcn.io")
-        lib_path = os.path.join(data_dir, 'crsqlite.so')
+        lib_path = Path(data_dir) / 'crsqlite.so'
 
-        if not os.path.exists(lib_path):
-            lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'lib', 'crsqlite.so'))
+        if not lib_path.exists():
+            lib_path = Path(__file__).parent / 'lib' / 'crsqlite.so'
             logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
         else:
             logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")

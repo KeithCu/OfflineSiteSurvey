@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 import json
 import os
+from pathlib import Path
 from datetime import datetime
 import uuid
 import secrets
@@ -39,9 +40,9 @@ class LocalDatabase:
         
         self.db_path = db_path
         self.logger.debug(f"Database path set to: {self.db_path}")
-        
-        self.photos_dir = os.path.join(os.path.dirname(os.path.abspath(db_path)), 'local_photos')
-        os.makedirs(self.photos_dir, exist_ok=True)
+
+        self.photos_dir = Path(db_path).parent / 'local_photos'
+        self.photos_dir.mkdir(parents=True, exist_ok=True)
         self.logger.info(f"Photos directory initialized: {self.photos_dir}")
         
         self.site_id = str(uuid.uuid4())
@@ -54,11 +55,11 @@ class LocalDatabase:
         @event.listens_for(self.engine, "connect")
         def load_crsqlite_extension(db_conn, conn_record):
             data_dir = user_data_dir("crsqlite", "vlcn.io")
-            lib_path = os.path.join(data_dir, 'crsqlite.so')
+            lib_path = Path(data_dir) / 'crsqlite.so'
 
-            if not os.path.exists(lib_path):
+            if not lib_path.exists():
                 # Adjust path for local development if extension is not installed system-wide
-                lib_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'lib', 'crsqlite.so')
+                lib_path = Path(__file__).parent.parent.parent / 'lib' / 'crsqlite.so'
                 self.logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
             else:
                 self.logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")
@@ -272,29 +273,29 @@ class LocalDatabase:
 
     def backup(self, backup_dir=None):
         if not backup_dir:
-            backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
-        os.makedirs(backup_dir, exist_ok=True)
+            backup_dir = Path(self.db_path).parent / 'backups'
+        Path(backup_dir).mkdir(parents=True, exist_ok=True)
         from shared.models import now
         timestamp = now().strftime('%Y%m%d_%H%M%S')
         backup_filename = f'backup_{timestamp}.zip'
-        backup_path = os.path.join(backup_dir, backup_filename)
+        backup_path = Path(backup_dir) / backup_filename
         try:
             with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
-                if os.path.exists(self.db_path):
+                if Path(self.db_path).exists():
                     # Ensure the database file has .db extension in the backup
-                    db_filename = os.path.basename(self.db_path)
+                    db_filename = Path(self.db_path).name
                     if not db_filename.endswith('.db'):
                         db_filename = f"{db_filename}.db"
                     backup_zip.write(self.db_path, db_filename)
-                
+
                 # Backup photos
-                if os.path.exists(self.photos_dir):
+                if self.photos_dir.exists():
                     for root, _, files in os.walk(self.photos_dir):
                         for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.join('local_photos', os.path.relpath(file_path, self.photos_dir))
-                            backup_zip.write(file_path, arcname)
-                
+                            file_path = Path(root) / file
+                            arcname = Path('local_photos') / Path(file_path).relative_to(self.photos_dir)
+                            backup_zip.write(file_path, str(arcname))
+
                 metadata = {
                     'timestamp': timestamp,
                     'database_path': self.db_path,
@@ -302,22 +303,23 @@ class LocalDatabase:
                 }
                 backup_zip.writestr('backup_metadata.json', json.dumps(metadata, indent=2))
             self.logger.info(f"Backup created: {backup_path}")
-            return backup_path
+            return str(backup_path)
         except Exception as e:
             self.logger.error(f"Backup failed: {e}")
-            if os.path.exists(backup_path):
-                os.remove(backup_path)
+            if backup_path.exists():
+                backup_path.unlink()
             return None
 
     def restore(self, backup_path, validate_hashes=True):
-        if not os.path.exists(backup_path):
+        backup_path = Path(backup_path)
+        if not backup_path.exists():
             raise FileNotFoundError(f"Backup file not found: {backup_path}")
         with tempfile.TemporaryDirectory() as temp_dir:
             try:
                 with zipfile.ZipFile(backup_path, 'r') as backup_zip:
                     backup_zip.extractall(temp_dir)
-                    metadata_file = os.path.join(temp_dir, 'backup_metadata.json')
-                    if os.path.exists(metadata_file):
+                    metadata_file = Path(temp_dir) / 'backup_metadata.json'
+                    if metadata_file.exists():
                         with open(metadata_file, 'r') as f:
                             metadata = json.load(f)
                     else:
@@ -333,15 +335,16 @@ class LocalDatabase:
                             raise ValueError(f"Backup is too old ({age_days} days). Maximum allowed age is 30 days.")
                     
                     # Restore database
-                    db_files = [f for f in os.listdir(temp_dir) if f.endswith('.db')]
+                    temp_dir_path = Path(temp_dir)
+                    db_files = [f for f in temp_dir_path.iterdir() if f.suffix == '.db']
                     if not db_files:
                         raise ValueError("No database file found in backup")
-                    backup_db_path = os.path.join(temp_dir, db_files[0])
-                    
+                    backup_db_path = db_files[0]
+
                     # Restore photos
-                    photos_backup_dir = os.path.join(temp_dir, 'local_photos')
-                    if os.path.exists(photos_backup_dir):
-                         if os.path.exists(self.photos_dir):
+                    photos_backup_dir = temp_dir_path / 'local_photos'
+                    if photos_backup_dir.exists():
+                         if self.photos_dir.exists():
                             shutil.rmtree(self.photos_dir)
                          shutil.copytree(photos_backup_dir, self.photos_dir)
                     
@@ -369,8 +372,8 @@ class LocalDatabase:
             integrity_issues = []
             for photo in backup_photos:
                 # Check local file for integrity
-                photo_path = os.path.join(self.photos_dir, f"{photo.id}.jpg")
-                if os.path.exists(photo_path) and photo.hash_value:
+                photo_path = self.photos_dir / f"{photo.id}.jpg"
+                if photo_path.exists() and photo.hash_value:
                      with open(photo_path, 'rb') as f:
                         current_hash = compute_photo_hash(f.read())
                      if current_hash != photo.hash_value:
@@ -383,20 +386,20 @@ class LocalDatabase:
 
     def cleanup_old_backups(self, backup_dir=None, max_backups=10):
         if not backup_dir:
-            backup_dir = os.path.join(os.path.dirname(self.db_path), 'backups')
-        if not os.path.exists(backup_dir):
+            backup_dir = Path(self.db_path).parent / 'backups'
+        backup_dir_path = Path(backup_dir)
+        if not backup_dir_path.exists():
             return
-        backup_files = [f for f in os.listdir(backup_dir) if f.startswith('backup_') and f.endswith('.zip')]
+        backup_files = [f for f in backup_dir_path.iterdir() if f.name.startswith('backup_') and f.suffix == '.zip']
         if len(backup_files) <= max_backups:
             return
-        backup_files.sort(key=lambda x: x.split('_')[1].split('.')[0], reverse=True)
+        backup_files.sort(key=lambda x: x.stem.split('_')[1], reverse=True)
         for old_backup in backup_files[max_backups:]:
-            backup_path = os.path.join(backup_dir, old_backup)
             try:
-                os.remove(backup_path)
-                self.logger.info(f"Removed old backup: {old_backup}")
+                old_backup.unlink()
+                self.logger.info(f"Removed old backup: {old_backup.name}")
             except Exception as e:
-                self.logger.warning(f"Failed to remove old backup {old_backup}: {e}")
+                self.logger.warning(f"Failed to remove old backup {old_backup.name}: {e}")
 
     def get_conditional_fields(self, template_id):
         return self.repository.get_conditional_fields(template_id)
@@ -446,8 +449,8 @@ class LocalDatabase:
                 current_hash = None
 
                 # Check local data first
-                photo_path = os.path.join(self.photos_dir, f"{photo.id}.jpg")
-                if os.path.exists(photo_path):
+                photo_path = self.photos_dir / f"{photo.id}.jpg"
+                if photo_path.exists():
                     with open(photo_path, 'rb') as f:
                         current_hash = compute_photo_hash(f.read())
                 # Check cloud data if no local data but has cloud URL

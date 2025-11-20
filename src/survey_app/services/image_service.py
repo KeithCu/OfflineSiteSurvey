@@ -1,8 +1,8 @@
 """Image service for file I/O and image processing."""
-import os
 import logging
 import secrets
 import uuid
+from pathlib import Path
 
 from shared.utils import compute_photo_hash, generate_thumbnail, CorruptedImageError
 
@@ -12,26 +12,26 @@ class ImageService:
 
     def __init__(self, photos_dir):
         """Initialize image service with photos directory."""
-        self.photos_dir = photos_dir
+        self.photos_dir = Path(photos_dir)
         self.logger = logging.getLogger(self.__class__.__name__)
-        os.makedirs(self.photos_dir, exist_ok=True)
+        self.photos_dir.mkdir(parents=True, exist_ok=True)
         self.logger.info(f"Image service initialized with photos directory: {self.photos_dir}")
 
     def save_photo_file(self, photo_id, image_data, thumbnail_data=None):
         """Save photo data to local filesystem."""
         try:
             photo_filename = f"{photo_id}.jpg"
-            photo_path = os.path.join(self.photos_dir, photo_filename)
-            
+            photo_path = self.photos_dir / photo_filename
+
             with open(photo_path, 'wb') as f:
                 f.write(image_data)
-            
+
             if thumbnail_data:
                 thumb_filename = f"{photo_id}_thumb.jpg"
-                thumb_path = os.path.join(self.photos_dir, thumb_filename)
+                thumb_path = self.photos_dir / thumb_filename
                 with open(thumb_path, 'wb') as f:
                     f.write(thumbnail_data)
-                    
+
             return photo_filename
         except Exception as e:
             self.logger.error(f"Failed to save local photo file for {photo_id}: {e}")
@@ -41,9 +41,9 @@ class ImageService:
         """Retrieve photo data from local filesystem."""
         try:
             filename = f"{photo_id}_thumb.jpg" if thumbnail else f"{photo_id}.jpg"
-            photo_path = os.path.join(self.photos_dir, filename)
-            
-            if os.path.exists(photo_path):
+            photo_path = self.photos_dir / filename
+
+            if photo_path.exists():
                 with open(photo_path, 'rb') as f:
                     return f.read()
             return None
@@ -53,9 +53,9 @@ class ImageService:
 
     def get_photo_path(self, photo_id):
         """Get absolute path to local photo file."""
-        photo_path = os.path.join(self.photos_dir, f"{photo_id}.jpg")
-        if os.path.exists(photo_path):
-            return photo_path
+        photo_path = self.photos_dir / f"{photo_id}.jpg"
+        if photo_path.exists():
+            return str(photo_path)
         return None
 
     def process_photo(self, image_data, photo_id=None, survey_id=None, site_id=None, section='general'):

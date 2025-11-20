@@ -1,12 +1,12 @@
 """Photo upload queue service for background cloud storage uploads."""
 
-import os
 import json
 import time
 import logging
 import threading
 import shutil
 import queue
+from pathlib import Path
 from datetime import datetime, timedelta
 from threading import Lock
 from sqlalchemy.orm import sessionmaker
@@ -246,7 +246,7 @@ class UploadQueueService:
 
         # Check if local file exists
         local_path = self._get_local_photo_path(photo.id)
-        if not os.path.exists(local_path):
+        if not Path(local_path).exists():
             logger.warning(f"Local photo file not found: {local_path}")
             # Properly handle failure with retry tracking
             self._handle_upload_failure(session, photo, FileNotFoundError(f"Local photo file not found: {local_path}"))
@@ -288,38 +288,38 @@ class UploadQueueService:
 
     def _get_local_photo_path(self, photo_id):
         """Get the local path for a pending photo."""
-        return os.path.join(self.cloud_storage.pending_path, f"{photo_id}.jpg")
+        return str(self.cloud_storage.pending_path / f"{photo_id}.jpg")
 
     def _move_to_processing(self, photo_id):
         """Move photo file to processing directory."""
-        pending_path = self._get_local_photo_path(photo_id)
-        processing_path = os.path.join(self.cloud_storage.processing_path, f"{photo_id}.jpg")
+        pending_path = Path(self._get_local_photo_path(photo_id))
+        processing_path = self.cloud_storage.processing_path / f"{photo_id}.jpg"
 
-        if os.path.exists(pending_path):
-            os.rename(pending_path, processing_path)
-            return processing_path
+        if pending_path.exists():
+            pending_path.rename(processing_path)
+            return str(processing_path)
         else:
             raise FileNotFoundError(f"Pending photo not found: {pending_path}")
 
     def _move_to_completed(self, photo_id):
         """Move photo file to completed directory."""
-        processing_path = os.path.join(self.cloud_storage.processing_path, f"{photo_id}.jpg")
-        completed_path = os.path.join(self.cloud_storage.completed_path, f"{photo_id}.jpg")
+        processing_path = self.cloud_storage.processing_path / f"{photo_id}.jpg"
+        completed_path = self.cloud_storage.completed_path / f"{photo_id}.jpg"
 
-        if os.path.exists(processing_path):
-            os.rename(processing_path, completed_path)
+        if processing_path.exists():
+            processing_path.rename(completed_path)
 
     def _move_to_pending(self, photo_id):
         """Move photo file back to pending directory."""
-        processing_path = os.path.join(self.cloud_storage.processing_path, f"{photo_id}.jpg")
-        pending_path = self._get_local_photo_path(photo_id)
+        processing_path = self.cloud_storage.processing_path / f"{photo_id}.jpg"
+        pending_path = Path(self._get_local_photo_path(photo_id))
 
-        if os.path.exists(processing_path):
-            os.rename(processing_path, pending_path)
+        if processing_path.exists():
+            processing_path.rename(pending_path)
 
     def _ensure_thumbnail(self, photo_path, photo, session):
         """Ensure thumbnail exists for photo.
-        
+
         Args:
             photo_path: Path to the photo file
             photo: Photo database object to update if corrupted
@@ -327,7 +327,7 @@ class UploadQueueService:
         """
         thumbnail_path = photo_path.replace('.jpg', '_thumb.jpg')
 
-        if os.path.exists(thumbnail_path):
+        if Path(thumbnail_path).exists():
             return thumbnail_path
 
         # Generate thumbnail from file path to avoid loading large images into memory

@@ -1,7 +1,7 @@
 """Cloud storage service using Apache Libcloud with verification."""
 
-import os
 import logging
+from pathlib import Path
 from threading import Lock
 from libcloud.storage.types import Provider
 from libcloud.storage.providers import get_driver
@@ -23,12 +23,13 @@ class CloudStorageService:
 
     def __init__(self):
         """Initialize cloud storage service from environment variables."""
+        import os
         self.provider_name = os.getenv('CLOUD_STORAGE_PROVIDER', 's3')
         self.access_key = os.getenv('CLOUD_STORAGE_ACCESS_KEY')
         self.secret_key = os.getenv('CLOUD_STORAGE_SECRET_KEY')
         self.bucket_name = os.getenv('CLOUD_STORAGE_BUCKET')
         self.region = os.getenv('CLOUD_STORAGE_REGION', 'us-east-1')
-        self.local_path = os.getenv('CLOUD_STORAGE_LOCAL_PATH', './local_photos')
+        self.local_path = Path(os.getenv('CLOUD_STORAGE_LOCAL_PATH', './local_photos'))
 
         if not all([self.access_key, self.secret_key, self.bucket_name]):
             raise ValueError("Cloud storage configuration incomplete. Check environment variables.")
@@ -38,12 +39,12 @@ class CloudStorageService:
         self.container = self._get_container()
 
         # Create local storage directory structure
-        self.pending_path = os.path.join(self.local_path, 'pending')
-        self.processing_path = os.path.join(self.local_path, 'processing')
-        self.completed_path = os.path.join(self.local_path, 'completed')
+        self.pending_path = self.local_path / 'pending'
+        self.processing_path = self.local_path / 'processing'
+        self.completed_path = self.local_path / 'completed'
 
         for path in [self.local_path, self.pending_path, self.processing_path, self.completed_path]:
-            os.makedirs(path, exist_ok=True)
+            path.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Cloud storage initialized with provider: {self.provider_name}")
 
@@ -110,7 +111,7 @@ class CloudStorageService:
         Raises:
             Exception: If upload fails after retries
         """
-        if not os.path.exists(photo_path):
+        if not Path(photo_path).exists():
             raise FileNotFoundError(f"Photo file not found: {photo_path}")
 
         # Validate site_id is an integer
@@ -131,7 +132,7 @@ class CloudStorageService:
         # Upload thumbnail if provided
         thumbnail_url = None
         thumbnail_object_name = None
-        if thumbnail_path and os.path.exists(thumbnail_path):
+        if thumbnail_path and Path(thumbnail_path).exists():
             if site_id is not None:
                 thumbnail_object_name = f"{site_id}/thumbnails/{photo_id}_thumb.jpg"
             else:

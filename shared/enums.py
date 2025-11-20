@@ -68,3 +68,13 @@ class QuestionType(str, enum.Enum):
     TEXT = "text"
     YESNO = "yesno"
     PHOTO = "photo"
+
+
+class UserRole(str, enum.Enum):
+    """User roles for access control.
+
+    Used in User model to define permissions.
+    """
+    ADMIN = "admin"
+    MANAGER = "manager"
+    SURVEYOR = "surveyor"

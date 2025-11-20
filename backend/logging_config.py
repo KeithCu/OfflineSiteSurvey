@@ -87,7 +87,7 @@ def setup_logging(app=None):
     logger.info("Logging initialized", extra={
         'extra_fields': {
             'log_level': log_level_str,
-            'log_file': log_file,
+            'log_file': str(log_file),
             'structured_logging': True
         }
     })

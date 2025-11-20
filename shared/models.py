@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import Column, Integer, String, Float, Boolean, Text, LargeBinary, DateTime, ForeignKey, Index, text, Enum
 from sqlalchemy.orm import relationship, declarative_base
-from shared.enums import SurveyStatus, ProjectStatus, PhotoCategory, PriorityLevel
+from shared.enums import SurveyStatus, ProjectStatus, PhotoCategory, PriorityLevel, UserRole
 
 Base = declarative_base()
 
@@ -24,15 +24,37 @@ def now():
     """
     return datetime.now(APP_TIMEZONE)
 
+class Team(Base):
+    __tablename__ = 'teams'
+    id = Column(Integer, primary_key=True, nullable=False)
+    name = Column(String(200), nullable=False, unique=True, server_default="")
+    description = Column(Text, server_default="")
+    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
+    updated_at = Column(DateTime, default=now, onupdate=now)
+    members = relationship('User', backref='team', lazy=True)
+
+
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True, nullable=False)
+    username = Column(String(80), unique=True, nullable=False, server_default="")
+    email = Column(String(120), unique=True, nullable=False, server_default="")
+    password_hash = Column(String(128), nullable=False, server_default="")
+    role = Column(Enum(UserRole), default=UserRole.SURVEYOR, nullable=False, server_default=text("'surveyor'"))
+    team_id = Column(Integer, ForeignKey('teams.id', ondelete='SET NULL'), nullable=True)
+    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
+    updated_at = Column(DateTime, default=now, onupdate=now)
+
+
 class Project(Base):
     __tablename__ = 'projects'
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String(200), nullable=False, server_default="")
     description = Column(Text, server_default="")
-    status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT, nullable=False)
+    status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT, nullable=False, server_default=text("'draft'"))
     client_info = Column(Text, server_default="")
     due_date = Column(DateTime)
-    priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, nullable=False)
+    priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, nullable=False, server_default=text("'medium'"))
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
     sites = relationship('Site', backref='project', lazy=True, cascade="all, delete-orphan")
@@ -63,7 +85,7 @@ class Survey(Base):
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False)
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
-    status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, nullable=False)
+    status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, nullable=False, server_default=text("'draft'"))
     template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'))
     template = relationship('SurveyTemplate', backref='surveys')
     responses = relationship('SurveyResponse', backref='survey', cascade="all, delete-orphan")
@@ -148,7 +170,7 @@ class Photo(Base):
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
     description = Column(Text, server_default="")
-    category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL, nullable=False)
+    category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL, nullable=False, server_default=text("'general'"))
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"), index=True)
     hash_value = Column(String(64), index=True, server_default="")
     size_bytes = Column(Integer, server_default="0")

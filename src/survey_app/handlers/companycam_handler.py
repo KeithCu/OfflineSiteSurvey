@@ -1,6 +1,5 @@
 """CompanyCam integration handler for SurveyApp."""
 import toga
-import asyncio
 import logging
 
 
@@ -56,10 +55,10 @@ class CompanyCamHandler:
             self.app.status_label.text = "Please connect to CompanyCam first"
             return
 
-        # Start async sync process
-        asyncio.create_task(self._perform_sync())
+        # Perform sync synchronously
+        self._perform_sync()
 
-    async def _perform_sync(self):
+    def _perform_sync(self):
         """Perform the actual sync operation asynchronously."""
         try:
             self.app.status_label.text = "Starting sync to CompanyCam..."

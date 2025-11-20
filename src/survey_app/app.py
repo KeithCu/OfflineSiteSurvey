@@ -21,7 +21,6 @@ from .services.db_service import DBService
 from .services.companycam_service import CompanyCamService
 from .services.tag_mapper import TagMapper
 from .logging_config import setup_logging
-import asyncio
 import logging
 import uuid
 import time
@@ -150,10 +149,10 @@ class SurveyApp(toga.App):
         
         self.logger.info("SurveyApp initialization completed successfully")
 
-    async def get_gps_location(self):
-        """Get current GPS location."""
+    def get_gps_location(self):
+        """Get current GPS location synchronously."""
         try:
-            location_info = await self.location.current_location()
+            location_info = self.location.current_location()
             return location_info.latitude, location_info.longitude
         except Exception as e:
             self.ui_manager.status_label.text = f"GPS error: {e}"
@@ -550,50 +549,47 @@ class SurveyApp(toga.App):
             exif_dict = {ExifTags.TAGS.get(tag, tag): value for tag, value in img._getexif().items()}
         exif_json = json.dumps(exif_dict)
 
-        # Get GPS location
-        async def capture_with_location():
-            lat, long = await self.get_gps_location()
-            if self.current_survey:
-                current_field = self.get_next_visible_field()
-                question_id = current_field['id'] if current_field else None
-                # Save photo to database (hash and size computed automatically in save_photo)
-                photo_record = {
-                    'id': self.last_photo_id,
-                    'survey_id': self.current_survey['id'],
-                    'image_data': photo_data,
-                    'latitude': lat,
-                    'longitude': long,
-                    'description': f"Photo for: {self.ui_manager.question_label.text}",
-                    'category': PhotoCategory.GENERAL.value,
-                    'exif_data': exif_json,
-                    'question_id': question_id
-                }
-                self.db.save_photo(photo_record)
+        # Get GPS location synchronously
+        lat, long = self.get_gps_location()
+        if self.current_survey:
+            current_field = self.get_next_visible_field()
+            question_id = current_field['id'] if current_field else None
+            # Save photo to database (hash and size computed automatically in save_photo)
+            photo_record = {
+                'id': self.last_photo_id,
+                'survey_id': self.current_survey['id'],
+                'image_data': photo_data,
+                'latitude': lat,
+                'longitude': long,
+                'description': f"Photo for: {self.ui_manager.question_label.text}",
+                'category': PhotoCategory.GENERAL.value,
+                'exif_data': exif_json,
+                'question_id': question_id
+            }
+            self.db.save_photo(photo_record)
 
-                # Save response
-                question = self.ui_manager.question_label.text
-                response = {
-                    'question': question,
-                    'answer': f'[Photo captured - ID: {photo_record["id"]}]',
-                    'response_type': 'photo'
-                }
-                self.responses.append(response)
+            # Save response
+            question = self.ui_manager.question_label.text
+            response = {
+                'question': question,
+                'answer': f'[Photo captured - ID: {photo_record["id"]}]',
+                'response_type': 'photo'
+            }
+            self.responses.append(response)
 
-                # Save response to database immediately
-                response_data = {
-                    'id': str(uuid.uuid4()),
-                    'survey_id': self.current_survey['id'],
-                    'question': question,
-                    'answer': response['answer'],
-                    'response_type': 'photo'
-                }
-                self.db.save_response(response_data)
+            # Save response to database immediately
+            response_data = {
+                'id': str(uuid.uuid4()),
+                'survey_id': self.current_survey['id'],
+                'question': question,
+                'answer': response['answer'],
+                'response_type': 'photo'
+            }
+            self.db.save_response(response_data)
 
-                self.ui_manager.status_label.text = f"Photo captured for: {question[:50]}..."
-                self.current_question_index += 1
-                self.show_question()
-
-        asyncio.create_task(capture_with_location())
+            self.ui_manager.status_label.text = f"Photo captured for: {question[:50]}..."
+            self.current_question_index += 1
+            self.show_question()
 
     def finish_survey(self, widget):
         """Finish the survey and save responses"""

@@ -2,7 +2,6 @@
 import json
 import toga
 import uuid
-import asyncio
 from PIL import Image, ExifTags
 import io
 import base64
@@ -267,49 +266,46 @@ class SurveyHandler:
             exif_dict = {ExifTags.TAGS.get(tag, tag): value for tag, value in img._getexif().items()}
         exif_json = json.dumps(exif_dict)
 
-        # Get GPS location
-        async def capture_with_location():
-            lat, long = await self.app.get_gps_location()
-            if self.app.current_survey:
-                # Save photo to database (hash and size computed automatically in save_photo)
-                photo_record = {
-                    'id': self.app.last_photo_id,
-                    'survey_id': self.app.current_survey['id'],
-                    'image_data': photo_data,
-                    'latitude': lat,
-                    'longitude': long,
-                    'description': f"Photo for: {self.app.question_label.text}",
-                    'category': self.app.enums.PhotoCategory.GENERAL.value,
-                    'exif_data': exif_json,
-                    'tags': list(self.app.selected_photo_tags)
-                }
-                self.app.db.save_photo(photo_record)
-                self.app.clear_photo_tag_selection()
+        # Get GPS location synchronously
+        lat, long = self.app.get_gps_location()
+        if self.app.current_survey:
+            # Save photo to database (hash and size computed automatically in save_photo)
+            photo_record = {
+                'id': self.app.last_photo_id,
+                'survey_id': self.app.current_survey['id'],
+                'image_data': photo_data,
+                'latitude': lat,
+                'longitude': long,
+                'description': f"Photo for: {self.app.question_label.text}",
+                'category': self.app.enums.PhotoCategory.GENERAL.value,
+                'exif_data': exif_json,
+                'tags': list(self.app.selected_photo_tags)
+            }
+            self.app.db.save_photo(photo_record)
+            self.app.clear_photo_tag_selection()
 
-                # Save response
-                question = self.app.question_label.text
-                response = {
-                    'question': question,
-                    'answer': f'[Photo captured - ID: {photo_record["id"]}]',
-                    'response_type': 'photo'
-                }
-                self.app.responses.append(response)
+            # Save response
+            question = self.app.question_label.text
+            response = {
+                'question': question,
+                'answer': f'[Photo captured - ID: {photo_record["id"]}]',
+                'response_type': 'photo'
+            }
+            self.app.responses.append(response)
 
-                # Save response to database immediately
-                response_data = {
-                    'id': str(uuid.uuid4()),
-                    'survey_id': self.app.current_survey['id'],
-                    'question': question,
-                    'answer': response['answer'],
-                    'response_type': 'photo'
-                }
-                self.app.db.save_response(response_data)
+            # Save response to database immediately
+            response_data = {
+                'id': str(uuid.uuid4()),
+                'survey_id': self.app.current_survey['id'],
+                'question': question,
+                'answer': response['answer'],
+                'response_type': 'photo'
+            }
+            self.app.db.save_response(response_data)
 
-                self.app.status_label.text = f"Photo captured for: {question[:50]}..."
-                self.app.current_question_index += 1
-                self.app.ui.show_question()
-
-        asyncio.create_task(capture_with_location())
+            self.app.status_label.text = f"Photo captured for: {question[:50]}..."
+            self.app.current_question_index += 1
+            self.app.ui.show_question()
 
     def finish_survey(self, widget):
         """Finish the survey and save responses"""

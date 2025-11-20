@@ -1,14 +1,15 @@
 """Backend utility functions for Site Survey application."""
-from flask import jsonify
+from flask import jsonify, current_app
 from shared.utils import compute_photo_hash, should_show_field
 from .models import db, Project, Site, Survey, SurveyResponse, SurveyTemplate, TemplateField, Photo
 import logging
+import traceback
 
 
 logger = logging.getLogger(__name__)
 
 
-def api_error(message, status_code=400, log_level='warning', details=None):
+def api_error(message, status_code=400, log_level='warning', details=None, exception=None):
     """
     Standardized API error response with consistent logging.
 
@@ -17,6 +18,7 @@ def api_error(message, status_code=400, log_level='warning', details=None):
         status_code (int): HTTP status code
         log_level (str): Logging level ('debug', 'info', 'warning', 'error', 'critical')
         details (dict, optional): Additional details for logging
+        exception (Exception, optional): Exception object to include traceback in dev mode
 
     Returns:
         Flask response: JSON error response
@@ -34,8 +36,25 @@ def api_error(message, status_code=400, log_level='warning', details=None):
     else:
         log_func(f"API Error ({status_code}): {message}")
 
-    # Return consistent JSON error format
-    return jsonify({'error': message}), status_code
+    # Build error response
+    error_response = {'error': message}
+    
+    # Include traceback in dev/debug mode
+    try:
+        is_debug = current_app.config.get('DEBUG', False) if current_app else False
+        if is_debug and exception is not None:
+            error_response['exception_type'] = type(exception).__name__
+            # Format traceback if available
+            exc_traceback = getattr(exception, '__traceback__', None)
+            if exc_traceback is not None:
+                error_response['traceback'] = ''.join(traceback.format_exception(type(exception), exception, exc_traceback))
+            else:
+                error_response['traceback'] = f"{type(exception).__name__}: {str(exception)}"
+    except RuntimeError:
+        # current_app not available (outside request context)
+        pass
+
+    return jsonify(error_response), status_code
 
 
 def handle_api_exception(e, operation="operation", status_code=500):
@@ -51,7 +70,7 @@ def handle_api_exception(e, operation="operation", status_code=500):
         Flask response: JSON error response
     """
     logger.error(f"Exception during {operation}: {str(e)}", exc_info=True)
-    return api_error(f"Failed to {operation}", status_code, 'error')
+    return api_error(f"Failed to {operation}", status_code, 'error', exception=e)
 
 
 def validate_foreign_key(table_name, column_name, value):

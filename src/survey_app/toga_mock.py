@@ -63,5 +63,5 @@ class ProgressBar:
         pass
 
 class Location:
-    async def current_location(self):
+    def current_location(self):
         return type('LocationInfo', (), {'latitude': 0.0, 'longitude': 0.0})()

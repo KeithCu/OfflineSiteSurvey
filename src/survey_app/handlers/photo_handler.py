@@ -1,5 +1,4 @@
 """Photo management handlers for SurveyApp."""
-import asyncio
 import json
 import uuid
 import toga
@@ -292,13 +291,10 @@ class PhotoHandler:
         self.app.current_photo_data = img_byte_arr.getvalue()
         self.app.image_view.image = toga.Image(data=self.app.current_photo_data)
 
-        # Get GPS location
-        async def update_location():
-            lat, long = await self.app.get_gps_location()
-            if lat is not None and long is not None:
-                self.app.photo_location_input.value = f"{lat}, {long}"
-
-        asyncio.create_task(update_location())
+        # Get GPS location synchronously (returns None for synchronous app)
+        lat, long = self.app.get_gps_location()
+        if lat is not None and long is not None:
+            self.app.photo_location_input.value = f"{lat}, {long}"
 
     def save_photo(self, widget):
         """Save photo (legacy method)"""

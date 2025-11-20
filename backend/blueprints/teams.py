@@ -46,6 +46,10 @@ def add_member(team_id):
     if not hasattr(g, 'user') or g.user.role not in [UserRole.ADMIN, UserRole.MANAGER]:
         return jsonify({'error': 'Admin or Manager privileges required'}), 403
 
+    # Managers can only add to their own team
+    if g.user.role == UserRole.MANAGER and g.user.team_id != team_id:
+        return jsonify({'error': 'Managers can only add members to their own team'}), 403
+
     data = request.get_json()
     username = data.get('username')
 

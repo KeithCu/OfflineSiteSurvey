@@ -11,16 +11,23 @@ class APIService:
     Now uses background threading for non-blocking network operations.
     """
 
-    def __init__(self, base_url='http://localhost:5000', max_retries=3, retry_delay=1.0, offline_queue=None):
+    def __init__(self, base_url='http://localhost:5000', max_retries=3, retry_delay=1.0, offline_queue=None, auth_service=None):
         self.base_url = base_url.rstrip('/')
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.logger = logging.getLogger(self.__class__.__name__)
         self.offline_queue = offline_queue or []
         self.network_queue = get_network_queue()
+        self.auth_service = auth_service
 
     def _make_request(self, method, url, **kwargs):
         """Make HTTP request with retry logic (synchronous - for backward compatibility)."""
+        # Inject Auth Header
+        if self.auth_service:
+            headers = kwargs.get('headers', {})
+            headers.update(self.auth_service.get_headers())
+            kwargs['headers'] = headers
+
         last_exception = None
 
         for attempt in range(self.max_retries):

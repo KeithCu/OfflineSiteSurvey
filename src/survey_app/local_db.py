@@ -25,6 +25,11 @@ from shared.enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLev
 # Import shared utilities
 from shared.utils import compute_photo_hash, generate_thumbnail, should_show_field, build_response_lookup, CorruptedImageError
 
+# Import new services
+from .repositories.survey_repository import SurveyRepository
+from .services.image_service import ImageService
+from .services.sync_service import SyncService
+
 
 class LocalDatabase:
     def __init__(self, db_path='local_surveys.db'):
@@ -99,193 +104,68 @@ class LocalDatabase:
         self.Session = sessionmaker(bind=self.engine)
         self.logger.info("Session maker created and database initialization completed")
 
+        # Initialize services (share last_applied_changes dict with sync_service)
+        self.repository = SurveyRepository(self.Session)
+        self.image_service = ImageService(self.photos_dir)
+        self.sync_service = SyncService(self.Session, self.site_id, self.last_applied_changes)
+        self.logger.info("Services initialized: repository, image_service, sync_service")
+
     def get_session(self):
         return self.Session()
 
     def _save_photo_file(self, photo_id, image_data, thumbnail_data=None):
         """Save photo data to local filesystem."""
-        try:
-            photo_filename = f"{photo_id}.jpg"
-            photo_path = os.path.join(self.photos_dir, photo_filename)
-            
-            with open(photo_path, 'wb') as f:
-                f.write(image_data)
-            
-            if thumbnail_data:
-                thumb_filename = f"{photo_id}_thumb.jpg"
-                thumb_path = os.path.join(self.photos_dir, thumb_filename)
-                with open(thumb_path, 'wb') as f:
-                    f.write(thumbnail_data)
-                    
-            return photo_filename
-        except Exception as e:
-            self.logger.error(f"Failed to save local photo file for {photo_id}: {e}")
-            raise
+        return self.image_service.save_photo_file(photo_id, image_data, thumbnail_data)
 
     def get_photo_data(self, photo_id, thumbnail=False):
         """Retrieve photo data from local filesystem."""
-        try:
-            filename = f"{photo_id}_thumb.jpg" if thumbnail else f"{photo_id}.jpg"
-            photo_path = os.path.join(self.photos_dir, filename)
-            
-            if os.path.exists(photo_path):
-                with open(photo_path, 'rb') as f:
-                    return f.read()
-            return None
-        except Exception as e:
-            self.logger.error(f"Failed to read local photo file for {photo_id}: {e}")
-            return None
+        return self.image_service.get_photo_data(photo_id, thumbnail)
             
     def get_photo_path(self, photo_id):
         """Get absolute path to local photo file."""
-        photo_path = os.path.join(self.photos_dir, f"{photo_id}.jpg")
-        if os.path.exists(photo_path):
-            return photo_path
-        return None
+        return self.image_service.get_photo_path(photo_id)
 
     def get_surveys(self):
-        session = self.get_session()
-        try:
-            surveys = session.query(Survey).all()
-            return surveys
-        finally:
-            session.close()
+        return self.repository.get_surveys()
 
     def get_survey(self, survey_id):
-        session = self.get_session()
-        try:
-            survey = session.get(Survey, survey_id)
-            return survey
-        finally:
-            session.close()
+        return self.repository.get_survey(survey_id)
 
     def get_projects(self):
-        session = self.get_session()
-        try:
-            projects = session.query(Project).all()
-            return projects
-        finally:
-            session.close()
+        return self.repository.get_projects()
 
     def get_sites(self):
-        session = self.get_session()
-        try:
-            sites = session.query(Site).all()
-            return sites
-        finally:
-            session.close()
+        return self.repository.get_sites()
 
     def get_sites_for_project(self, project_id):
-        session = self.get_session()
-        try:
-            sites = session.query(Site).filter_by(project_id=project_id).all()
-            return sites
-        finally:
-            session.close()
+        return self.repository.get_sites_for_project(project_id)
 
     def save_project(self, project_data):
-        session = self.get_session()
-        try:
-            project = Project(**project_data)
-            session.add(project)
-            session.commit()
-            session.refresh(project)  # Refresh to load generated ID
-            return project
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.repository.save_project(project_data)
 
     def save_site(self, site_data):
-        session = self.get_session()
-        try:
-            site = Site(**site_data)
-            session.add(site)
-            session.commit()
-            session.refresh(site)  # Refresh to load generated ID
-            return site
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.repository.save_site(site_data)
 
     def get_surveys_for_site(self, site_id):
-        session = self.get_session()
-        try:
-            surveys = session.query(Survey).filter_by(site_id=site_id).all()
-            return surveys
-        finally:
-            session.close()
+        return self.repository.get_surveys_for_site(site_id)
 
     def save_survey(self, survey_data):
-        session = self.get_session()
-        try:
-            survey = Survey(**survey_data)
-            session.add(survey)
-            session.commit()
-            session.refresh(survey)  # Refresh to load generated ID
-            return survey
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.repository.save_survey(survey_data)
 
     def get_template_fields(self, template_id):
-        session = self.get_session()
-        try:
-            fields = session.query(TemplateField).filter_by(template_id=template_id).order_by(TemplateField.order_index).all()
-            return fields
-        finally:
-            session.close()
+        return self.repository.get_template_fields(template_id)
 
     def get_templates(self):
-        session = self.get_session()
-        try:
-            templates = session.query(SurveyTemplate).all()
-            return templates
-        finally:
-            session.close()
+        return self.repository.get_templates()
 
     def save_template(self, template_data):
-        session = self.get_session()
-        try:
-            fields = template_data.pop('fields', [])
-            section_tags = template_data.pop('section_tags', None)
-            template = SurveyTemplate(**template_data)
-            if section_tags is not None:
-                template.section_tags = json.dumps(section_tags) if isinstance(section_tags, dict) else section_tags
-            template = session.merge(template)
-            for field_data in fields:
-                field = TemplateField(**field_data)
-                session.merge(field)
-            session.commit()
-            session.refresh(template)  # Refresh to load any generated fields
-            return template
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.repository.save_template(template_data)
 
     def update_template_section_tags(self, template_id, section_tags):
-        session = self.get_session()
-        try:
-            template = session.get(SurveyTemplate, template_id)
-            if not template:
-                return False
-            template.section_tags = json.dumps(section_tags)
-            session.commit()
-            return True
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.repository.update_template_section_tags(template_id, section_tags)
 
     def save_photo(self, photo_data):
+        """Save a photo with image processing and file I/O."""
         session = self.get_session()
         try:
             image_data = photo_data.pop('image_data', None)
@@ -293,278 +173,102 @@ class LocalDatabase:
             
             # Generate photo ID if not provided
             if 'id' not in photo_data or not photo_data['id']:
-                # Generate ID in format: {site_id}-{section_name}-{random_string}
                 survey_id = photo_data.get('survey_id')
+                site_id = None
                 if survey_id:
-                    # Get survey to access site_id
                     survey = session.get(Survey, survey_id)
                     if survey:
                         site_id = survey.site_id
-                        section_name = photo_data.get('section', 'general').lower().replace(" ", "_")
-                        random_string = secrets.token_hex(4)
-                        photo_data['id'] = f"{site_id}-{section_name}-{random_string}"
-                    else:
-                        # Fallback to UUID if survey not found
-                        photo_data['id'] = str(uuid.uuid4())
+                section = photo_data.get('section', 'general')
+                
+                if image_data:
+                    processed = self.image_service.process_photo(
+                        image_data,
+                        photo_id=None,
+                        survey_id=survey_id,
+                        site_id=site_id,
+                        section=section
+                    )
+                    photo_data['id'] = processed['id']
                 else:
-                    # Fallback to UUID if no survey_id
-                    photo_data['id'] = str(uuid.uuid4())
+                    # Generate ID without processing if no image data
+                    photo_data['id'] = self.image_service._generate_photo_id(
+                        survey_id=survey_id,
+                        site_id=site_id,
+                        section=section
+                    )
+            else:
+                # Process image if ID already exists and we have image data
+                processed = {}
+                if image_data:
+                    processed = self.image_service.process_photo(
+                        image_data,
+                        photo_id=photo_data['id'],
+                        survey_id=photo_data.get('survey_id'),
+                        site_id=None,
+                        section=photo_data.get('section', 'general')
+                    )
 
             if image_data:
-                # Use utility function for hashing
-                photo_data['hash_value'] = compute_photo_hash(image_data)
-                photo_data['size_bytes'] = len(image_data)
-                photo_data['upload_status'] = 'pending'  # Initially pending upload
-                photo_data['cloud_url'] = ''  # Will be set after upload
-                photo_data['thumbnail_url'] = ''  # Will be set after upload
+                photo_data['hash_value'] = processed.get('hash_value', compute_photo_hash(image_data))
+                photo_data['size_bytes'] = processed.get('size_bytes', len(image_data))
+                photo_data['upload_status'] = 'pending'
+                photo_data['cloud_url'] = ''
+                photo_data['thumbnail_url'] = ''
 
-                # Generate thumbnail for local storage if not provided
+                # Use processed thumbnail or provided one
                 if not thumbnail_data:
-                    try:
-                        thumbnail_data = generate_thumbnail(image_data, max_size=200)
-                    except CorruptedImageError as e:
-                        # Image is corrupted - flag it in database but allow save to proceed
-                        self.logger.error(f"Corrupted image detected for photo {photo_data.get('id', 'unknown')}: {e}")
-                        photo_data['corrupted'] = True
-                        thumbnail_data = None  # No thumbnail for corrupted images
-
+                    thumbnail_data = processed.get('thumbnail_data')
+                
                 # Save to disk
-                filename = self._save_photo_file(photo_data['id'], image_data, thumbnail_data)
+                filename = self.image_service.save_photo_file(photo_data['id'], image_data, thumbnail_data)
                 photo_data['file_path'] = filename
+                photo_data['corrupted'] = processed.get('corrupted', False)
 
-            tags = photo_data.get('tags')
-            if tags is None:
-                tags = []
-            if isinstance(tags, (list, tuple)):
-                photo_data['tags'] = json.dumps(list(tags))
-            elif isinstance(tags, str):
-                photo_data['tags'] = tags
-            else:
-                photo_data['tags'] = json.dumps([])
-
-            # Ensure corrupted field is set (defaults to False if not already set)
-            if 'corrupted' not in photo_data:
-                photo_data['corrupted'] = False
-
-            photo = Photo(**photo_data)
-            # Do NOT try to set image_data/thumbnail_data attributes as they don't exist in schema
-            
-            session.add(photo)
-            session.commit()
-            session.refresh(photo)  # Refresh to load generated ID
-            return photo
-        except Exception:
-            session.rollback()
-            raise
+            return self.repository.save_photo(photo_data)
         finally:
             session.close()
 
     def save_response(self, response_data):
-        session = self.get_session()
-        try:
-            response = SurveyResponse(**response_data)
-            session.add(response)
-            session.commit()
-            session.refresh(response)  # Refresh to load generated ID
-            return response
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.repository.save_response(response_data)
+
+    def get_responses_for_survey(self, survey_id):
+        return self.repository.get_responses_for_survey(survey_id)
+
+    def save_responses(self, survey_id, responses_dict):
+        return self.repository.save_responses(survey_id, responses_dict)
 
     def get_photos(self, survey_id=None, category=None, search_term=None, page=1, per_page=40):
-        session = self.get_session()
-        try:
-            query = session.query(Photo)
-            if survey_id:
-                query = query.filter_by(survey_id=survey_id)
-            if category:
-                query = query.filter_by(category=category)
-            if search_term:
-                query = query.filter(Photo.description.contains(search_term))
-            total_count = query.count()
-            photos = query.order_by(Photo.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
-            
-            # No need to inject image data here, the UI will request it via get_photo_data or on-demand
-            
-            return {
-                'photos': photos,
-                'total_count': total_count,
-                'page': page,
-                'per_page': per_page,
-                'total_pages': (total_count + per_page - 1) // per_page
-            }
-        finally:
-            session.close()
+        return self.repository.get_photos(survey_id, category, search_term, page, per_page)
             
     def get_pending_upload_photos(self):
         """Get list of photos that are pending upload."""
-        session = self.get_session()
-        try:
-            return session.query(Photo).filter_by(upload_status='pending').all()
-        finally:
-            session.close()
+        return self.repository.get_pending_upload_photos()
             
     def mark_photo_uploaded(self, photo_id, cloud_url=None, thumbnail_url=None):
         """Mark a photo as uploaded."""
-        session = self.get_session()
-        try:
-            photo = session.get(Photo, photo_id)
-            if photo:
-                # Use 'pending' status since server queues uploads asynchronously
-                # The CRDT sync will update to 'completed' when cloud upload finishes
-                photo.upload_status = 'pending'  # Server will update to 'completed' after cloud upload
-                if cloud_url:
-                    photo.cloud_url = cloud_url
-                if thumbnail_url:
-                    photo.thumbnail_url = thumbnail_url
-                session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.repository.mark_photo_uploaded(photo_id, cloud_url, thumbnail_url)
 
     def get_photo_categories(self):
-        session = self.get_session()
-        try:
-            categories = session.query(Photo.category).distinct().all()
-            return [c[0] for c in categories if c[0]]
-        finally:
-            session.close()
+        return self.repository.get_photo_categories()
 
     def get_all_unique_tags(self):
-        session = self.get_session()
-        try:
-            all_tags = []
-            photos = session.query(Photo.tags).filter(Photo.tags.isnot(None)).all()
-            unique_tags = set()
-            for photo_tags in photos:
-                try:
-                    tags = json.loads(photo_tags[0])
-                    for tag in tags:
-                        unique_tags.add(tag)
-                except (json.JSONDecodeError, TypeError):
-                    continue
-            return [{'name': tag} for tag in sorted(list(unique_tags))]
-        finally:
-            session.close()
+        return self.repository.get_all_unique_tags()
 
     def get_section_for_photo(self, photo_id):
-        session = self.get_session()
-        try:
-            photo = session.query(Photo).filter_by(id=photo_id).first()
-            if not photo or not photo.question_id:
-                return None
-
-            field = session.query(TemplateField).filter_by(id=photo.question_id).first()
-            if field:
-                return field.section
-            return None
-        finally:
-            session.close()
+        return self.repository.get_section_for_photo(photo_id)
 
     def get_tags_for_photo(self, photo_id):
-        session = self.get_session()
-        try:
-            photo = session.query(Photo).filter_by(id=photo_id).first()
-            if photo and photo.tags:
-                try:
-                    return json.loads(photo.tags)
-                except (json.JSONDecodeError, TypeError):
-                    return []
-            return []
-        finally:
-            session.close()
+        return self.repository.get_tags_for_photo(photo_id)
 
     def get_changes_since(self, version):
-        session = self.get_session()
-        try:
-            conn = session.connection()
-            raw_conn = conn.connection
-            cursor = raw_conn.cursor()
-            # Filter out photo changes where upload_status='pending' to prevent syncing incomplete uploads
-            # This prevents syncing photos before cloud upload completes, which could result in invalid cloud_url values
-            cursor.execute(
-                """SELECT c."table", c.pk, c.cid, c.val, c.col_version, c.db_version, c.site_id 
-                   FROM crsql_changes c
-                   LEFT JOIN photo p ON c."table" = 'photo' AND json_extract(c.pk, '$.id') = p.id
-                   WHERE c.db_version > ? AND c.site_id != ?
-                   AND (c."table" != 'photo' OR p.upload_status IS NULL OR p.upload_status != 'pending')""",
-                (version, self.site_id)
-            )
-            changes = cursor.fetchall()
-            return [dict(zip([c[0] for c in cursor.description], row)) for row in changes]
-        finally:
-            session.close()
+        return self.sync_service.get_changes_since(version)
 
     def get_current_version(self):
-        session = self.get_session()
-        try:
-            conn = session.connection()
-            raw_conn = conn.connection
-            cursor = raw_conn.cursor()
-            cursor.execute("SELECT crsql_dbversion()")
-            version = cursor.fetchone()[0]
-            return version
-        finally:
-            session.close()
+        return self.sync_service.get_current_version()
 
     def apply_changes(self, changes):
-        session = self.get_session()
-        try:
-            conn = session.connection()
-            raw_conn = conn.connection
-            cursor = raw_conn.cursor()
-            integrity_issues = []
-            applied_changes = {}
-            for change in changes:
-                table_name = change['table']
-                change_version = change['db_version']
-                last_applied = self.last_applied_changes.get(table_name, 0)
-                if change_version <= last_applied:
-                    continue
-                if table_name == 'photo' and change['cid'] == 'cloud_url' and change['val']:
-                    try:
-                        pk_data = json.loads(change['pk'])
-                        photo_id = pk_data.get('id')
-                        existing_photo = session.get(Photo, photo_id)
-                        if existing_photo and existing_photo.hash_value and existing_photo.upload_status == 'completed':
-                            # Download photo from cloud and verify hash
-                            try:
-                                # We don't have direct cloud storage access in frontend (usually)
-                                # In a real app, we'd use the API to download or a configured cloud client
-                                # For this implementation, we'll skip direct cloud download in apply_changes
-                                # and rely on lazy loading or a separate sync process for binaries
-                                pass 
-                            except Exception as e:
-                                pass
-                    except (json.JSONDecodeError, AttributeError, TypeError):
-                        pass
-                try:
-                    cursor.execute(
-                        "INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (table_name, change['pk'], change['cid'], change['val'], change['col_version'], change_version, change['site_id'])
-                    )
-                    if table_name not in applied_changes or change_version > applied_changes[table_name]:
-                        applied_changes[table_name] = change_version
-                except Exception as e:
-                    self.logger.error(f"Failed to apply change for table {table_name}: {e}")
-                    continue
-            session.commit()
-            for table_name, version in applied_changes.items():
-                self.last_applied_changes[table_name] = max(
-                    self.last_applied_changes.get(table_name, 0),
-                    version
-                )
-            if integrity_issues:
-                self.logger.warning(f"Photo integrity issues detected: {integrity_issues}")
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.sync_service.apply_changes(changes)
 
     def backup(self, backup_dir=None):
         if not backup_dir:
@@ -695,28 +399,7 @@ class LocalDatabase:
                 self.logger.warning(f"Failed to remove old backup {old_backup}: {e}")
 
     def get_conditional_fields(self, template_id):
-        session = self.get_session()
-        try:
-            template = session.get(SurveyTemplate, template_id)
-            if not template:
-                return {'fields': [], 'section_tags': {}}
-            fields = []
-            for field in sorted(template.fields, key=lambda x: x.order_index):
-                field_data = {
-                    'id': field.id, 'field_type': field.field_type, 'question': field.question,
-                    'description': field.description, 'required': field.required, 'options': field.options,
-                    'order_index': field.order_index, 'section': field.section, 'section_weight': field.section_weight,
-                    'conditions': json.loads(field.conditions) if field.conditions else None,
-                    'photo_requirements': json.loads(field.photo_requirements) if field.photo_requirements else None
-                }
-                fields.append(field_data)
-            try:
-                section_tags = json.loads(template.section_tags) if template.section_tags else {}
-            except json.JSONDecodeError:
-                section_tags = {}
-            return {'fields': fields, 'section_tags': section_tags}
-        finally:
-            session.close()
+        return self.repository.get_conditional_fields(template_id)
 
     def evaluate_conditions(self, survey_id, current_responses):
         session = self.get_session()
@@ -744,82 +427,13 @@ class LocalDatabase:
 
     def should_show_field(self, conditions, response_lookup):
         """Optimized version using response lookup dictionary for O(1) access."""
-        # Use the optimized shared utility function
         return should_show_field(conditions, response_lookup)
 
     def get_survey_progress(self, survey_id):
-        session = self.get_session()
-        try:
-            survey = session.get(Survey, survey_id)
-            if not survey:
-                return {}
-            responses = session.query(SurveyResponse).filter_by(survey_id=survey_id).all()
-            response_dict = {r.question_id: r.answer for r in responses if r.question_id}
-            photos = session.query(Photo).filter_by(survey_id=survey_id).all()
-            fields = []
-            if survey.template_id:
-                template = session.get(SurveyTemplate, survey.template_id)
-                fields = template.fields
-            sections = {}
-            total_required = 0
-            total_completed = 0
-            for field in fields:
-                section = field.section or 'General'
-                if section not in sections:
-                    sections[section] = {
-                        'required': 0, 'completed': 0, 'photos_required': 0,
-                        'photos_taken': 0, 'weight': field.section_weight
-                    }
-                if field.required:
-                    sections[section]['required'] += 1
-                    total_required += 1
-                    if field.id in response_dict and response_dict[field.id]:
-                        sections[section]['completed'] += 1
-                        total_completed += 1
-                if field.field_type == 'photo':
-                    if field.required:
-                        sections[section]['photos_required'] += 1
-                    photo_exists = any(p for p in photos if p.requirement_id and field.question in p.description)
-                    if photo_exists:
-                        sections[section]['photos_taken'] += 1
-            overall_progress = (total_completed / total_required * 100) if total_required > 0 else 0
-            for section_name, section_data in sections.items():
-                section_total = section_data['required']
-                section_completed = section_data['completed']
-                section_data['progress'] = (section_completed / section_total * 100) if section_total > 0 else 0
-            return {
-                'overall_progress': overall_progress, 'sections': sections,
-                'total_required': total_required, 'total_completed': total_completed
-            }
-        finally:
-            session.close()
+        return self.repository.get_survey_progress(survey_id)
 
     def get_photo_requirements(self, survey_id):
-        session = self.get_session()
-        try:
-            survey = session.get(Survey, survey_id)
-            if not survey or not survey.template_id:
-                return {}
-            template = session.get(SurveyTemplate, survey.template_id)
-            photos = session.query(Photo).filter_by(survey_id=survey_id).all()
-            existing_photo_requirements = {p.requirement_id: p for p in photos if p.requirement_id}
-            requirements_by_section = {}
-            for field in sorted(template.fields, key=lambda x: x.order_index):
-                if field.field_type == 'photo' and field.photo_requirements:
-                    section = field.section or 'General'
-                    if section not in requirements_by_section:
-                        requirements_by_section[section] = []
-                    photo_req_data = json.loads(field.photo_requirements)
-                    photo_req_data['field_id'] = field.id
-                    photo_req_data['field_question'] = field.question
-                    photo_req_data['taken'] = field.id in existing_photo_requirements
-                    requirements_by_section[section].append(photo_req_data)
-            return {
-                'survey_id': survey_id,
-                'requirements_by_section': requirements_by_section
-            }
-        finally:
-            session.close()
+        return self.repository.get_photo_requirements(survey_id)
 
     def check_photo_integrity(self):
         """Check integrity of all photos in the database.
@@ -856,18 +470,7 @@ class LocalDatabase:
             session.close()
 
     def mark_requirement_fulfillment(self, photo_id, requirement_id, fulfills=True):
-        session = self.get_session()
-        try:
-            photo = session.get(Photo, photo_id)
-            if photo:
-                photo.requirement_id = requirement_id
-                photo.fulfills_requirement = fulfills
-                session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        return self.repository.mark_requirement_fulfillment(photo_id, requirement_id, fulfills)
 
     def close(self):
         """Close the database connection and dispose of the engine."""

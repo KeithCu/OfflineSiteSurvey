@@ -868,3 +868,9 @@ class LocalDatabase:
             raise
         finally:
             session.close()
+
+    def close(self):
+        """Close the database connection and dispose of the engine."""
+        if hasattr(self, 'engine'):
+            self.engine.dispose()
+            self.logger.info("Database engine disposed")

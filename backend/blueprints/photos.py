@@ -8,7 +8,7 @@ import logging
 from urllib.parse import urlparse
 from ..models import db, Photo, Survey, TemplateField
 from shared.utils import compute_photo_hash, generate_thumbnail, CorruptedImageError
-from shared.validation import Validator, ValidationError
+from shared.validation import ValidationError, validate_string_length, sanitize_html, validate_coordinates, validate_choice
 from shared.enums import PhotoCategory
 from ..services.upload_queue import get_upload_queue
 from ..utils import api_error, handle_api_exception
@@ -67,7 +67,7 @@ def mark_requirement_fulfillment():
     if photo_id is None:
         return jsonify({'error': 'photo_id field is required'}), 400
     try:
-        photo_id = Validator.validate_string_length(str(photo_id).strip(), 'photo_id', 1, 200)
+        photo_id = validate_string_length(str(photo_id).strip(), 'photo_id', 1, 200)
     except ValidationError as e:
         return jsonify({'error': str(e)}), 400
 
@@ -77,7 +77,7 @@ def mark_requirement_fulfillment():
         if not isinstance(requirement_id, str):
             return jsonify({'error': 'requirement_id must be a string or null'}), 400
         try:
-            requirement_id = Validator.validate_string_length(requirement_id.strip(), 'requirement_id', 1, 200)
+            requirement_id = validate_string_length(requirement_id.strip(), 'requirement_id', 1, 200)
         except ValidationError as e:
             return jsonify({'error': str(e)}), 400
 
@@ -270,13 +270,13 @@ def upload_photo_to_survey(survey_id):
             # Validate and sanitize description
             description = request.form.get('description', '')
             if description:
-                description = Validator.validate_string_length(description, 'Photo description', 0, 5000)
-                description = Validator.sanitize_html(description)
+                description = validate_string_length(description, 'Photo description', 0, 5000)
+                description = sanitize_html(description)
 
             # Validate category
             category_str = request.form.get('category', 'general')
             try:
-                validated_str = Validator.validate_choice(
+                validated_str = validate_choice(
                     category_str, 'Photo category',
                     [cat.value for cat in PhotoCategory]
                 )
@@ -288,7 +288,7 @@ def upload_photo_to_survey(survey_id):
             latitude_str = request.form.get('latitude', '0.0')
             longitude_str = request.form.get('longitude', '0.0')
             try:
-                latitude, longitude = Validator.validate_coordinates(latitude_str, longitude_str)
+                latitude, longitude = validate_coordinates(latitude_str, longitude_str)
             except ValidationError:
                 # Default to 0,0 if invalid coordinates provided
                 latitude, longitude = 0.0, 0.0
@@ -301,14 +301,14 @@ def upload_photo_to_survey(survey_id):
                     parsed = json.loads(tags_payload)
                     if isinstance(parsed, list):
                         # Validate each tag is a string and sanitize
-                        tags = [Validator.sanitize_html(str(tag).strip()) for tag in parsed if str(tag).strip()]
+                        tags = [sanitize_html(str(tag).strip()) for tag in parsed if str(tag).strip()]
                         # Limit to reasonable number of tags
                         tags = tags[:50]  # Max 50 tags
                     else:
-                        tags = [Validator.sanitize_html(str(parsed).strip())]
+                        tags = [sanitize_html(str(parsed).strip())]
                 except json.JSONDecodeError:
                     # Fallback: comma-separated tags
-                    tags = [Validator.sanitize_html(tag.strip()) for tag in tags_payload.split(',') if tag.strip()][:50]
+                    tags = [sanitize_html(tag.strip()) for tag in tags_payload.split(',') if tag.strip()][:50]
 
             # Create or update photo record
             if existing_photo:

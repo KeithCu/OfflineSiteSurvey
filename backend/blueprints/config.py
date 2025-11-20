@@ -4,7 +4,7 @@ import re
 import logging
 from flask import Blueprint, jsonify, request
 from ..models import db, AppConfig
-from shared.validation import Validator, ValidationError
+from shared.validation import ValidationError, validate_string_length
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ def update_config(key):
             if not isinstance(description, str):
                 return jsonify({'error': 'description must be a string'}), 400
             try:
-                description = Validator.validate_string_length(description, 'description', 0, 300)
+                description = validate_string_length(description, 'description', 0, 300)
                 config.description = description
             except ValidationError as e:
                 return jsonify({'error': str(e)}), 400
@@ -138,7 +138,7 @@ def update_config(key):
             if not isinstance(category, str):
                 return jsonify({'error': 'category must be a string'}), 400
             try:
-                category = Validator.validate_string_length(category, 'category', 0, 50)
+                category = validate_string_length(category, 'category', 0, 50)
                 config.category = category
             except ValidationError as e:
                 return jsonify({'error': str(e)}), 400

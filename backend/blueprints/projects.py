@@ -1,10 +1,10 @@
 """Projects blueprint for Flask API."""
 from flask import Blueprint, request
-from ..models import Project, ProjectStatus
+from ..models import Project
 from ..base.crud_base import CRUDBase
-from shared.validation import Validator, ValidationError
-from shared.enums import PriorityLevel
-import datetime
+from shared.validation import ValidationError
+from shared.schemas import ProjectCreate, ProjectUpdate, ProjectResponse
+from pydantic import ValidationError as PydanticValidationError
 bp = Blueprint('projects', __name__, url_prefix='/api')
 
 
@@ -15,122 +15,34 @@ class ProjectCRUD(CRUDBase):
         super().__init__(Project, logger_name='projects')
     
     def serialize(self, project):
-        """Serialize project to dictionary."""
-        return {
-            'id': project.id,
-            'name': project.name,
-            'description': project.description,
-            'status': project.status.value,
-            'client_info': project.client_info,
-            'due_date': project.due_date.isoformat() if project.due_date else None,
-            'priority': project.priority.value,
-            'created_at': project.created_at.isoformat(),
-            'updated_at': project.updated_at.isoformat()
-        }
+        """Serialize project to dictionary using Pydantic."""
+        return ProjectResponse.model_validate(project).model_dump(mode='json')
     
     def validate_create_data(self, data):
-        """Validate and prepare data for project creation."""
-        # Validate input data using shared validator
-        validated_data = Validator.validate_project_data(data)
-        
-        # Handle status enum
-        status_str = data.get('status', 'draft')
-        if not isinstance(status_str, str):
-            raise ValidationError('status must be a string')
-        
+        """Validate and prepare data for project creation using Pydantic."""
         try:
-            status = ProjectStatus(status_str)
-        except ValueError:
-            raise ValidationError(f'Invalid status: {status_str}')
-        
-        validated_data['status'] = status
-        
-        # Handle priority enum
-        priority_str = data.get('priority', 'medium')
-        if not isinstance(priority_str, str):
-            raise ValidationError('priority must be a string')
-        
-        try:
-            priority = PriorityLevel(priority_str)
-        except ValueError:
-            raise ValidationError(f'Invalid priority: {priority_str}')
-        
-        validated_data['priority'] = priority
-        
-        # Handle due date
-        due_date = None
-        due_date_str = data.get('due_date')
-        if due_date_str:
-            if not isinstance(due_date_str, str):
-                raise ValidationError('due_date must be a string in ISO format')
-            try:
-                due_date = datetime.datetime.fromisoformat(due_date_str)
-            except ValueError:
-                raise ValidationError('due_date must be a valid ISO date string')
-        
-        validated_data['due_date'] = due_date
-        
-        return validated_data
+            project = ProjectCreate(**data)
+            return project.model_dump(exclude_none=True)
+        except PydanticValidationError as e:
+            errors = []
+            for error in e.errors():
+                field = '.'.join(str(x) for x in error['loc'])
+                msg = error['msg']
+                errors.append(f"{field}: {msg}")
+            raise ValidationError('; '.join(errors))
     
     def validate_update_data(self, data):
-        """Validate and prepare data for project update."""
-        validated_data = {}
-        
-        # Validate and prepare name
-        if 'name' in data:
-            name = data['name']
-            if not isinstance(name, str) or not name.strip():
-                raise ValidationError('name must be a non-empty string')
-            validated_data['name'] = name.strip()
-        
-        # Validate and prepare description
-        if 'description' in data:
-            description = data['description']
-            if description is not None and not isinstance(description, str):
-                raise ValidationError('description must be a string')
-            validated_data['description'] = description.strip() if description else None
-        
-        # Validate and prepare status
-        if 'status' in data:
-            status_str = data['status']
-            if not isinstance(status_str, str):
-                raise ValidationError('status must be a string')
-            try:
-                validated_data['status'] = ProjectStatus(status_str)
-            except ValueError:
-                raise ValidationError(f'status must be one of: {[s.value for s in ProjectStatus]}')
-        
-        # Validate and prepare client_info
-        if 'client_info' in data:
-            client_info = data['client_info']
-            if client_info is not None and not isinstance(client_info, str):
-                raise ValidationError('client_info must be a string')
-            validated_data['client_info'] = client_info.strip() if client_info else None
-        
-        # Validate and prepare due_date
-        if 'due_date' in data:
-            due_date_str = data['due_date']
-            if due_date_str is not None:
-                if not isinstance(due_date_str, str):
-                    raise ValidationError('due_date must be a string in ISO format')
-                try:
-                    validated_data['due_date'] = datetime.datetime.fromisoformat(due_date_str)
-                except ValueError:
-                    raise ValidationError('due_date must be a valid ISO date string')
-            else:
-                validated_data['due_date'] = None
-        
-        # Validate and prepare priority
-        if 'priority' in data:
-            priority_str = data['priority']
-            if not isinstance(priority_str, str):
-                raise ValidationError('priority must be a string')
-            try:
-                validated_data['priority'] = PriorityLevel(priority_str)
-            except ValueError:
-                raise ValidationError(f'priority must be one of: {[p.value for p in PriorityLevel]}')
-        
-        return validated_data
+        """Validate and prepare data for project update using Pydantic."""
+        try:
+            project = ProjectUpdate(**data)
+            return project.model_dump(exclude_none=True)
+        except PydanticValidationError as e:
+            errors = []
+            for error in e.errors():
+                field = '.'.join(str(x) for x in error['loc'])
+                msg = error['msg']
+                errors.append(f"{field}: {msg}")
+            raise ValidationError('; '.join(errors))
 
 
 # Create CRUD instance

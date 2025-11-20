@@ -2,7 +2,9 @@
 from flask import Blueprint, request, jsonify
 from ..models import Site
 from ..base.crud_base import CRUDBase
-from shared.validation import Validator, ValidationError
+from shared.validation import ValidationError
+from shared.schemas import SiteCreate, SiteUpdate, SiteResponse
+from pydantic import ValidationError as PydanticValidationError
 from ..utils import validate_foreign_key
 bp = Blueprint('sites', __name__, url_prefix='/api')
 
@@ -14,121 +16,57 @@ class SiteCRUD(CRUDBase):
         super().__init__(Site, logger_name='sites')
     
     def serialize(self, site, include_project_id=True):
-        """Serialize site to dictionary.
+        """Serialize site to dictionary using Pydantic.
         
         Args:
             site: Site model instance
             include_project_id: Whether to include project_id in response
         """
-        result = {
-            'id': site.id,
-            'name': site.name,
-            'address': site.address,
-            'latitude': site.latitude,
-            'longitude': site.longitude,
-            'notes': site.notes,
-            'created_at': site.created_at.isoformat(),
-            'updated_at': site.updated_at.isoformat()
-        }
-        
-        if include_project_id:
-            result['project_id'] = site.project_id
-        
+        result = SiteResponse.model_validate(site).model_dump(mode='json')
+        if not include_project_id:
+            result.pop('project_id', None)
         return result
     
     def validate_create_data(self, data):
-        """Validate and prepare data for site creation."""
-        # Validate input data using shared validator
-        validated_data = Validator.validate_site_data(data)
-        
-        # Validate that project_id exists
-        project_id = validated_data['project_id']
-        if not validate_foreign_key('projects', 'id', project_id):
-            raise ValidationError(f'Project with ID {project_id} does not exist')
-        
-        # Clean up string fields
-        if 'name' in validated_data:
-            validated_data['name'] = validated_data['name'].strip()
-        
-        if 'address' in validated_data:
-            address = validated_data['address']
-            validated_data['address'] = address.strip() if address else None
-        
-        if 'notes' in validated_data:
-            notes = validated_data['notes']
-            validated_data['notes'] = notes.strip() if notes else None
-        
-        # Set default coordinates if not provided
-        if 'latitude' not in validated_data:
-            validated_data['latitude'] = 0.0
-        if 'longitude' not in validated_data:
-            validated_data['longitude'] = 0.0
-        
-        return validated_data
+        """Validate and prepare data for site creation using Pydantic."""
+        try:
+            site = SiteCreate(**data)
+            validated_data = site.model_dump(exclude_none=True)
+            
+            # Validate that project_id exists
+            project_id = validated_data['project_id']
+            if not validate_foreign_key('projects', 'id', project_id):
+                raise ValidationError(f'Project with ID {project_id} does not exist')
+            
+            return validated_data
+        except PydanticValidationError as e:
+            errors = []
+            for error in e.errors():
+                field = '.'.join(str(x) for x in error['loc'])
+                msg = error['msg']
+                errors.append(f"{field}: {msg}")
+            raise ValidationError('; '.join(errors))
     
     def validate_update_data(self, data):
-        """Validate and prepare data for site update."""
-        validated_data = {}
-        
-        # Validate and prepare name
-        if 'name' in data:
-            name = data['name']
-            if not isinstance(name, str) or not name.strip():
-                raise ValidationError('name must be a non-empty string')
-            validated_data['name'] = name.strip()
-        
-        # Validate and prepare project_id
-        if 'project_id' in data:
-            project_id = data['project_id']
-            if project_id is not None:
-                try:
-                    project_id = int(project_id)
-                except (ValueError, TypeError):
-                    raise ValidationError('project_id must be an integer')
-                
-                if not validate_foreign_key('projects', 'id', project_id):
+        """Validate and prepare data for site update using Pydantic."""
+        try:
+            site = SiteUpdate(**data)
+            validated_data = site.model_dump(exclude_none=True)
+            
+            # Validate that project_id exists if provided
+            if 'project_id' in validated_data:
+                project_id = validated_data['project_id']
+                if project_id is not None and not validate_foreign_key('projects', 'id', project_id):
                     raise ValidationError(f'project_id {project_id} does not exist')
-            validated_data['project_id'] = project_id
-        
-        # Validate and prepare address
-        if 'address' in data:
-            address = data['address']
-            if address is not None and not isinstance(address, str):
-                raise ValidationError('address must be a string')
-            validated_data['address'] = address.strip() if address else None
-        
-        # Validate and prepare latitude
-        if 'latitude' in data:
-            latitude = data['latitude']
-            if latitude is not None:
-                try:
-                    latitude = float(latitude)
-                    if not (-90 <= latitude <= 90):
-                        raise ValidationError('latitude must be between -90 and 90')
-                except (ValueError, TypeError):
-                    raise ValidationError('latitude must be a number')
-            validated_data['latitude'] = latitude
-        
-        # Validate and prepare longitude
-        if 'longitude' in data:
-            longitude = data['longitude']
-            if longitude is not None:
-                try:
-                    longitude = float(longitude)
-                    if not (-180 <= longitude <= 180):
-                        raise ValidationError('longitude must be between -180 and 180')
-                except (ValueError, TypeError):
-                    raise ValidationError('longitude must be a number')
-            validated_data['longitude'] = longitude
-        
-        # Validate and prepare notes
-        if 'notes' in data:
-            notes = data['notes']
-            if notes is not None and not isinstance(notes, str):
-                raise ValidationError('notes must be a string')
-            validated_data['notes'] = notes.strip() if notes else None
-        
-        return validated_data
+            
+            return validated_data
+        except PydanticValidationError as e:
+            errors = []
+            for error in e.errors():
+                field = '.'.join(str(x) for x in error['loc'])
+                msg = error['msg']
+                errors.append(f"{field}: {msg}")
+            raise ValidationError('; '.join(errors))
     
     def get_list(self, page=1, per_page=50, max_per_page=100):
         """Get paginated list of sites (with project_id included)."""

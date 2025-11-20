@@ -1,0 +1,555 @@
+"""Pydantic schemas for validation and serialization."""
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+import re
+import bleach
+from shared.enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
+# Note: APP_TIMEZONE and now are available from shared.models if needed
+
+
+class ValidationError(Exception):
+    """Raised when input validation fails."""
+    pass
+
+
+# Utility functions for validation (used outside Pydantic models)
+def validate_string_length(value: str, field_name: str, min_length: int = 0, max_length: Optional[int] = None) -> str:
+    """Validate string length constraints."""
+    if not isinstance(value, str):
+        raise ValidationError(f"{field_name} must be a string")
+    value = value.strip()
+    if len(value) < min_length:
+        raise ValidationError(f"{field_name} must be at least {min_length} characters")
+    if max_length and len(value) > max_length:
+        raise ValidationError(f"{field_name} must be no more than {max_length} characters")
+    return value
+
+
+def sanitize_html(text: str) -> str:
+    """Secure HTML sanitization using bleach library."""
+    if not text:
+        return text
+    if '<' not in text and '>' not in text and '&' not in text:
+        return text
+    allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote']
+    allowed_attributes = {}
+    return bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes, strip=True)
+
+
+def validate_coordinates(lat: Any, lng: Any) -> tuple[float, float]:
+    """Validate GPS coordinates."""
+    try:
+        if isinstance(lat, str):
+            lat_stripped = lat.strip()
+            if '.' in lat_stripped:
+                decimal_part = lat_stripped.split('.', 1)[1].rstrip('0')
+                if decimal_part and len(decimal_part) > 10:
+                    raise ValidationError("Latitude must not have more than 10 decimal places")
+            lat_val = float(lat_stripped)
+        else:
+            lat_val = float(lat)
+    except (ValueError, TypeError):
+        raise ValidationError("Latitude must be a valid number")
+
+    try:
+        if isinstance(lng, str):
+            lng_stripped = lng.strip()
+            if '.' in lng_stripped:
+                decimal_part = lng_stripped.split('.', 1)[1].rstrip('0')
+                if decimal_part and len(decimal_part) > 10:
+                    raise ValidationError("Longitude must not have more than 10 decimal places")
+            lng_val = float(lng_stripped)
+        else:
+            lng_val = float(lng)
+    except (ValueError, TypeError):
+        raise ValidationError("Longitude must be a valid number")
+
+    if not (-90 <= lat_val <= 90):
+        raise ValidationError("Latitude must be between -90 and 90")
+    if not (-180 <= lng_val <= 180):
+        raise ValidationError("Longitude must be between -180 and 180")
+
+    return lat_val, lng_val
+
+
+def validate_choice(value: Any, field_name: str, valid_choices: list) -> Any:
+    """Validate that value is in list of valid choices."""
+    if value not in valid_choices:
+        raise ValidationError(f"{field_name} must be one of: {', '.join(str(c) for c in valid_choices)}")
+    return value
+
+
+# Project Schemas
+class ProjectBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(default="", max_length=1000)
+    status: ProjectStatus = Field(default=ProjectStatus.DRAFT)
+    client_info: Optional[str] = Field(default="", max_length=500)
+    due_date: Optional[datetime] = None
+    priority: PriorityLevel = Field(default=PriorityLevel.MEDIUM)
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        return validate_string_length(v, 1, 200)
+
+    @field_validator('description', 'client_info')
+    @classmethod
+    def sanitize_text_fields(cls, v):
+        if v:
+            return sanitize_html(v)
+        return v or ""
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class ProjectCreate(ProjectBase):
+    pass
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
+    status: Optional[ProjectStatus] = None
+    client_info: Optional[str] = Field(None, max_length=500)
+    due_date: Optional[datetime] = None
+    priority: Optional[PriorityLevel] = None
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        if v is not None:
+            return validate_string_length(v, 1, 200)
+        return v
+
+    @field_validator('description', 'client_info')
+    @classmethod
+    def sanitize_text_fields(cls, v):
+        if v:
+            return sanitize_html(v)
+        return v
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class ProjectResponse(ProjectBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(use_enum_values=True, from_attributes=True)
+
+
+# Site Schemas
+class SiteBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    address: Optional[str] = Field(default="", max_length=500)
+    latitude: float = Field(default=0.0, ge=-90, le=90)
+    longitude: float = Field(default=0.0, ge=-180, le=180)
+    notes: Optional[str] = Field(default="", max_length=1000)
+    project_id: int = Field(..., gt=0)
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        return validate_string_length(v, 1, 200)
+
+    @field_validator('address', 'notes')
+    @classmethod
+    def sanitize_text_fields(cls, v):
+        if v:
+            return sanitize_html(v)
+        return v or ""
+
+    @model_validator(mode='after')
+    def validate_coords(self):
+        if self.latitude != 0.0 or self.longitude != 0.0:
+            lat, lng = validate_coordinates(self.latitude, self.longitude)
+            self.latitude = lat
+            self.longitude = lng
+        return self
+
+
+class SiteCreate(SiteBase):
+    pass
+
+
+class SiteUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    address: Optional[str] = Field(None, max_length=500)
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    notes: Optional[str] = Field(None, max_length=1000)
+    project_id: Optional[int] = Field(None, gt=0)
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        if v is not None:
+            return validate_string_length(v, 1, 200)
+        return v
+
+    @field_validator('address', 'notes')
+    @classmethod
+    def sanitize_text_fields(cls, v):
+        if v:
+            return sanitize_html(v)
+        return v
+
+    @model_validator(mode='after')
+    def validate_coords(self):
+        if self.latitude is not None and self.longitude is not None:
+            lat, lng = validate_coordinates(self.latitude, self.longitude)
+            self.latitude = lat
+            self.longitude = lng
+        return self
+
+
+class SiteResponse(SiteBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Survey Schemas
+class SurveyBase(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(default="", max_length=1000)
+    site_id: int = Field(..., gt=0)
+    status: SurveyStatus = Field(default=SurveyStatus.DRAFT)
+    template_id: Optional[int] = Field(None, gt=0)
+
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, v):
+        return validate_string_length(v, 1, 200)
+
+    @field_validator('description')
+    @classmethod
+    def sanitize_text_fields(cls, v):
+        if v:
+            return sanitize_html(v)
+        return v or ""
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class SurveyCreate(SurveyBase):
+    pass
+
+
+class SurveyUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
+    site_id: Optional[int] = Field(None, gt=0)
+    status: Optional[SurveyStatus] = None
+    template_id: Optional[int] = Field(None, gt=0)
+
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, v):
+        if v is not None:
+            return validate_string_length(v, 1, 200)
+        return v
+
+    @field_validator('description')
+    @classmethod
+    def sanitize_text_fields(cls, v):
+        if v:
+            return sanitize_html(v)
+        return v
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class SurveyResponseSchema(SurveyBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(use_enum_values=True, from_attributes=True)
+
+
+# SurveyResponse (answer) Schemas
+class SurveyResponseBase(BaseModel):
+    survey_id: int = Field(..., gt=0)
+    question: str = Field(..., max_length=500)
+    answer: str = Field(default="")
+    response_type: str = Field(default="", max_length=50)
+    latitude: float = Field(default=0.0, ge=-90, le=90)
+    longitude: float = Field(default=0.0, ge=-180, le=180)
+    question_id: Optional[int] = Field(None, gt=0)
+    field_type: str = Field(default="", max_length=50)
+
+    @field_validator('question', 'answer', 'response_type', 'field_type')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v:
+            return v.strip()
+        return v or ""
+
+
+class SurveyResponseCreate(SurveyResponseBase):
+    pass
+
+
+class SurveyResponseUpdate(BaseModel):
+    survey_id: Optional[int] = Field(None, gt=0)
+    question: Optional[str] = Field(None, max_length=500)
+    answer: Optional[str] = None
+    response_type: Optional[str] = Field(None, max_length=50)
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    question_id: Optional[int] = Field(None, gt=0)
+    field_type: Optional[str] = Field(None, max_length=50)
+
+    @field_validator('question', 'answer', 'response_type', 'field_type')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v is not None:
+            return v.strip()
+        return v
+
+
+class SurveyResponseResponse(SurveyResponseBase):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Photo Schemas
+class PhotoBase(BaseModel):
+    survey_id: Optional[int] = Field(None, gt=0)
+    site_id: Optional[int] = Field(None, gt=0)
+    cloud_url: str = Field(default="", max_length=1000)
+    thumbnail_url: str = Field(default="", max_length=1000)
+    upload_status: str = Field(default="pending", max_length=20)
+    retry_count: int = Field(default=0, ge=0)
+    last_retry_at: Optional[datetime] = None
+    latitude: float = Field(default=0.0, ge=-90, le=90)
+    longitude: float = Field(default=0.0, ge=-180, le=180)
+    description: str = Field(default="")
+    category: PhotoCategory = Field(default=PhotoCategory.GENERAL)
+    hash_value: str = Field(default="", max_length=64)
+    size_bytes: int = Field(default=0, ge=0)
+    file_path: str = Field(default="", max_length=500)
+    requirement_id: str = Field(default="")
+    fulfills_requirement: bool = Field(default=False)
+    tags: str = Field(default="[]")
+    question_id: Optional[int] = Field(None, gt=0)
+    corrupted: bool = Field(default=False)
+
+    @field_validator('hash_value')
+    @classmethod
+    def validate_hash(cls, v):
+        if v and len(v) != 64:
+            raise ValueError("Hash value must be exactly 64 characters")
+        return v
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class PhotoCreate(PhotoBase):
+    id: str  # Photo IDs are strings (UUID-like)
+
+
+class PhotoUpdate(BaseModel):
+    survey_id: Optional[int] = Field(None, gt=0)
+    site_id: Optional[int] = Field(None, gt=0)
+    cloud_url: Optional[str] = Field(None, max_length=1000)
+    thumbnail_url: Optional[str] = Field(None, max_length=1000)
+    upload_status: Optional[str] = Field(None, max_length=20)
+    retry_count: Optional[int] = Field(None, ge=0)
+    last_retry_at: Optional[datetime] = None
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    description: Optional[str] = None
+    category: Optional[PhotoCategory] = None
+    hash_value: Optional[str] = Field(None, max_length=64)
+    size_bytes: Optional[int] = Field(None, ge=0)
+    file_path: Optional[str] = Field(None, max_length=500)
+    requirement_id: Optional[str] = None
+    fulfills_requirement: Optional[bool] = None
+    tags: Optional[str] = None
+    question_id: Optional[int] = Field(None, gt=0)
+    corrupted: Optional[bool] = None
+
+    @field_validator('hash_value')
+    @classmethod
+    def validate_hash(cls, v):
+        if v is not None and len(v) != 64:
+            raise ValueError("Hash value must be exactly 64 characters")
+        return v
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class PhotoResponse(PhotoBase):
+    id: str
+    created_at: datetime
+
+    model_config = ConfigDict(use_enum_values=True, from_attributes=True)
+
+
+# Template Schemas
+class TemplateFieldBase(BaseModel):
+    field_type: str = Field(default="", max_length=50)
+    question: str = Field(..., max_length=500)
+    description: str = Field(default="")
+    required: bool = Field(default=False)
+    options: str = Field(default="")
+    order_index: int = Field(default=0, ge=0)
+    section: str = Field(default="", max_length=100)
+    conditions: str = Field(default="")
+    photo_requirements: str = Field(default="")
+    section_weight: int = Field(default=1, ge=1)
+
+    @field_validator('question', 'description', 'field_type', 'section')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v:
+            return v.strip()
+        return v or ""
+
+
+class TemplateFieldCreate(TemplateFieldBase):
+    template_id: int = Field(..., gt=0)
+
+
+class TemplateFieldUpdate(BaseModel):
+    field_type: Optional[str] = Field(None, max_length=50)
+    question: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = None
+    required: Optional[bool] = None
+    options: Optional[str] = None
+    order_index: Optional[int] = Field(None, ge=0)
+    section: Optional[str] = Field(None, max_length=100)
+    conditions: Optional[str] = None
+    photo_requirements: Optional[str] = None
+    section_weight: Optional[int] = Field(None, ge=1)
+
+    @field_validator('question', 'description', 'field_type', 'section')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v is not None:
+            return v.strip()
+        return v
+
+
+class TemplateFieldResponse(TemplateFieldBase):
+    id: int
+    template_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SurveyTemplateBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="")
+    category: str = Field(default="", max_length=50)
+    is_default: bool = Field(default=False)
+    section_tags: str = Field(default="{}")
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        return validate_string_length(v, 1, 200)
+
+    @field_validator('description', 'category')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v:
+            return v.strip()
+        return v or ""
+
+
+class SurveyTemplateCreate(SurveyTemplateBase):
+    fields: List[TemplateFieldBase] = Field(default_factory=list)
+
+
+class SurveyTemplateUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=50)
+    is_default: Optional[bool] = None
+    section_tags: Optional[str] = None
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        if v is not None:
+            return validate_string_length(v, 1, 200)
+        return v
+
+    @field_validator('description', 'category')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v is not None:
+            return v.strip()
+        return v
+
+
+class SurveyTemplateResponse(SurveyTemplateBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    fields: List[TemplateFieldResponse] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# AppConfig Schemas
+class AppConfigBase(BaseModel):
+    key: str = Field(..., min_length=1, max_length=100)
+    value: str = Field(default="")
+    description: str = Field(default="", max_length=300)
+    category: str = Field(default="", max_length=50)
+
+    @field_validator('key')
+    @classmethod
+    def validate_key(cls, v):
+        return validate_string_length(v, 1, 100)
+
+    @field_validator('value', 'description', 'category')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v:
+            return v.strip()
+        return v or ""
+
+
+class AppConfigCreate(AppConfigBase):
+    pass
+
+
+class AppConfigUpdate(BaseModel):
+    key: Optional[str] = Field(None, min_length=1, max_length=100)
+    value: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=300)
+    category: Optional[str] = Field(None, max_length=50)
+
+    @field_validator('key')
+    @classmethod
+    def validate_key(cls, v):
+        if v is not None:
+            return validate_string_length(v, 1, 100)
+        return v
+
+    @field_validator('value', 'description', 'category')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v is not None:
+            return v.strip()
+        return v
+
+
+class AppConfigResponse(AppConfigBase):
+    id: int
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+

@@ -3,7 +3,7 @@ from flask import Blueprint, jsonify, request
 import json
 from ..models import db, SurveyTemplate, TemplateField
 from ..utils import should_show_field
-from shared.validation import Validator, ValidationError
+from shared.validation import ValidationError, validate_string_length, sanitize_html
 
 
 bp = Blueprint('templates', __name__, url_prefix='/api')
@@ -130,7 +130,7 @@ def update_section_tags(template_id):
         
         # Validate section name length
         try:
-            section = Validator.validate_string_length(section.strip(), 'section name', 1, 100)
+            section = validate_string_length(section.strip(), 'section name', 1, 100)
         except ValidationError as e:
             return jsonify({'error': str(e)}), 400
         
@@ -143,8 +143,8 @@ def update_section_tags(template_id):
             if not isinstance(tag, str):
                 tag = str(tag)
             try:
-                validated_tag = Validator.validate_string_length(tag.strip(), 'tag', 1, 50)
-                validated_tag = Validator.sanitize_html(validated_tag)
+                validated_tag = validate_string_length(tag.strip(), 'tag', 1, 50)
+                validated_tag = sanitize_html(validated_tag)
                 if validated_tag and validated_tag not in validated_tags:
                     validated_tags.append(validated_tag)
             except ValidationError:

@@ -1,7 +1,7 @@
 """Base CRUD class for Flask blueprints."""
 from flask import jsonify, request
 from sqlalchemy.orm import DeclarativeBase
-from shared.validation import Validator, ValidationError
+from shared.validation import ValidationError
 from ..models import db
 import logging
 import enum

@@ -1,8 +1,10 @@
 """Surveys blueprint for Flask API."""
 from flask import Blueprint, request, jsonify
-from ..models import db, Survey, SurveyResponse, SurveyStatus
+from ..models import db, Survey, SurveyResponse
 from ..base.crud_base import CRUDBase
-from shared.validation import Validator, ValidationError
+from shared.validation import ValidationError
+from shared.schemas import SurveyCreate, SurveyUpdate, SurveyResponseSchema
+from pydantic import ValidationError as PydanticValidationError
 from ..utils import validate_foreign_key
 bp = Blueprint('surveys', __name__, url_prefix='/api')
 
@@ -14,21 +16,13 @@ class SurveyCRUD(CRUDBase):
         super().__init__(Survey, logger_name='surveys')
     
     def serialize(self, survey, include_responses=False):
-        """Serialize survey to dictionary.
+        """Serialize survey to dictionary using Pydantic.
         
         Args:
             survey: Survey model instance
             include_responses: Whether to include responses in serialization
         """
-        result = {
-            'id': survey.id,
-            'title': survey.title,
-            'description': survey.description,
-            'template_id': survey.template_id,
-            'status': survey.status.value,
-            'created_at': survey.created_at.isoformat(),
-            'updated_at': survey.updated_at.isoformat()
-        }
+        result = SurveyResponseSchema.model_validate(survey).model_dump(mode='json')
         
         if include_responses:
             result['responses'] = self._serialize_responses(survey.responses)
@@ -48,46 +42,30 @@ class SurveyCRUD(CRUDBase):
         } for r in responses]
     
     def validate_create_data(self, data):
-        """Validate and prepare data for survey creation."""
-        # Validate input data using shared validator
-        validated_data = Validator.validate_survey_data(data)
-        
-        # Validate that site_id exists
-        site_id = validated_data['site_id']
-        if not validate_foreign_key('sites', 'id', site_id):
-            raise ValidationError(f'site_id {site_id} does not exist')
-        
-        # Validate template_id exists if provided
-        template_id = data.get('template_id')
-        if template_id is not None:
-            try:
-                template_id = int(template_id)
-            except (ValueError, TypeError):
-                raise ValidationError('template_id must be an integer')
-            
-            if not validate_foreign_key('survey_template', 'id', template_id):
-                raise ValidationError(f'template_id {template_id} does not exist')
-            validated_data['template_id'] = template_id
-        
-        # Handle status enum
-        status_str = data.get('status', 'draft')
-        if not isinstance(status_str, str):
-            raise ValidationError('status must be a string')
-        
+        """Validate and prepare data for survey creation using Pydantic."""
         try:
-            validated_data['status'] = SurveyStatus(status_str)
-        except ValueError:
-            raise ValidationError(f'status must be one of: {[s.value for s in SurveyStatus]}')
-        
-        # Clean up string fields
-        if 'title' in validated_data:
-            validated_data['title'] = validated_data['title'].strip()
-        
-        if 'description' in validated_data:
-            description = validated_data['description']
-            validated_data['description'] = description.strip() if description else None
-        
-        return validated_data
+            survey = SurveyCreate(**data)
+            validated_data = survey.model_dump(exclude_none=True)
+            
+            # Validate that site_id exists
+            site_id = validated_data['site_id']
+            if not validate_foreign_key('sites', 'id', site_id):
+                raise ValidationError(f'site_id {site_id} does not exist')
+            
+            # Validate template_id exists if provided
+            template_id = validated_data.get('template_id')
+            if template_id is not None:
+                if not validate_foreign_key('survey_template', 'id', template_id):
+                    raise ValidationError(f'template_id {template_id} does not exist')
+            
+            return validated_data
+        except PydanticValidationError as e:
+            errors = []
+            for error in e.errors():
+                field = '.'.join(str(x) for x in error['loc'])
+                msg = error['msg']
+                errors.append(f"{field}: {msg}")
+            raise ValidationError('; '.join(errors))
     
     def get_detail(self, resource_id):
         """Get single survey by ID with responses included."""

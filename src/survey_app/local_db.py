@@ -474,8 +474,14 @@ class LocalDatabase:
             conn = session.connection()
             raw_conn = conn.connection
             cursor = raw_conn.cursor()
+            # Filter out photo changes where upload_status='pending' to prevent syncing incomplete uploads
+            # This prevents syncing photos before cloud upload completes, which could result in invalid cloud_url values
             cursor.execute(
-                "SELECT \"table\", pk, cid, val, col_version, db_version, site_id FROM crsql_changes WHERE db_version > ? AND site_id != ?",
+                """SELECT c."table", c.pk, c.cid, c.val, c.col_version, c.db_version, c.site_id 
+                   FROM crsql_changes c
+                   LEFT JOIN photo p ON c."table" = 'photo' AND json_extract(c.pk, '$.id') = p.id
+                   WHERE c.db_version > ? AND c.site_id != ?
+                   AND (c."table" != 'photo' OR p.upload_status IS NULL OR p.upload_status != 'pending')""",
                 (version, self.site_id)
             )
             changes = cursor.fetchall()

@@ -256,6 +256,28 @@ def apply_changes():
                     else:
                         existing_photo = None
 
+                    # CRITICAL: Reject all changes for photos with upload_status='pending'
+                    # This prevents syncing incomplete uploads which could result in invalid cloud_url values
+                    # Photos must complete upload before they can be synced to other clients
+                    
+                    # Reject changes that set upload_status='pending' (prevents syncing new pending photos)
+                    if change['cid'] == 'upload_status' and change['val'] == 'pending':
+                        integrity_issues.append({
+                            'photo_id': photo_id,
+                            'error': 'Cannot sync photo with upload_status=pending. Photo must complete upload first.',
+                            'action': 'rejected'
+                        })
+                        continue  # Skip this change
+                    
+                    # Reject changes for existing photos that currently have upload_status='pending'
+                    if existing_photo and existing_photo.get('upload_status') == 'pending':
+                        integrity_issues.append({
+                            'photo_id': photo_id,
+                            'error': 'Cannot sync photo with upload_status=pending. Photo must complete upload first.',
+                            'action': 'rejected'
+                        })
+                        continue  # Skip this change
+
                     # Validate cloud URL changes - download and verify hash (with fallback)
                     if change['cid'] == 'cloud_url' and change['val'] and existing_photo and existing_photo.get('hash_value'):
                         try:
@@ -427,8 +449,14 @@ def get_changes():
     cursor.row_factory = sqlite3.Row
 
     try:
+        # Filter out photo changes where upload_status='pending' to prevent syncing incomplete uploads
+        # This prevents syncing photos before cloud upload completes, which could result in invalid cloud_url values
         cursor.execute(
-            "SELECT \"table\", pk, cid, val, col_version, db_version, site_id FROM crsql_changes WHERE db_version > ? AND site_id != ?",
+            """SELECT c."table", c.pk, c.cid, c.val, c.col_version, c.db_version, c.site_id 
+               FROM crsql_changes c
+               LEFT JOIN photo p ON c."table" = 'photo' AND json_extract(c.pk, '$.id') = p.id
+               WHERE c.db_version > ? AND c.site_id != ?
+               AND (c."table" != 'photo' OR p.upload_status IS NULL OR p.upload_status != 'pending')""",
             (version, site_id)
         )
 

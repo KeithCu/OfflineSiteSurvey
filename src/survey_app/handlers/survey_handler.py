@@ -45,8 +45,27 @@ class SurveyHandler:
                         self.app.status_label.text = "Survey not found and server unavailable"
                         return
 
-                # Reset responses
+                # Reset responses and load existing ones from database
                 self.app.responses = []
+                self.app.current_responses = []
+                
+                # Load existing responses from database and pre-compute lookup
+                from shared.utils import build_response_lookup
+                existing_responses = self.app.db.get_responses_for_survey(survey_id)
+                if existing_responses:
+                    # Convert database responses to the format expected by conditional logic
+                    for resp in existing_responses:
+                        response_dict = {
+                            'question_id': resp.question_id,
+                            'answer': resp.answer,
+                            'question': resp.question,
+                            'response_type': resp.response_type
+                        }
+                        self.app.current_responses.append(response_dict)
+                        self.app.responses.append(response_dict)
+                
+                # Pre-compute response lookup dictionary once for fast conditional evaluation
+                self.app.response_lookup = build_response_lookup(self.app.current_responses)
 
                 # Load template fields if survey has a template_id
                 if survey_data.get('template_id'):
@@ -141,6 +160,9 @@ class SurveyHandler:
         }
         self.app.responses.append(response)
         self.app.current_responses.append(response)
+        
+        # Update pre-computed response lookup incrementally for fast conditional evaluation
+        self.app.response_lookup[response['question_id']] = response['answer']
 
         # Save response immediately to database
         if self.app.current_survey:
@@ -207,6 +229,9 @@ class SurveyHandler:
         }
         self.app.responses.append(response)
         self.app.current_responses.append(response)
+        
+        # Update pre-computed response lookup incrementally for fast conditional evaluation
+        self.app.response_lookup[response['question_id']] = response['answer']
 
         # Save response immediately to database
         if self.app.current_survey:
@@ -337,7 +362,9 @@ class SurveyHandler:
 
             # Check if field has conditions
             if field.get('conditions'):
-                if self.app.db.should_show_field(field['conditions'], self.app.current_responses):
+                # Use pre-computed response_lookup for fast evaluation
+                from shared.utils import should_show_field
+                if should_show_field(field['conditions'], response_lookup=self.app.response_lookup):
                     return field
             else:
                 # No conditions, always show

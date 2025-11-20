@@ -70,6 +70,7 @@ class SurveyApp(toga.App):
         self.selected_photo_tags = set()
         self.section_tag_switches = {}
         self.current_responses = []  # Track responses for conditional logic
+        self.response_lookup = {}  # Pre-computed lookup dict for fast conditional evaluation
         self.offline_queue = []  # Queue for operations when offline
         self.auto_save_timer = None
         self.draft_responses = {}  # Temporary storage for in-progress answers
@@ -193,8 +194,10 @@ class SurveyApp(toga.App):
                         self.ui_manager.status_label.text = "Survey not found and server unavailable"
                         return
 
-                # Reset responses
+                # Reset responses and lookup
                 self.responses = []
+                self.current_responses = []
+                self.response_lookup = {}
 
                 # Load template fields if survey has a template_id
                 if survey_data.get('template_id'):
@@ -354,7 +357,9 @@ class SurveyApp(toga.App):
             
             # Check if field has conditions
             if field.get('conditions'):
-                if self.db.should_show_field(field['conditions'], self.current_responses):
+                # Use pre-computed response_lookup for fast evaluation
+                from shared.utils import should_show_field
+                if should_show_field(field['conditions'], response_lookup=self.response_lookup):
                     return field
             else:
                 # No conditions, always show
@@ -396,6 +401,9 @@ class SurveyApp(toga.App):
         }
         self.responses.append(response)
         self.current_responses.append(response)
+        
+        # Update pre-computed response lookup incrementally for fast conditional evaluation
+        self.response_lookup[response['question_id']] = response['answer']
 
         # Save response immediately to database
         if self.current_survey:
@@ -462,6 +470,9 @@ class SurveyApp(toga.App):
         }
         self.responses.append(response)
         self.current_responses.append(response)
+        
+        # Update pre-computed response lookup incrementally for fast conditional evaluation
+        self.response_lookup[response['question_id']] = response['answer']
 
         # Save response immediately to database
         if self.current_survey:

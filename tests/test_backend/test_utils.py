@@ -1,6 +1,6 @@
 """Tests for backend utility functions."""
 import pytest
-from shared.utils import compute_photo_hash, should_show_field, generate_thumbnail
+from shared.utils import compute_photo_hash, should_show_field, generate_thumbnail, build_response_lookup
 
 
 def test_compute_photo_hash():
@@ -20,8 +20,8 @@ def test_compute_photo_hash():
 def test_should_show_field():
     """Test conditional field logic."""
     # Test with no conditions (should always show)
-    assert should_show_field(None, []) is True
-    assert should_show_field({}, []) is True
+    assert should_show_field(None, {}) is True
+    assert should_show_field({}, {}) is True
 
     # Test AND logic with single condition
     conditions = {
@@ -33,10 +33,12 @@ def test_should_show_field():
         'logic': 'AND'
     }
     responses = [{'question_id': 'q1', 'answer': 'yes'}]
-    assert should_show_field(conditions, responses) is True
+    lookup = build_response_lookup(responses)
+    assert should_show_field(conditions, lookup) is True
 
     responses = [{'question_id': 'q1', 'answer': 'no'}]
-    assert should_show_field(conditions, responses) is False
+    lookup = build_response_lookup(responses)
+    assert should_show_field(conditions, lookup) is False
 
     # Test OR logic with multiple conditions
     conditions = {
@@ -47,10 +49,12 @@ def test_should_show_field():
         'logic': 'OR'
     }
     responses = [{'question_id': 'q1', 'answer': 'yes'}, {'question_id': 'q2', 'answer': 'no'}]
-    assert should_show_field(conditions, responses) is True
+    lookup = build_response_lookup(responses)
+    assert should_show_field(conditions, lookup) is True
 
     responses = [{'question_id': 'q1', 'answer': 'no'}, {'question_id': 'q2', 'answer': 'no'}]
-    assert should_show_field(conditions, responses) is False
+    lookup = build_response_lookup(responses)
+    assert should_show_field(conditions, lookup) is False
 
     # Test different operators
     conditions = {
@@ -58,7 +62,8 @@ def test_should_show_field():
         'logic': 'AND'
     }
     responses = [{'question_id': 'q1', 'answer': 'no'}]
-    assert should_show_field(conditions, responses) is True
+    lookup = build_response_lookup(responses)
+    assert should_show_field(conditions, lookup) is True
 
     # Test 'in' operator
     conditions = {
@@ -66,10 +71,12 @@ def test_should_show_field():
         'logic': 'AND'
     }
     responses = [{'question_id': 'q1', 'answer': 'b'}]
-    assert should_show_field(conditions, responses) is True
+    lookup = build_response_lookup(responses)
+    assert should_show_field(conditions, lookup) is True
 
     responses = [{'question_id': 'q1', 'answer': 'd'}]
-    assert should_show_field(conditions, responses) is False
+    lookup = build_response_lookup(responses)
+    assert should_show_field(conditions, lookup) is False
 
 
 def test_generate_thumbnail():

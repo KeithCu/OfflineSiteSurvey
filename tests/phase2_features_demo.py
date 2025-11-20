@@ -38,8 +38,10 @@ def test_conditional_logic():
         }
     ]
     
-    # Test evaluation
-    result = db.should_show_field(test_conditions, test_responses)
+    # Pre-compute lookup for test evaluation
+    from shared.utils import build_response_lookup
+    lookup = build_response_lookup(test_responses)
+    result = db.should_show_field(test_conditions, lookup)
     print(f"Condition evaluation result: {result}")
     assert result == True, "Condition should evaluate to True"
     
@@ -51,7 +53,8 @@ def test_conditional_logic():
         }
     ]
     
-    result_false = db.should_show_field(test_conditions, test_responses_false)
+    lookup_false = build_response_lookup(test_responses_false)
+    result_false = db.should_show_field(test_conditions, lookup_false)
     print(f"Condition evaluation result (No): {result_false}")
     assert result_false == False, "Condition should evaluate to False"
     

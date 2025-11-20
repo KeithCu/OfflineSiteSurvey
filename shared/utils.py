@@ -42,14 +42,34 @@ def compute_photo_hash(image_data, algo='sha256'):
     return None
 
 
-def should_show_field(conditions, responses):
+def build_response_lookup(responses):
+    """Build a response lookup dictionary for O(1) access by question_id.
+    
+    Pre-compute this once when a survey starts and reuse it across multiple
+    conditional logic evaluations. Update it incrementally as responses are added.
+    
+    Args:
+        responses (list): List of response dictionaries with 'question_id' and 'answer' keys
+        
+    Returns:
+        dict: Dictionary mapping question_id -> answer value
+    """
+    response_lookup = {}
+    for r in responses:
+        qid = r.get('question_id')
+        if qid is not None:
+            response_lookup[qid] = r.get('answer')
+    return response_lookup
+
+
+def should_show_field(conditions, response_lookup):
     """Evaluate conditional logic to determine if a survey field should be displayed.
 
     Supports AND/OR logic with various comparison operators for building
     dynamic survey forms based on previous responses.
 
-    Optimized for large surveys by using response lookup dictionary instead of
-    linear search through responses for each condition.
+    Requires a pre-computed response_lookup dictionary for optimal performance.
+    Always pre-compute the lookup using build_response_lookup() before calling this function.
 
     Args:
         conditions (dict): Condition specification with 'conditions' list and 'logic' key
@@ -59,7 +79,8 @@ def should_show_field(conditions, responses):
                 ],
                 'logic': 'AND' | 'OR'
             }
-        responses (list): List of response dictionaries with 'question_id' and 'answer' keys
+        response_lookup (dict): Pre-computed lookup dictionary from build_response_lookup().
+            Must be provided - always pre-compute this before calling.
 
     Returns:
         bool: True if field should be shown, False otherwise
@@ -76,7 +97,8 @@ def should_show_field(conditions, responses):
         ...     'logic': 'AND'
         ... }
         >>> responses = [{'question_id': 'q1', 'answer': 'yes'}]
-        >>> should_show_field(conditions, responses)
+        >>> lookup = build_response_lookup(responses)
+        >>> should_show_field(conditions, lookup)
         True
     """
     if not conditions:
@@ -88,13 +110,10 @@ def should_show_field(conditions, responses):
 
     logic = conditions.get('logic', 'AND')
 
-    # Build response lookup dictionary once for O(1) access
-    # This is critical for large surveys with many responses
-    response_lookup = {}
-    for r in responses:
-        qid = r.get('question_id')
-        if qid is not None:
-            response_lookup[qid] = r.get('answer')
+    # response_lookup is required - must be pre-computed before calling
+    # Default to empty dict if None (shouldn't happen in production, but safe fallback)
+    if response_lookup is None:
+        response_lookup = {}
 
     results = []
     for condition in condition_list:

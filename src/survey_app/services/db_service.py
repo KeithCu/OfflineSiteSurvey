@@ -75,9 +75,9 @@ class DBService:
         """Apply CRDT changes."""
         return self.db.apply_changes(changes)
 
-    def should_show_field(self, conditions, responses):
+    def should_show_field(self, conditions, response_lookup):
         """Check if field should be shown."""
-        return self.db.should_show_field(conditions, responses)
+        return self.db.should_show_field(conditions, response_lookup)
 
     def mark_requirement_fulfillment(self, photo_id, requirement_id, fulfills=True):
         """Mark photo requirement fulfillment."""

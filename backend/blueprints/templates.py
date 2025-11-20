@@ -154,13 +154,17 @@ def evaluate_survey_conditions(survey_id):
     else:
         return jsonify({'error': 'Survey has no template'}), 400
     
+    # Pre-compute response lookup once for all field evaluations
+    from shared.utils import build_response_lookup
+    response_lookup = build_response_lookup(current_responses)
+    
     visible_fields = []
     
     for field in all_fields:
         # Check if field has conditions
         if field.conditions:
             conditions = json.loads(field.conditions)
-            if should_show_field(conditions, current_responses):
+            if should_show_field(conditions, response_lookup):
                 visible_fields.append(field.id)
         else:
             # No conditions, always show

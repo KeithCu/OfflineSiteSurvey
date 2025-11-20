@@ -23,7 +23,7 @@ from shared.models import (
 # Keep local enums for now, can be moved to shared later if needed
 from shared.enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
 # Import shared utilities
-from shared.utils import compute_photo_hash, generate_thumbnail, should_show_field
+from shared.utils import compute_photo_hash, generate_thumbnail, should_show_field, build_response_lookup
 
 
 class LocalDatabase:
@@ -678,11 +678,15 @@ class LocalDatabase:
                 return []
             template = session.get(SurveyTemplate, survey.template_id)
             all_fields = sorted(template.fields, key=lambda x: x.order_index)
+            
+            # Pre-compute response lookup once for all field evaluations
+            response_lookup = build_response_lookup(current_responses)
+            
             visible_fields = []
             for field in all_fields:
                 if field.conditions:
                     conditions = json.loads(field.conditions)
-                    if self.should_show_field(conditions, current_responses):
+                    if self.should_show_field(conditions, response_lookup):
                         visible_fields.append(field.id)
                 else:
                     visible_fields.append(field.id)
@@ -690,10 +694,10 @@ class LocalDatabase:
         finally:
             session.close()
 
-    def should_show_field(self, conditions, responses):
+    def should_show_field(self, conditions, response_lookup):
         """Optimized version using response lookup dictionary for O(1) access."""
         # Use the optimized shared utility function
-        return should_show_field(conditions, responses)
+        return should_show_field(conditions, response_lookup)
 
     def get_survey_progress(self, survey_id):
         session = self.get_session()

@@ -183,6 +183,10 @@ class Validator:
         if any(char in file_path for char in dangerous_chars):
             raise ValidationError(f"Invalid characters in {field_name}")
 
+        # Check file existence if a path is provided
+        if file_path and not os.path.exists(file_path):
+            raise ValidationError(f"{field_name} does not exist: {file_path}")
+
         return file_path
 
     @staticmethod

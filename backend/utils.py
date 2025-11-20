@@ -21,8 +21,14 @@ def api_error(message, status_code=400, log_level='warning', details=None):
     Returns:
         Flask response: JSON error response
     """
+    # Validate log_level and default to 'warning' if invalid
+    valid_levels = {'debug', 'info', 'warning', 'error', 'critical'}
+    if log_level not in valid_levels:
+        logger.warning(f"Invalid log_level '{log_level}' in api_error, defaulting to 'warning'")
+        log_level = 'warning'
+    
     # Log the error with appropriate level
-    log_func = getattr(logger, log_level, logger.warning)
+    log_func = getattr(logger, log_level)
     if details:
         log_func(f"API Error ({status_code}): {message} - Details: {details}")
     else:

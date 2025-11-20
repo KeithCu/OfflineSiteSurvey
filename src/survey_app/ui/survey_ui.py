@@ -128,18 +128,7 @@ class SurveyUI:
             style=toga.Pack(padding=(5, 10, 10, 10))
         )
 
-        # Question UI (legacy)
-        self.app.question_box = toga.Box(style=toga.Pack(direction=toga.COLUMN, padding=10, visibility='hidden'))
-        self.app.question_label_legacy = toga.Label("Question", style=toga.Pack(padding=(5, 10, 5, 10)))
-        self.app.answer_input_legacy = toga.TextInput(style=toga.Pack(padding=(5, 10, 10, 10)))
-        self.app.answer_selection = toga.Selection(style=toga.Pack(padding=(5, 10, 10, 10)))
-
-        next_question_button_legacy = toga.Button('Next', on_press=self.app.survey_handler.next_question, style=toga.Pack(padding=(5, 10, 10, 10)))
-
-        self.app.progress_bar = toga.ProgressBar(max=100, value=0, style=toga.Pack(padding=(10, 10, 10, 10)))
-        self.app.question_box.add(self.app.question_label_legacy, self.app.answer_input_legacy, self.app.answer_selection, next_question_button_legacy, self.app.progress_bar)
-
-        # Enhanced question UI elements (separate from legacy)
+        # Enhanced question UI elements
         self.app.question_label = toga.Label(
             '',
             style=toga.Pack(padding=(10, 10, 5, 10))
@@ -231,7 +220,6 @@ class SurveyUI:
                 templates_button,
                 photos_button,
                 config_button,
-                self.app.question_box,
                 self.app.photo_box,
                 self.app.survey_title_label,
                 self.app.progress_label,
@@ -351,37 +339,12 @@ class SurveyUI:
             self.app.section_progress = progress_data.get('sections', {})
             overall_progress = progress_data.get('overall_progress', 0)
 
-            # Update progress bar
-            self.app.progress_bar.value = overall_progress
-
             # Update progress label with detailed information
             total_required = progress_data.get('total_required', 0)
             total_completed = progress_data.get('total_completed', 0)
             self.app.progress_label.text = f"Progress: {total_completed}/{total_required} ({overall_progress:.1f}%)"
+        elif self.app.total_fields > 0:
+            progress = (self.app.current_question_index / self.app.total_fields) * 100
+            self.app.progress_label.text = f"Progress: {self.app.current_question_index}/{self.app.total_fields} ({progress:.1f}%)"
         else:
-            # Fallback to basic progress calculation
-            if hasattr(self.app, 'questions') and self.app.questions:
-                progress = (self.app.current_question_index / len(self.app.questions)) * 100
-                self.app.progress_bar.value = progress
-            elif self.app.total_fields > 0:
-                progress = (self.app.current_question_index / self.app.total_fields) * 100
-                self.app.progress_bar.value = progress
-            else:
-                self.app.progress_bar.value = 0
-
-    def display_question(self):
-        """Display question in legacy UI"""
-        if self.app.current_question_index < len(self.app.questions):
-            question = self.app.questions[self.app.current_question_index]
-            self.app.question_label_legacy.text = question['question']
-            if question['field_type'] == 'text':
-                self.app.answer_input_legacy.style.visibility = 'visible'
-                self.app.answer_selection.style.visibility = 'hidden'
-            elif question['field_type'] == 'multiple_choice':
-                self.app.answer_input_legacy.style.visibility = 'hidden'
-                self.app.answer_selection.style.visibility = 'visible'
-                self.app.answer_selection.items = json.loads(question['options'])
-        else:
-            self.app.question_box.style.visibility = 'hidden'
-            self.app.status_label.text = "Survey complete!"
-        self.update_progress()
+            self.app.progress_label.text = "Progress: 0/0 (0%)"

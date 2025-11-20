@@ -102,30 +102,19 @@ class SurveyHandler:
                     self.app.section_tags = {}
                     self.app.total_fields = 0
 
-                # Use enhanced UI if template fields are available, otherwise use legacy
+                # Show enhanced survey form
                 if self.app.template_fields:
-                    # Show enhanced survey form
                     self.app.ui.show_survey_ui()
                     self.app.current_question_index = 0
                     self.app.ui.show_question()
                 else:
-                    # Use legacy UI
-                    self.app.question_box.style.visibility = 'visible'
-                    self.app.photo_box.style.visibility = 'visible'
-                    self.load_questions()
-                    self.app.ui.display_question()
+                    self.app.status_label.text = "No template fields available for this survey"
             except ValueError:
                 self.app.status_label.text = "Invalid survey ID"
         else:
             self.app.status_label.text = "Please select a survey"
         self.app.ui.update_progress()
 
-    def load_questions(self):
-        """Load questions for legacy UI"""
-        if self.app.current_survey and self.app.current_survey.get('template_id'):
-            self.app.questions = self.app.db.get_template_fields(self.app.current_survey['template_id'])
-        else:
-            self.app.questions = []
 
     def load_surveys_for_site(self, site_id):
         """Load surveys for the selected site"""
@@ -186,37 +175,9 @@ class SurveyHandler:
         self.next_question(None)
 
     def next_question(self, widget):
-        """Move to next question - works for both legacy and enhanced UI"""
-        # Save current response if using legacy UI
-        if hasattr(self.app, 'questions') and self.app.questions and self.app.current_question_index < len(self.app.questions):
-            self.save_response()
+        """Move to next question"""
         self.app.current_question_index += 1
-
-        # Use appropriate display method
-        if hasattr(self.app, 'questions') and self.app.questions:
-            self.app.ui.display_question()
-        else:
-            self.app.ui.show_question()
-
-    def save_response(self):
-        """Save response for legacy UI"""
-        if hasattr(self.app, 'questions') and self.app.current_question_index < len(self.app.questions):
-            question = self.app.questions[self.app.current_question_index]
-            answer = ''
-            if question['field_type'] == 'text':
-                answer = self.app.answer_input_legacy.value
-            elif question['field_type'] == 'multiple_choice':
-                answer = self.app.answer_selection.value
-
-            response_data = {
-                'id': str(uuid.uuid4()),
-                'survey_id': self.app.current_survey['id'],
-                'question': question['question'],
-                'answer': answer,
-                'response_type': question['field_type']
-            }
-            self.app.db.save_response(response_data)
-            self.app.status_label.text = f"Saved response for: {question['question']}"
+        self.app.ui.show_question()
 
     def submit_yesno_answer(self, answer):
         """Submit yes/no answer in enhanced UI with Phase 2 tracking"""
@@ -342,8 +303,6 @@ class SurveyHandler:
             self.app.enhanced_photo_button.style.visibility = 'hidden'
 
             # Hide legacy UI as well
-            self.app.question_box.style.visibility = 'hidden'
-            self.app.photo_box.style.visibility = 'hidden'
 
             # Show CompanyCam sync button if connected
             if hasattr(self.app, 'companycam_handler') and self.app.companycam_service.is_connected():

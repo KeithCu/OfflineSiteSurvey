@@ -263,18 +263,13 @@ class SurveyApp(toga.App):
                     self.template_fields = []
                     self.total_fields = 0
 
-                # Use enhanced UI if template fields are available, otherwise use legacy
+                # Show enhanced survey form
                 if self.template_fields:
-                    # Show enhanced survey form
                     self.show_survey_ui()
                     self.current_question_index = 0
                     self.show_question()
                 else:
-                    # Use legacy UI
-                    self.ui_manager.question_box.style.visibility = 'visible'
-                    self.ui_manager.photo_box.style.visibility = 'visible'
-                    self.load_questions()
-                    self.display_question()
+                    self.ui_manager.status_label.text = "No template fields available for this survey"
             except ValueError:
                 self.ui_manager.status_label.text = "Invalid survey ID"
         else:
@@ -297,29 +292,6 @@ class SurveyApp(toga.App):
             except AttributeError:
                 pass
 
-    def load_questions(self):
-        """Load questions for legacy UI"""
-        if self.current_survey and self.current_survey.get('template_id'):
-            self.questions = self.db.get_template_fields(self.current_survey['template_id'])
-        else:
-            self.questions = []
-
-    def display_question(self):
-        """Display question in legacy UI"""
-        if self.current_question_index < len(self.questions):
-            question = self.questions[self.current_question_index]
-            self.ui_manager.question_label_legacy.text = question['question']
-            if question['field_type'] == 'text':
-                self.ui_manager.answer_input_legacy.style.visibility = 'visible'
-                self.answer_selection.style.visibility = 'hidden'
-            elif question['field_type'] == 'multiple_choice':
-                self.ui_manager.answer_input_legacy.style.visibility = 'hidden'
-                self.answer_selection.style.visibility = 'visible'
-                self.answer_selection.items = json.loads(question['options'])
-        else:
-            self.ui_manager.question_box.style.visibility = 'hidden'
-            self.ui_manager.status_label.text = "Survey complete!"
-        self.update_progress()
 
     def update_progress(self):
         """Update progress indicator with enhanced Phase 2 tracking"""
@@ -329,23 +301,15 @@ class SurveyApp(toga.App):
             self.section_progress = progress_data.get('sections', {})
             overall_progress = progress_data.get('overall_progress', 0)
             
-            # Update progress bar
-            self.ui_manager.progress_bar.value = overall_progress
-            
             # Update progress label with detailed information
             total_required = progress_data.get('total_required', 0)
             total_completed = progress_data.get('total_completed', 0)
             self.ui_manager.progress_label.text = f"Progress: {total_completed}/{total_required} ({overall_progress:.1f}%)"
+        elif self.total_fields > 0:
+            progress = (self.current_question_index / self.total_fields) * 100
+            self.ui_manager.progress_label.text = f"Progress: {self.current_question_index}/{self.total_fields} ({progress:.1f}%)"
         else:
-            # Fallback to basic progress calculation
-            if hasattr(self, 'questions') and self.questions:
-                progress = (self.current_question_index / len(self.questions)) * 100
-                self.ui_manager.progress_bar.value = progress
-            elif self.total_fields > 0:
-                progress = (self.current_question_index / self.total_fields) * 100
-                self.ui_manager.progress_bar.value = progress
-            else:
-                self.ui_manager.progress_bar.value = 0
+            self.ui_manager.progress_label.text = "Progress: 0/0 (0%)"
 
     def show_survey_ui(self):
         """Show the enhanced survey interface"""
@@ -463,36 +427,9 @@ class SurveyApp(toga.App):
         self.next_question(None)
 
     def next_question(self, widget):
-        """Move to next question - works for both legacy and enhanced UI"""
-        # Save current response if using legacy UI
-        if hasattr(self, 'questions') and self.questions and self.current_question_index < len(self.questions):
-            self.save_response()
+        """Move to next question"""
         self.current_question_index += 1
-        
-        # Use appropriate display method
-        if hasattr(self, 'questions') and self.questions:
-            self.display_question()
-        else:
-            self.show_question()
-
-    def save_response(self):
-        """Save response for legacy UI"""
-        if hasattr(self, 'questions') and self.current_question_index < len(self.questions):
-            question = self.questions[self.current_question_index]
-            answer = ''
-            if question['field_type'] == 'text':
-                answer = self.ui_manager.answer_input_legacy.value
-            elif question['field_type'] == 'multiple_choice':
-                answer = self.answer_selection.value
-
-            response_data = {
-                'id': str(uuid.uuid4()),
-                'survey_id': self.current_survey['id'],
-                'question': question['question'],
-                'answer': answer,
-                'response_type': question['field_type']
-            }
-            self.db.save_response(response_data)
+        self.show_question()
             self.ui_manager.status_label.text = f"Saved response for: {question['question']}"
 
     def submit_yesno_answer(self, answer):
@@ -611,10 +548,6 @@ class SurveyApp(toga.App):
 
             # Hide enhanced survey form
             self.ui_manager.hide_enhanced_survey_ui()
-            
-            # Hide legacy UI as well
-            self.ui_manager.question_box.style.visibility = 'hidden'
-            self.ui_manager.photo_box.style.visibility = 'hidden'
             
             self.ui_manager.status_label.text = "Survey completed and saved!"
 

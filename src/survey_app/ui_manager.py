@@ -25,11 +25,6 @@ class UIManager:
         self.enhanced_photo_button = None
         self.status_label = None
 
-        # Legacy UI components
-        self.question_box = None
-        self.photo_box = None
-        self.progress_bar = None
-
     def create_main_ui(self):
         """Create the main user interface."""
         # Header
@@ -160,50 +155,6 @@ class UIManager:
             style=Pack(padding=(5, 10, 10, 10))
         )
 
-        # Legacy UI components
-        self.question_box = toga.Box(style=Pack(direction=COLUMN, padding=10, visibility='hidden'))
-        question_label_legacy = toga.Label("Question", style=Pack(padding=(5, 10, 5, 10)))
-        answer_input_legacy = toga.TextInput(style=Pack(padding=(5, 10, 10, 10)))
-        answer_selection = toga.Selection(style=Pack(padding=(5, 10, 10, 10)))
-
-        next_question_button_legacy = toga.Button('Next', on_press=self.app.next_question, style=Pack(padding=(5, 10, 10, 10)))
-
-        self.progress_bar = toga.ProgressBar(max=100, value=0, style=Pack(padding=(10, 10, 10, 10)))
-        self.question_box.add(question_label_legacy, answer_input_legacy, answer_selection, next_question_button_legacy, self.progress_bar)
-
-        # Photo UI
-        self.photo_box = toga.Box(style=Pack(direction=COLUMN, padding=10, visibility='hidden'))
-
-        take_photo_button = toga.Button(
-            'Take Photo',
-            on_press=self.app.take_photo,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        image_view = toga.ImageView(style=Pack(height=200))
-
-        photo_description_input = toga.TextInput(
-            placeholder='Photo description',
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-        photo_location_input = toga.TextInput(
-            placeholder='Photo location (lat, long)',
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-        save_photo_button = toga.Button(
-            'Save Photo',
-            on_press=self.app.save_photo,
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        self.photo_box.add(
-            take_photo_button,
-            image_view,
-            photo_description_input,
-            photo_location_input,
-            save_photo_button
-        )
-
         # Status label
         self.status_label = toga.Label(
             'Ready',
@@ -227,8 +178,6 @@ class UIManager:
                 config_button,
                 sync_button,
                 manage_tags_button,
-                self.question_box,
-                self.photo_box,
                 self.survey_title_label,
                 self.progress_label,
                 self.question_label,
@@ -278,10 +227,6 @@ class UIManager:
     def hide_enhanced_survey_ui(self):
         """Hide enhanced survey UI elements."""
         self._hide_enhanced_survey_ui()
-        if self.question_box:
-            self.question_box.style.visibility = 'hidden'
-        if self.photo_box:
-            self.photo_box.style.visibility = 'hidden'
 
     def show_question_ui(self, field_type, options=None, description=None):
         """Show appropriate UI elements for a question field type."""

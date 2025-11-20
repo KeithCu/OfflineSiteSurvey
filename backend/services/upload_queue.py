@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, or_
 from shared.models import Photo, now
 from .cloud_storage import get_cloud_storage
 from shared.utils import generate_thumbnail, compute_photo_hash, CorruptedImageError
+from ..utils import safe_db_transaction
 
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class UploadQueueService:
             self.thread.join(timeout=5)
         logger.info("Upload queue service stopped")
 
+    @safe_db_transaction("recover permanently failed uploads")
     def recover_permanently_failed_uploads(self, photo_ids=None):
         """
         Manually recover permanently failed uploads by resetting their status.
@@ -93,10 +95,8 @@ class UploadQueueService:
             session.commit()
             logger.info(f"Recovered {recovered_count} permanently failed uploads")
             return recovered_count
-
-        except Exception as e:
+        except Exception:
             session.rollback()
-            logger.error(f"Error recovering permanently failed uploads: {e}")
             raise
         finally:
             session.close()
@@ -331,6 +331,8 @@ class UploadQueueService:
             return thumbnail_path
 
         # Generate thumbnail from file path to avoid loading large images into memory
+        # generate_thumbnail decorator handles most errors, but we need to catch CorruptedImageError
+        # to flag corruption in the database
         try:
             thumbnail_data = generate_thumbnail(image_path=photo_path, max_size=200)
             
@@ -348,11 +350,6 @@ class UploadQueueService:
             logger.error(f"Corrupted image detected for photo {photo.id}: {e}")
             photo.corrupted = True
             session.commit()
-            return None
-        
-        except Exception as e:
-            # Other errors (file I/O, etc.) - log but don't flag as corrupted
-            logger.warning(f"Failed to generate thumbnail for {photo_path}: {e}")
             return None
 
     def queue_photo_for_upload(self, photo_id, photo_data=None, photo_path=None, thumbnail_data=None):

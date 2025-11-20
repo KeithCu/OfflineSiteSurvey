@@ -8,7 +8,7 @@ import hashlib
 import json
 import logging
 import operator
-from functools import lru_cache
+from functools import lru_cache, wraps
 from PIL import Image, UnidentifiedImageError
 import io
 
@@ -18,6 +18,67 @@ logger = logging.getLogger(__name__)
 class CorruptedImageError(Exception):
     """Raised when image data is corrupted and cannot be processed."""
     pass
+
+
+def handle_image_errors(func):
+    """Decorator to handle image processing errors consistently.
+    
+    Converts image processing exceptions to CorruptedImageError or returns None
+    for non-corruption errors. Handles logging automatically.
+    
+    The decorated function should accept image_path and/or image_data as keyword arguments
+    for proper error message formatting.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        image_path = kwargs.get('image_path')
+        image_data = kwargs.get('image_data')
+        
+        try:
+            return func(*args, **kwargs)
+        except UnidentifiedImageError as e:
+            error_msg = "Corrupted or unsupported image format"
+            if image_path:
+                logger.error(f"{error_msg} - file '{image_path}': {e}", exc_info=True)
+                raise CorruptedImageError(f"Image file '{image_path}' is corrupted or in unsupported format: {e}") from e
+            else:
+                logger.error(f"{error_msg} - image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
+                raise CorruptedImageError(f"Image data is corrupted or in unsupported format: {e}") from e
+        
+        except OSError as e:
+            if "cannot identify image file" in str(e).lower() or "truncated" in str(e).lower():
+                error_msg = "Corrupted image file"
+                if image_path:
+                    logger.error(f"{error_msg} '{image_path}': {e}", exc_info=True)
+                    raise CorruptedImageError(f"Image file '{image_path}' is corrupted: {e}") from e
+                else:
+                    logger.error(f"{error_msg} - image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
+                    raise CorruptedImageError(f"Image data is corrupted: {e}") from e
+            else:
+                if image_path:
+                    logger.warning(f"OSError reading image file '{image_path}': {e}")
+                else:
+                    logger.warning(f"OSError processing image data: {e}")
+                return None
+        
+        except (IOError, ValueError) as e:
+            error_msg = "Error processing image"
+            if image_path:
+                logger.error(f"{error_msg} '{image_path}': {e}", exc_info=True)
+                raise CorruptedImageError(f"Image file '{image_path}' cannot be processed: {e}") from e
+            else:
+                logger.error(f"{error_msg} - image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
+                raise CorruptedImageError(f"Image data cannot be processed: {e}") from e
+        
+        except Exception as e:
+            if image_path:
+                logger.error(f"Unexpected error generating thumbnail from file '{image_path}': {e}", exc_info=True)
+            else:
+                logger.error(f"Unexpected error generating thumbnail from image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
+            return None
+    
+    return wrapper
+
 
 # Photo hash algorithm constant - always SHA256
 PHOTO_HASH_ALGO = 'sha256'
@@ -258,6 +319,7 @@ def _calculate_thumbnail_size(original_width, original_height, max_size):
     return (new_width, new_height)
 
 
+@handle_image_errors
 def generate_thumbnail(image_data=None, image_path=None, max_size=200):
     """Generate a thumbnail from image data or file path while maintaining aspect ratio.
 
@@ -286,62 +348,15 @@ def generate_thumbnail(image_data=None, image_path=None, max_size=200):
         logger.warning("generate_thumbnail called without image_data or image_path")
         return None
 
-    try:
-        if image_path:
-            img = Image.open(image_path)
-        else:
-            img = Image.open(io.BytesIO(image_data))
+    if image_path:
+        img = Image.open(image_path)
+    else:
+        img = Image.open(io.BytesIO(image_data))
 
-        # Calculate thumbnail size maintaining aspect ratio
-        img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+    # Calculate thumbnail size maintaining aspect ratio
+    img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
-        # Save thumbnail to bytes
-        thumb_buffer = io.BytesIO()
-        img.save(thumb_buffer, format='JPEG', quality=85)
-        return thumb_buffer.getvalue()
-    
-    except UnidentifiedImageError as e:
-        # Image file is corrupted or in unsupported format
-        error_msg = f"Corrupted or unsupported image format"
-        if image_path:
-            logger.error(f"{error_msg} - file '{image_path}': {e}", exc_info=True)
-            raise CorruptedImageError(f"Image file '{image_path}' is corrupted or in unsupported format: {e}") from e
-        else:
-            logger.error(f"{error_msg} - image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
-            raise CorruptedImageError(f"Image data is corrupted or in unsupported format: {e}") from e
-    
-    except OSError as e:
-        # File system errors that may indicate corruption (e.g., "cannot identify image file")
-        if "cannot identify image file" in str(e).lower() or "truncated" in str(e).lower():
-            error_msg = f"Corrupted image file"
-            if image_path:
-                logger.error(f"{error_msg} '{image_path}': {e}", exc_info=True)
-                raise CorruptedImageError(f"Image file '{image_path}' is corrupted: {e}") from e
-            else:
-                logger.error(f"{error_msg} - image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
-                raise CorruptedImageError(f"Image data is corrupted: {e}") from e
-        else:
-            # Other OSError (file not found, permission denied, etc.) - return None
-            if image_path:
-                logger.warning(f"OSError reading image file '{image_path}': {e}")
-            else:
-                logger.warning(f"OSError processing image data: {e}")
-            return None
-    
-    except (IOError, ValueError) as e:
-        # IOError/ValueError during image processing may indicate corruption
-        error_msg = f"Error processing image"
-        if image_path:
-            logger.error(f"{error_msg} '{image_path}': {e}", exc_info=True)
-            raise CorruptedImageError(f"Image file '{image_path}' cannot be processed: {e}") from e
-        else:
-            logger.error(f"{error_msg} - image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
-            raise CorruptedImageError(f"Image data cannot be processed: {e}") from e
-    
-    except Exception as e:
-        # Unexpected errors - log but don't assume corruption
-        if image_path:
-            logger.error(f"Unexpected error generating thumbnail from file '{image_path}': {e}", exc_info=True)
-        else:
-            logger.error(f"Unexpected error generating thumbnail from image data (size: {len(image_data) if image_data else 0} bytes): {e}", exc_info=True)
-        return None
+    # Save thumbnail to bytes
+    thumb_buffer = io.BytesIO()
+    img.save(thumb_buffer, format='JPEG', quality=85)
+    return thumb_buffer.getvalue()

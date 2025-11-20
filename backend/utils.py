@@ -4,9 +4,47 @@ from shared.utils import compute_photo_hash, should_show_field
 from .models import db, Project, Site, Survey, SurveyResponse, SurveyTemplate, TemplateField, Photo
 import logging
 import traceback
+from functools import wraps
 
 
 logger = logging.getLogger(__name__)
+
+
+def safe_db_transaction(operation_name=None):
+    """Decorator to handle database transaction error logging.
+    
+    Simplifies error handling by automatically logging exceptions with consistent formatting.
+    The decorated function should handle rollback/cleanup in its own try/except/finally blocks.
+    This decorator only handles the logging aspect to reduce noise in the function body.
+    
+    Args:
+        operation_name: Optional name for the operation (for logging). If None, uses function name.
+    
+    Example:
+        @safe_db_transaction("recover uploads")
+        def recover_permanently_failed_uploads(self, photo_ids=None):
+            session = self.SessionLocal()
+            try:
+                # ... database operations ...
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                raise  # Decorator handles logging
+            finally:
+                session.close()
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            op_name = operation_name or func.__name__
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Error in {op_name}: {e}", exc_info=True)
+                raise
+        
+        return wrapper
+    return decorator
 
 
 def api_error(message, status_code=400, log_level='warning', details=None, exception=None):

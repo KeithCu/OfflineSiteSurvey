@@ -6,6 +6,7 @@ projects in the survey application.
 
 import toga
 import logging
+from shared.enums import ProjectStatus, PriorityLevel
 
 
 class ProjectHandler:
@@ -27,6 +28,8 @@ class ProjectHandler:
         """
         self.app = app
         self.logger = logging.getLogger(self.__class__.__name__)
+        from ..ui.project_view import ProjectView
+        self.view = ProjectView(self)
 
     def show_projects_ui(self, widget):
         """Display the projects management user interface.
@@ -39,14 +42,14 @@ class ProjectHandler:
         Args:
             widget: The widget that triggered this action (button click)
         """
-        projects_window = toga.Window(title="Projects")
+        projects_window = self.view.create_projects_window()
 
         projects_label = toga.Label('Available Projects:', style=toga.Pack(padding=(10, 5, 10, 5)))
         self.app.projects_list = toga.Selection(items=['Loading...'], style=toga.Pack(padding=(5, 5, 10, 5)))
 
         # Project status and metadata inputs
         self.app.project_status_selection = toga.Selection(
-            items=[s.value for s in self.app.enums.ProjectStatus],
+            items=[s.value for s in ProjectStatus],
             style=toga.Pack(padding=(5, 5, 10, 5))
         )
         self.app.project_client_info_input = toga.TextInput(
@@ -58,7 +61,7 @@ class ProjectHandler:
             style=toga.Pack(padding=(5, 5, 10, 5))
         )
         self.app.project_priority_selection = toga.Selection(
-            items=[p.value for p in self.app.enums.PriorityLevel],
+            items=[p.value for p in PriorityLevel],
             style=toga.Pack(padding=(5, 5, 10, 5))
         )
 
@@ -102,7 +105,6 @@ class ProjectHandler:
             style=toga.Pack(direction=toga.COLUMN, padding=20)
         )
 
-        projects_window.content = projects_box
         projects_window.show()
         self.load_projects(None)
 
@@ -119,8 +121,8 @@ class ProjectHandler:
         if projects:
             project_names = [f"{p.id}: {p.name}" for p in projects]
             self.app.projects_list.items = project_names
-            self.app.projects_data = projects
-            self.app.status_label.text = f"Loaded {len(projects)} projects"
+            self.app.state.projects_data = projects
+            self.app.ui_manager.status_label.text = f"Loaded {len(projects)} projects"
         else:
             self.app.projects_list.items = ['No projects available']
 
@@ -139,16 +141,16 @@ class ProjectHandler:
             project_data = {
                 'name': project_name,
                 'description': project_description,
-                'status': self.app.project_status_selection.value or self.app.enums.ProjectStatus.DRAFT.value,
+                'status': self.app.project_status_selection.value or ProjectStatus.DRAFT.value,
                 'client_info': self.app.project_client_info_input.value,
                 'due_date': self.app.project_due_date_input.value,
-                'priority': self.app.project_priority_selection.value or self.app.enums.PriorityLevel.MEDIUM.value
+                'priority': self.app.project_priority_selection.value or PriorityLevel.MEDIUM.value
             }
             self.app.db.save_project(project_data)
-            self.app.status_label.text = f"Created project: {project_name}"
+            self.app.ui_manager.status_label.text = f"Created project: {project_name}"
             self.load_projects(None)
         else:
-            self.app.status_label.text = "Please enter a project name"
+            self.app.ui_manager.status_label.text = "Please enter a project name"
 
     def select_project(self, projects_window):
         """Select a project as the active project for survey work.
@@ -159,13 +161,13 @@ class ProjectHandler:
         Args:
             projects_window: The projects management window to close
         """
-        if self.app.projects_list.value and hasattr(self.app, 'projects_data'):
+        if self.app.projects_list.value and hasattr(self.app.state, 'projects_data'):
             project_id = int(self.app.projects_list.value.split(':')[0])
-            self.app.current_project = next((p for p in self.app.projects_data if p.id == project_id), None)
-            if self.app.current_project:
-                self.app.site_handler.load_sites_for_project(self.app.current_project.id)
+            self.app.state.current_project = next((p for p in self.app.state.projects_data if p.id == project_id), None)
+            if self.app.state.current_project:
+                self.app.site_handler.load_sites_for_project(self.app.state.current_project.id)
                 projects_window.close()
             else:
-                self.app.status_label.text = "Project not found"
+                self.app.ui_manager.status_label.text = "Project not found"
         else:
-            self.app.status_label.text = "Please select a project"
+            self.app.ui_manager.status_label.text = "Please select a project"

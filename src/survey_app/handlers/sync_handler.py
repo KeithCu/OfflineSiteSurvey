@@ -283,80 +283,10 @@ class SyncHandler:
 
     def show_config_ui(self, widget):
         """Show configuration settings UI"""
-        # Create config window
-        config_window = toga.Window(title="Settings")
+        from ..ui.config_view import ConfigView
+        view = ConfigView(self)
+        config_window = view.create_config_window()
 
-        # Config labels and inputs
-        quality_label = toga.Label('Image Compression Quality (1-100):', style=toga.Pack(padding=(10, 5, 5, 5)))
-        self.app.quality_input = toga.TextInput(
-            value=str(self.app.config.get('image_compression_quality', 75)),
-            style=toga.Pack(padding=(5, 5, 10, 5))
-        )
-
-        sync_label = toga.Label('Auto-sync Interval (seconds, 0=disabled):', style=toga.Pack(padding=(10, 5, 5, 5)))
-        self.app.sync_input = toga.TextInput(
-            value=str(self.app.config.get('auto_sync_interval', 300)),
-            style=toga.Pack(padding=(5, 5, 10, 5))
-        )
-
-        offline_label = toga.Label('Max Offline Days:', style=toga.Pack(padding=(10, 5, 5, 5)))
-        self.app.offline_input = toga.TextInput(
-            value=str(self.app.config.get('max_offline_days', 30)),
-            style=toga.Pack(padding=(5, 5, 10, 5))
-        )
-
-        # CompanyCam section
-        companycam_label = toga.Label('CompanyCam Integration:', style=toga.Pack(padding=(20, 5, 10, 5), font_weight='bold'))
-
-        # Connection status
-        connection_status = "Connected" if self.app.companycam_service.is_connected() else "Not Connected"
-        status_label = toga.Label(f'Status: {connection_status}', style=toga.Pack(padding=(5, 5, 5, 5)))
-
-        connect_button = toga.Button(
-            'Connect to CompanyCam',
-            on_press=self.app.companycam_handler.connect_to_companycam,
-            style=toga.Pack(padding=(5, 5, 5, 5))
-        )
-
-        disconnect_button = toga.Button(
-            'Disconnect',
-            on_press=self.app.companycam_handler.disconnect_from_companycam,
-            style=toga.Pack(padding=(5, 5, 5, 5))
-        )
-
-        # Save button
-        save_button = toga.Button(
-            'Save Settings',
-            on_press=self.save_config,
-            style=toga.Pack(padding=(10, 5, 10, 5))
-        )
-
-        close_button = toga.Button(
-            'Close',
-            on_press=lambda w: config_window.close(),
-            style=toga.Pack(padding=(5, 5, 10, 5))
-        )
-
-        # Create config box
-        config_box = toga.Box(
-            children=[
-                quality_label,
-                self.app.quality_input,
-                sync_label,
-                self.app.sync_input,
-                offline_label,
-                self.app.offline_input,
-                companycam_label,
-                status_label,
-                connect_button,
-                disconnect_button,
-                save_button,
-                close_button
-            ],
-            style=toga.Pack(direction=toga.COLUMN, padding=20)
-        )
-
-        config_window.content = config_box
         config_window.show()
 
     def save_config(self, widget):

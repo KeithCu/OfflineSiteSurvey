@@ -9,6 +9,8 @@ requires-python = ">=3.11"
 dependencies = [
     # Core dependencies can be listed here if they are truly shared
     "appdirs>=1.4.4",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +25,8 @@ backend = [
     "pillow>=10.0.0", # Pillow is often used in backends for image processing
     "appdirs>=1.4.4",
     "apache-libcloud>=3.8.0",
-    "bleach>=6.1.0"
+    "bleach>=6.1.0",
+    "tenacity>=8.2.0"
 ]
 frontend = [
     "briefcase>=0.3.17",

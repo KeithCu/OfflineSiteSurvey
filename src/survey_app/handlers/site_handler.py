@@ -9,10 +9,12 @@ class SiteHandler:
     def __init__(self, app):
         self.app = app
         self.logger = logging.getLogger(self.__class__.__name__)
+        from ..ui.site_view import SiteView
+        self.view = SiteView(self)
 
     def show_sites_ui(self, widget):
         """Show sites management UI"""
-        sites_window = toga.Window(title="Sites")
+        sites_window = self.view.create_sites_window()
 
         sites_label = toga.Label('Available Sites:', style=toga.Pack(padding=(10, 5, 10, 5)))
         self.app.sites_list = toga.Selection(items=['Loading...'], style=toga.Pack(padding=(5, 5, 10, 5)))
@@ -44,7 +46,6 @@ class SiteHandler:
             style=toga.Pack(direction=toga.COLUMN, padding=20)
         )
 
-        sites_window.content = sites_box
         sites_window.show()
         self.load_sites(None)
 
@@ -54,8 +55,8 @@ class SiteHandler:
         if sites:
             site_names = [f"{s.id}: {s.name}" for s in sites]
             self.app.sites_list.items = site_names
-            self.app.sites_data = sites
-            self.app.status_label.text = f"Loaded {len(sites)} sites"
+            self.app.state.sites_data = sites
+            self.app.ui_manager.status_label.text = f"Loaded {len(sites)} sites"
         else:
             self.app.sites_list.items = ['No sites available']
 
@@ -69,35 +70,35 @@ class SiteHandler:
                 'address': site_address,
                 'notes': self.app.new_site_notes_input.value
             }
-            if self.app.current_project:
-                site_data['project_id'] = self.app.current_project.id
+            if self.app.state.current_project:
+                site_data['project_id'] = self.app.state.current_project.id
             self.app.db.save_site(site_data)
-            self.app.status_label.text = f"Created site: {site_name}"
+            self.app.ui_manager.status_label.text = f"Created site: {site_name}"
             self.load_sites(None)
-            if self.app.current_project:
-                self.load_sites_for_project(self.app.current_project.id)
+            if self.app.state.current_project:
+                self.load_sites_for_project(self.app.state.current_project.id)
         else:
-            self.app.status_label.text = "Please enter a site name"
+            self.app.ui_manager.status_label.text = "Please enter a site name"
 
     def select_site(self, sites_window):
-        if self.app.sites_list.value and hasattr(self.app, 'sites_data'):
+        if self.app.sites_list.value and hasattr(self.app.state, 'sites_data'):
             site_id = int(self.app.sites_list.value.split(':')[0])
-            self.app.current_site = next((s for s in self.app.sites_data if s.id == site_id), None)
-            if self.app.current_site:
-                self.app.survey_handler.load_surveys_for_site(self.app.current_site.id)
+            self.app.state.current_site = next((s for s in self.app.state.sites_data if s.id == site_id), None)
+            if self.app.state.current_site:
+                self.app.survey_handler.load_surveys_for_site(self.app.state.current_site.id)
                 sites_window.close()
             else:
-                self.app.status_label.text = "Site not found"
+                self.app.ui_manager.status_label.text = "Site not found"
         else:
-            self.app.status_label.text = "Please select a site"
+            self.app.ui_manager.status_label.text = "Please select a site"
 
     def load_sites_for_project(self, project_id):
         """Load sites for the selected project"""
         sites = self.app.db.get_sites_for_project(project_id)
         if sites:
             site_names = [f"{s.id}: {s.name}" for s in sites]
-            self.app.survey_selection.items = ['Select a site first...'] + site_names
-            self.app.status_label.text = f"Loaded {len(sites)} sites for project {self.app.current_project.name}"
+            self.app.ui_manager.survey_selection.items = ['Select a site first...'] + site_names
+            self.app.ui_manager.status_label.text = f"Loaded {len(sites)} sites for project {self.app.state.current_project.name}"
         else:
-            self.app.survey_selection.items = ['Select a site first...']
-            self.app.status_label.text = f"No sites available for project {self.app.current_project.name}"
+            self.app.ui_manager.survey_selection.items = ['Select a site first...']
+            self.app.ui_manager.status_label.text = f"No sites available for project {self.app.state.current_project.name}"

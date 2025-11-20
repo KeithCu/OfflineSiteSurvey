@@ -8,6 +8,7 @@ import logging
 import os
 import requests
 import hashlib
+from shared.enums import PhotoCategory
 
 
 class PhotoHandler:
@@ -32,7 +33,7 @@ class PhotoHandler:
         filter_label = toga.Label('Filter by Category:', style=toga.Pack(padding=(10, 5, 5, 5)))
         all_button = toga.Button('All', on_press=lambda w: self.filter_photos(photos_window, None), style=toga.Pack(padding=5))
         buttons = [all_button]
-        for category in self.app.enums.PhotoCategory:
+        for category in PhotoCategory:
             button = toga.Button(category.value.title(), on_press=lambda w, c=category: self.filter_photos(photos_window, c), style=toga.Pack(padding=5))
             buttons.append(button)
 

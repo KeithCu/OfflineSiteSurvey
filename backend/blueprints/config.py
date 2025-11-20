@@ -1,10 +1,37 @@
 """Config blueprint for Flask API."""
 import os
+import re
 from flask import Blueprint, jsonify, request
 from ..models import db, AppConfig
+from shared.validation import Validator, ValidationError
 
 
 bp = Blueprint('config', __name__, url_prefix='/api')
+
+# Valid config key pattern (alphanumeric and underscore only)
+CONFIG_KEY_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+# Known config keys with validation rules
+CONFIG_VALIDATION_RULES = {
+    'image_compression_quality': {
+        'type': int,
+        'min': 1,
+        'max': 100,
+        'description': 'JPEG compression quality (1-100)'
+    },
+    'auto_sync_interval': {
+        'type': int,
+        'min': 0,
+        'max': 86400,  # Max 24 hours
+        'description': 'Auto-sync frequency in seconds (0-86400)'
+    },
+    'max_offline_days': {
+        'type': int,
+        'min': 0,
+        'max': 365,  # Max 1 year
+        'description': 'Maximum offline data retention in days (0-365)'
+    }
+}
 
 
 @bp.route('/config', methods=['GET'])
@@ -43,17 +70,70 @@ def update_config(key):
     if not isinstance(data, dict):
         return jsonify({'error': 'Request data must be a JSON object'}), 400
 
+    # Validate config key format
+    if not CONFIG_KEY_PATTERN.match(key):
+        return jsonify({'error': f'Invalid config key format: {key}. Must be alphanumeric with underscores only'}), 400
+
+    # Validate key length
+    if len(key) > 100:
+        return jsonify({'error': 'Config key must be 100 characters or less'}), 400
+
     config = AppConfig.query.filter_by(key=key).first()
     if not config:
         # Create new config if it doesn't exist
         config = AppConfig(key=key)
 
+    # Validate and set value
     if 'value' in data:
-        config.value = str(data['value'])
+        value = data['value']
+        
+        # Apply known validation rules if key is recognized
+        if key in CONFIG_VALIDATION_RULES:
+            rule = CONFIG_VALIDATION_RULES[key]
+            try:
+                # Convert to appropriate type
+                if rule['type'] == int:
+                    value_int = int(value)
+                    # Validate range
+                    if 'min' in rule and value_int < rule['min']:
+                        return jsonify({'error': f'{key} must be at least {rule["min"]}'}), 400
+                    if 'max' in rule and value_int > rule['max']:
+                        return jsonify({'error': f'{key} must be at most {rule["max"]}'}), 400
+                    config.value = str(value_int)
+                else:
+                    config.value = str(value)
+            except (ValueError, TypeError):
+                return jsonify({'error': f'{key} must be a valid {rule["type"].__name__}'}), 400
+        else:
+            # For unknown keys, just validate it's a reasonable string
+            value_str = str(value)
+            if len(value_str) > 10000:  # Reasonable limit for config values
+                return jsonify({'error': 'Config value too long (max 10000 characters)'}), 400
+            config.value = value_str
+
+    # Validate and set description
     if 'description' in data:
-        config.description = data['description']
+        description = data['description']
+        if description is not None:
+            if not isinstance(description, str):
+                return jsonify({'error': 'description must be a string'}), 400
+            try:
+                description = Validator.validate_string_length(description, 'description', 0, 300)
+                config.description = description
+            except ValidationError as e:
+                return jsonify({'error': str(e)}), 400
+
+    # Validate and set category
     if 'category' in data:
-        config.category = data['category']
+        category = data['category']
+        if category is not None:
+            if not isinstance(category, str):
+                return jsonify({'error': 'category must be a string'}), 400
+            try:
+                category = Validator.validate_string_length(category, 'category', 0, 50)
+                config.category = category
+            except ValidationError as e:
+                return jsonify({'error': str(e)}), 400
 
     try:
         db.session.add(config)

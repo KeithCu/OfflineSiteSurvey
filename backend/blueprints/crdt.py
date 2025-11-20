@@ -3,11 +3,18 @@ from flask import Blueprint, jsonify, request
 import sqlite3
 import json
 import uuid
+import re
 from ..models import db, Photo
 from ..utils import compute_photo_hash
 
 
 bp = Blueprint('crdt', __name__, url_prefix='/api')
+
+# Valid CRR table names (from create_crr_tables in models.py)
+VALID_CRR_TABLES = {'projects', 'sites', 'survey', 'survey_response', 'survey_template', 'template_field', 'photo'}
+
+# Valid column name pattern (alphanumeric and underscore only)
+COLUMN_NAME_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 
 @bp.route('/changes', methods=['POST'])
@@ -35,6 +42,45 @@ def apply_changes():
             required_fields = ['table', 'pk', 'cid', 'val', 'col_version', 'db_version', 'site_id']
             if not all(field in change for field in required_fields):
                 return jsonify({'error': f'Change missing required fields: {required_fields}'}), 400
+
+            # Security: Validate table name to prevent SQL injection
+            table_name = change.get('table')
+            if not isinstance(table_name, str) or table_name not in VALID_CRR_TABLES:
+                return jsonify({'error': f'Invalid table name: {table_name}. Must be one of: {sorted(VALID_CRR_TABLES)}'}), 400
+
+            # Security: Validate column name to prevent SQL injection
+            column_name = change.get('cid')
+            if not isinstance(column_name, str) or not COLUMN_NAME_PATTERN.match(column_name):
+                return jsonify({'error': f'Invalid column name: {column_name}. Must be alphanumeric with underscores only'}), 400
+
+            # Validate pk is valid JSON string
+            pk_str = change.get('pk')
+            if not isinstance(pk_str, str):
+                return jsonify({'error': 'pk must be a JSON string'}), 400
+            try:
+                pk_data = json.loads(pk_str)
+                if not isinstance(pk_data, dict):
+                    return jsonify({'error': 'pk must be a JSON object'}), 400
+            except json.JSONDecodeError:
+                return jsonify({'error': 'pk must be valid JSON'}), 400
+
+            # Validate version numbers are integers
+            try:
+                col_version = int(change.get('col_version'))
+                db_version = int(change.get('db_version'))
+                if col_version < 0 or db_version < 0:
+                    return jsonify({'error': 'Version numbers must be non-negative integers'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'col_version and db_version must be integers'}), 400
+
+            # Validate site_id is valid UUID format
+            site_id = change.get('site_id')
+            if not isinstance(site_id, str):
+                return jsonify({'error': 'site_id must be a string'}), 400
+            try:
+                uuid.UUID(site_id)
+            except (ValueError, TypeError):
+                return jsonify({'error': f'site_id must be a valid UUID: {site_id}'}), 400
 
             # Validate foreign key references to prevent orphaned records
             # Note: Foreign keys are disabled during CRR table creation for CRDT operations,

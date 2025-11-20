@@ -3,6 +3,7 @@ from flask import Blueprint, jsonify, request
 import json
 from ..models import db, SurveyTemplate, TemplateField
 from ..utils import should_show_field
+from shared.validation import Validator, ValidationError
 
 
 bp = Blueprint('templates', __name__, url_prefix='/api')
@@ -10,9 +11,21 @@ bp = Blueprint('templates', __name__, url_prefix='/api')
 
 @bp.route('/templates', methods=['GET'])
 def get_templates():
-    # Pagination parameters
-    page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
+    # Pagination parameters with validation
+    try:
+        page = request.args.get('page', 1, type=int)
+        if page < 1:
+            return jsonify({'error': 'page must be at least 1'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'page must be an integer'}), 400
+    
+    try:
+        per_page = request.args.get('per_page', 50, type=int)
+        if per_page < 1:
+            return jsonify({'error': 'per_page must be at least 1'}), 400
+        per_page = min(per_page, 100)  # Max 100 per page
+    except (ValueError, TypeError):
+        return jsonify({'error': 'per_page must be an integer'}), 400
 
     # Query with pagination
     pagination = SurveyTemplate.query.paginate(page=page, per_page=per_page, error_out=False)
@@ -114,9 +127,34 @@ def update_section_tags(template_id):
     for section, tags in section_tags.items():
         if not isinstance(section, str):
             continue
+        
+        # Validate section name length
+        try:
+            section = Validator.validate_string_length(section.strip(), 'section name', 1, 100)
+        except ValidationError as e:
+            return jsonify({'error': str(e)}), 400
+        
         if not isinstance(tags, list):
             return jsonify({'error': f'Tags for section {section} must be a list'}), 400
-        cleaned[section] = [str(tag).strip() for tag in tags if str(tag).strip()]
+        
+        # Validate and sanitize tags
+        validated_tags = []
+        for tag in tags:
+            if not isinstance(tag, str):
+                tag = str(tag)
+            try:
+                validated_tag = Validator.validate_string_length(tag.strip(), 'tag', 1, 50)
+                validated_tag = Validator.sanitize_html(validated_tag)
+                if validated_tag and validated_tag not in validated_tags:
+                    validated_tags.append(validated_tag)
+            except ValidationError:
+                continue  # Skip invalid tags
+        
+        # Limit tags per section
+        if len(validated_tags) > 100:
+            validated_tags = validated_tags[:100]
+        
+        cleaned[section] = validated_tags
 
     template = db.get_or_404(SurveyTemplate, template_id)
     try:
@@ -143,6 +181,14 @@ def evaluate_survey_conditions(survey_id):
     current_responses = data.get('responses', [])
     if not isinstance(current_responses, list):
         return jsonify({'error': 'responses must be a list'}), 400
+    
+    # Validate responses structure (basic validation)
+    if len(current_responses) > 1000:  # Reasonable limit
+        return jsonify({'error': 'Too many responses (max 1000)'}), 400
+    
+    for response in current_responses:
+        if not isinstance(response, dict):
+            return jsonify({'error': 'Each response must be a JSON object'}), 400
 
     from ..models import Survey
     survey = Survey.query.get_or_404(survey_id)

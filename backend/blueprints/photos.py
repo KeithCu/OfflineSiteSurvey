@@ -7,6 +7,8 @@ import hashlib
 from urllib.parse import urlparse
 from ..models import db, Photo, Survey, TemplateField
 from shared.utils import compute_photo_hash, generate_thumbnail
+from shared.validation import Validator, ValidationError
+from shared.enums import PhotoCategory
 from ..services.upload_queue import get_upload_queue
 from ..utils import api_error, handle_api_exception
 
@@ -61,13 +63,20 @@ def mark_requirement_fulfillment():
     photo_id = data.get('photo_id')
     if photo_id is None:
         return jsonify({'error': 'photo_id field is required'}), 400
-    if not isinstance(photo_id, str) or not photo_id.strip():
-        return jsonify({'error': 'photo_id must be a non-empty string'}), 400
+    try:
+        photo_id = Validator.validate_string_length(str(photo_id).strip(), 'photo_id', 1, 200)
+    except ValidationError as e:
+        return jsonify({'error': str(e)}), 400
 
     # Validate requirement_id (can be None to clear)
     requirement_id = data.get('requirement_id')
-    if requirement_id is not None and not isinstance(requirement_id, str):
-        return jsonify({'error': 'requirement_id must be a string or null'}), 400
+    if requirement_id is not None:
+        if not isinstance(requirement_id, str):
+            return jsonify({'error': 'requirement_id must be a string or null'}), 400
+        try:
+            requirement_id = Validator.validate_string_length(requirement_id.strip(), 'requirement_id', 1, 200)
+        except ValidationError as e:
+            return jsonify({'error': str(e)}), 400
 
     # Validate fulfills
     fulfills = data.get('fulfills', True)
@@ -234,21 +243,47 @@ def upload_photo_to_survey(survey_id):
             # Use file path instead of loading image data into memory to prevent OOM with large files
             image_path_for_upload = temp_path
 
+            # Validate and sanitize description
             description = request.form.get('description', '')
-            category = request.form.get('category', 'general')
-            latitude = float(request.form.get('latitude', 0.0))
-            longitude = float(request.form.get('longitude', 0.0))
+            if description:
+                description = Validator.validate_string_length(description, 'Photo description', 0, 5000)
+                description = Validator.sanitize_html(description)
+
+            # Validate category
+            category_str = request.form.get('category', 'general')
+            try:
+                category = Validator.validate_choice(
+                    category_str, 'Photo category',
+                    [cat.value for cat in PhotoCategory]
+                )
+            except ValidationError:
+                category = PhotoCategory.GENERAL.value  # Default fallback
+
+            # Validate coordinates
+            latitude_str = request.form.get('latitude', '0.0')
+            longitude_str = request.form.get('longitude', '0.0')
+            try:
+                latitude, longitude = Validator.validate_coordinates(latitude_str, longitude_str)
+            except ValidationError:
+                # Default to 0,0 if invalid coordinates provided
+                latitude, longitude = 0.0, 0.0
+
+            # Validate tags structure
             tags_payload = request.form.get('tags', '')
             tags = []
             if tags_payload:
                 try:
                     parsed = json.loads(tags_payload)
                     if isinstance(parsed, list):
-                        tags = parsed
+                        # Validate each tag is a string and sanitize
+                        tags = [Validator.sanitize_html(str(tag).strip()) for tag in parsed if str(tag).strip()]
+                        # Limit to reasonable number of tags
+                        tags = tags[:50]  # Max 50 tags
                     else:
-                        tags = [str(parsed)]
+                        tags = [Validator.sanitize_html(str(parsed).strip())]
                 except json.JSONDecodeError:
-                    tags = [tag.strip() for tag in tags_payload.split(',') if tag.strip()]
+                    # Fallback: comma-separated tags
+                    tags = [Validator.sanitize_html(tag.strip()) for tag in tags_payload.split(',') if tag.strip()][:50]
 
             # Create or update photo record
             if existing_photo:

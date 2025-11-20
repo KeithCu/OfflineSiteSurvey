@@ -85,7 +85,13 @@ class SurveyHandler:
                         template_data = {'fields': [], 'section_tags': {}}
 
                     self.app.template_fields = template_data.get('fields', [])
-                    self.app.section_tags = template_data.get('section_tags', {})
+                    section_tags = template_data.get('section_tags', {})
+                    if isinstance(section_tags, str):
+                        try:
+                            section_tags = json.loads(section_tags)
+                        except json.JSONDecodeError:
+                            section_tags = {}
+                    self.app.section_tags = section_tags
                     self.app.total_fields = len(self.app.template_fields)
                 elif hasattr(self.app, 'default_template_fields'):
                     self.app.template_fields = self.app.default_template_fields

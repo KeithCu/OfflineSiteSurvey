@@ -108,7 +108,7 @@ def get_photo_integrity(photo_id):
                     'error': 'Invalid cloud URL format'
                 }), 500
             image_data = cloud_storage.download_photo(object_name)
-            current_hash = compute_photo_hash(image_data, photo.hash_algo)
+            current_hash = compute_photo_hash(image_data)
             actual_size = len(image_data)
         except Exception as e:
             return jsonify({
@@ -280,7 +280,6 @@ def upload_photo_to_survey(survey_id):
                     category=category,
                     hash_value=hash_value,
                     size_bytes=size_bytes,
-                    hash_algo='sha256',
                     question_id=question_id,
                     tags=json.dumps(tags)
                 )

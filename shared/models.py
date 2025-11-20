@@ -153,7 +153,6 @@ class Photo(Base):
     description = Column(Text, server_default="")
     category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL, nullable=False)
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"), index=True)
-    hash_algo = Column(String(10), default='sha256', server_default='sha256')
     hash_value = Column(String(64), index=True, server_default="")
     size_bytes = Column(Integer, server_default="0")
     file_path = Column(String(500), server_default="")

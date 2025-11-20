@@ -281,7 +281,6 @@ class LocalDatabase:
                 # Use utility function for hashing
                 photo_data['hash_value'] = compute_photo_hash(image_data)
                 photo_data['size_bytes'] = len(image_data)
-                photo_data['hash_algo'] = 'sha256'
                 photo_data['upload_status'] = 'pending'  # Initially pending upload
                 photo_data['cloud_url'] = ''  # Will be set after upload
                 photo_data['thumbnail_url'] = ''  # Will be set after upload

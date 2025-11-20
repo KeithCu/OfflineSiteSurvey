@@ -179,7 +179,6 @@ def test_photo_model_creation(app):
             description="Test photo",
             category="general",
             hash_value="a" * 64,  # 64 character hash
-            hash_algo="sha256",
             size_bytes=100
         )
         db.session.add(photo)
@@ -218,7 +217,6 @@ def test_model_relationships(app):
                 site_id=site.id,
                 cloud_url="https://example.com/photos/test.jpg",
                 hash_value="b" * 64,
-                hash_algo="sha256",
                 size_bytes=4,
                 category="general"
             )

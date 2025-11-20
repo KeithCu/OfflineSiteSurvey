@@ -66,7 +66,7 @@ def check_photo_integrity_command(fix):
 
         # Check local data first (legacy support)
         if photo.image_data:
-            current_hash = compute_photo_hash(photo.image_data, photo.hash_algo)
+            current_hash = compute_photo_hash(photo.image_data)
             actual_size = len(photo.image_data)
         # Check cloud data if no local data or if we want to verify cloud integrity
         elif photo.cloud_url and photo.upload_status == 'completed':
@@ -85,7 +85,7 @@ def check_photo_integrity_command(fix):
                 object_name = extract_object_name_from_url(photo.cloud_url)
                 if object_name:
                     image_data = cloud_storage.download_photo(object_name)
-                    current_hash = compute_photo_hash(image_data, photo.hash_algo)
+                    current_hash = compute_photo_hash(image_data)
                     actual_size = len(image_data)
                     click.echo(f"  Verified photo {photo.id} integrity from cloud")
                 else:

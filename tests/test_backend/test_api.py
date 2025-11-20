@@ -186,7 +186,6 @@ def test_photos_api_endpoints(client, app):
             thumbnail_url="https://example.com/thumbnails/test_thumb.jpg",
             upload_status="completed",
             hash_value="c" * 64,
-            hash_algo="sha256",
             size_bytes=16,
             description="Test photo"
         )

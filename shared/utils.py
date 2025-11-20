@@ -12,15 +12,18 @@ import io
 
 logger = logging.getLogger(__name__)
 
+# Photo hash algorithm constant - always SHA256
+PHOTO_HASH_ALGO = 'sha256'
 
-def compute_photo_hash(image_data, algo='sha256'):
+
+def compute_photo_hash(image_data):
     """Compute cryptographic hash of image data for integrity verification.
 
     Used to ensure photo data integrity during sync and storage operations.
+    Always uses SHA256 algorithm.
 
     Args:
         image_data (bytes): Raw image data bytes to hash
-        algo (str, optional): Hash algorithm to use. Defaults to 'sha256'
 
     Returns:
         str or None: Hexadecimal hash string if successful, None for invalid input
@@ -33,9 +36,9 @@ def compute_photo_hash(image_data, algo='sha256'):
     """
     if isinstance(image_data, bytes):
         try:
-            return hashlib.new(algo, image_data).hexdigest()
+            return hashlib.new(PHOTO_HASH_ALGO, image_data).hexdigest()
         except Exception as e:
-            logger.error(f"Failed to compute photo hash with algorithm '{algo}': {e}")
+            logger.error(f"Failed to compute photo hash with algorithm '{PHOTO_HASH_ALGO}': {e}")
             return None
     
     logger.warning(f"compute_photo_hash called with invalid input type: {type(image_data).__name__}, expected bytes")

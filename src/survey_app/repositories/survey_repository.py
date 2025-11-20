@@ -2,6 +2,7 @@
 import json
 import logging
 from sqlalchemy.orm import Session
+from shared.enums import QuestionType
 
 from shared.models import (
     Project, Site, Survey, SurveyResponse, SurveyTemplate, TemplateField, Photo
@@ -617,7 +618,7 @@ class SurveyRepository:
                     if field.id in response_dict and response_dict[field.id]:
                         sections[section]['completed'] += 1
                         total_completed += 1
-                if field.field_type == 'photo':
+                if field.field_type == QuestionType.PHOTO.value:
                     if field.required:
                         sections[section]['photos_required'] += 1
                     photo_exists = any(p for p in photos if p.requirement_id and field.question in p.description)
@@ -647,7 +648,7 @@ class SurveyRepository:
             existing_photo_requirements = {p.requirement_id: p for p in photos if p.requirement_id}
             requirements_by_section = {}
             for field in sorted(template.fields, key=lambda x: x.order_index):
-                if field.field_type == 'photo' and field.photo_requirements:
+                if field.field_type == QuestionType.PHOTO.value and field.photo_requirements:
                     section = field.section or 'General'
                     if section not in requirements_by_section:
                         requirements_by_section[section] = []

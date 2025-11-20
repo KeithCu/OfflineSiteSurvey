@@ -1,6 +1,7 @@
 """Templates blueprint for Flask API."""
 from flask import Blueprint, jsonify, request
 import json
+from shared.enums import QuestionType
 from ..models import db, SurveyTemplate, TemplateField
 from ..utils import should_show_field
 from shared.validation import ValidationError, validate_string_length, sanitize_html
@@ -244,7 +245,7 @@ def get_survey_progress(survey_id):
                 total_completed += 1
         
         # Handle photo requirements
-        if field.field_type == 'photo':
+        if field.field_type == QuestionType.PHOTO.value:
             if field.required:
                 sections[section].photos_required += 1
             
@@ -291,7 +292,7 @@ def get_photo_requirements(survey_id):
     requirements_by_section = {}
     
     for field in sorted(template.fields, key=lambda x: x.order_index):
-        if field.field_type == 'photo' and field.photo_requirements:
+        if field.field_type == QuestionType.PHOTO.value and field.photo_requirements:
             section = field.section or 'General'
             if section not in requirements_by_section:
                 requirements_by_section[section] = []

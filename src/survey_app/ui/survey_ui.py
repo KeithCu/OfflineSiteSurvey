@@ -1,5 +1,6 @@
 """Survey UI components for SurveyApp."""
 import toga
+from shared.enums import QuestionType
 from .ui_builder import (
     create_label, create_button, create_selection,
     SurveyQuestionWidget, SurveyProgressWidget
@@ -243,13 +244,13 @@ class SurveyUI:
         )
 
         # Handle different field types using composite widget
-        field_type = visible_field.get('field_type', 'text')
-        if field_type == 'yesno':
+        field_type = visible_field.get('field_type', QuestionType.TEXT.value)
+        if field_type == QuestionType.YESNO.value:
             self.app.question_widget.show_yesno_buttons(
                 on_yes=lambda w: self.app.survey_handler.submit_yesno_answer('Yes'),
                 on_no=lambda w: self.app.survey_handler.submit_yesno_answer('No')
             )
-        elif field_type == 'photo':
+        elif field_type == QuestionType.PHOTO.value:
             self.app.question_widget.show_photo_button(
                 on_press=self.app.survey_handler.take_photo_enhanced
             )

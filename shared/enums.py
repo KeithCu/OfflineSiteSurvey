@@ -37,10 +37,34 @@ class PhotoCategory(str, enum.Enum):
 
 class PriorityLevel(str, enum.Enum):
     """Priority levels for projects and tasks.
-    
+
     Used in Project model and other entities to indicate urgency.
     """
     CRITICAL = "critical"
     HIGH = "high"
     LOW = "low"
     MEDIUM = "medium"
+
+
+class SurveySection(str, enum.Enum):
+    """Survey section names used throughout the application.
+
+    Used in survey templates to organize questions by category.
+    """
+    GENERAL = "General"
+    ELECTRICAL = "Electrical"
+    STRUCTURAL = "Structural"
+    SAFETY = "Safety"
+    MAINTENANCE = "Maintenance"
+    PHOTOS = "Photos"
+    SUMMARY = "Summary"
+
+
+class QuestionType(str, enum.Enum):
+    """Question field types used in survey templates.
+
+    Defines the type of input expected for survey questions.
+    """
+    TEXT = "text"
+    YESNO = "yesno"
+    PHOTO = "photo"

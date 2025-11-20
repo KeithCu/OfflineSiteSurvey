@@ -2,6 +2,7 @@
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
+from shared.enums import QuestionType
 from .ui.ui_builder import (
     create_label, create_text_input, create_button, create_selection,
     SurveyQuestionWidget, SurveyProgressWidget
@@ -177,12 +178,12 @@ class UIManager:
             return
         
         # Show appropriate input based on field type
-        if field_type == 'yesno':
+        if field_type == QuestionType.YESNO.value:
             self.question_widget.show_yesno_buttons(
                 on_yes=lambda w: self.app.submit_yesno_answer('Yes'),
                 on_no=lambda w: self.app.submit_yesno_answer('No')
             )
-        elif field_type == 'photo':
+        elif field_type == QuestionType.PHOTO.value:
             self.question_widget.show_photo_button(on_press=self.app.take_photo_enhanced)
         elif options:
             self.question_widget.show_selection(items=options)

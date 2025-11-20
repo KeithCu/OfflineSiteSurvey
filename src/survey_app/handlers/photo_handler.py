@@ -74,6 +74,7 @@ class PhotoHandler:
 
     def load_photos_content(self, page=1):
         """Load and display photos content with pagination and thumbnails"""
+        # STEP 1: Fetch all data first (separate from UI rendering)
         photos_result = self.app.db.get_photos(
             category=self.app.current_category,
             search_term=self.app.current_search,
@@ -86,147 +87,162 @@ class PhotoHandler:
         if not photos:
             no_photos_label = toga.Label("No photos available", style=toga.Pack(padding=20))
             photos_box = toga.Box(children=[no_photos_label], style=toga.Pack(direction=toga.COLUMN))
-        else:
-            # Main box for photos
-            photos_box = toga.Box(style=toga.Pack(direction=toga.COLUMN, padding=10))
+            self.app.photos_scroll_container.content = photos_box
+            return
 
-            # Add pagination info
-            pagination_label = toga.Label(
-                f"Page {photos_result['page']} of {photos_result['total_pages']} ({photos_result['total_count']} total photos)",
-                style=toga.Pack(padding=(0, 0, 10, 0), font_size=12)
-            )
-            photos_box.add(pagination_label)
+        # STEP 2: Prepare all photo data (thumbnails, descriptions, tags) before UI rendering
+        photo_data_list = []
+        for photo in photos:
+            photo_data = {
+                'photo': photo,
+                'thumb_data': None,
+                'description': photo.description or 'No description',
+                'tags': []
+            }
+            
+            # Load thumbnail data
+            thumb_data = self.app.db.get_photo_data(photo.id, thumbnail=True)
+            
+            if not thumb_data:
+                # Try to load thumbnail from cloud URL
+                if photo.thumbnail_url and photo.upload_status == 'completed':
+                    try:
+                        thumb_data = self._load_image_from_url(photo.thumbnail_url, cache_key=f"{photo.id}_thumb")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to load thumbnail from {photo.thumbnail_url}: {e}")
 
-            # Pagination controls
-            pagination_box = toga.Box(style=toga.Pack(direction=toga.ROW, padding=(0, 0, 15, 0)))
+            if not thumb_data and photo.cloud_url and photo.upload_status == 'completed':
+                # Fallback: load full image from cloud and generate thumbnail
+                try:
+                    full_image_data = self._load_image_from_url(photo.cloud_url, cache_key=photo.id)
+                    if full_image_data:
+                        img = Image.open(io.BytesIO(full_image_data))
+                        thumb = img.copy()
+                        thumb.thumbnail((100, 100))
+                        thumb_byte_arr = io.BytesIO()
+                        thumb.save(thumb_byte_arr, format='JPEG')
+                        thumb_data = thumb_byte_arr.getvalue()
+                except Exception as e:
+                    self.logger.warning(f"Failed to generate thumbnail from cloud image: {e}")
 
-            prev_button = toga.Button(
-                'Previous',
-                on_press=lambda w: self.load_photos_content(max(1, page - 1)),
-                style=toga.Pack(padding=5),
-                enabled=page > 1
-            )
+            if not thumb_data:
+                # Try to check if we have full image locally and generate thumbnail on fly
+                full_data = self.app.db.get_photo_data(photo.id, thumbnail=False)
+                if full_data:
+                    try:
+                        img = Image.open(io.BytesIO(full_data))
+                        thumb = img.copy()
+                        thumb.thumbnail((100, 100))
+                        thumb_byte_arr = io.BytesIO()
+                        thumb.save(thumb_byte_arr, format='JPEG')
+                        thumb_data = thumb_byte_arr.getvalue()
+                    except Exception as e:
+                        self.logger.warning(f"Failed to generate thumbnail from local image: {e}")
 
-            page_input = toga.TextInput(
-                value=str(page),
-                style=toga.Pack(width=60, padding=5)
-            )
+            photo_data['thumb_data'] = thumb_data
 
-            total_pages_label = toga.Label(
-                f" of {photos_result['total_pages']}",
-                style=toga.Pack(padding=(5, 0, 5, 0))
-            )
+            # Parse tags
+            if getattr(photo, 'tags', None):
+                try:
+                    photo_data['tags'] = json.loads(photo.tags)
+                except (json.JSONDecodeError, TypeError):
+                    photo_data['tags'] = []
 
-            next_button = toga.Button(
-                'Next',
-                on_press=lambda w: self.load_photos_content(min(photos_result['total_pages'], page + 1)),
-                style=toga.Pack(padding=5),
-                enabled=page < photos_result['total_pages']
-            )
+            photo_data_list.append(photo_data)
 
-            go_button = toga.Button(
-                'Go',
-                on_press=lambda w: self.load_photos_content(int(page_input.value) if page_input.value.isdigit() else page),
-                style=toga.Pack(padding=5)
-            )
+        # STEP 3: Now build UI widgets from prepared data
+        photos_box = toga.Box(style=toga.Pack(direction=toga.COLUMN, padding=10))
 
-            pagination_box.add(prev_button, page_input, total_pages_label, go_button, next_button)
-            photos_box.add(pagination_box)
+        # Add pagination info
+        pagination_label = toga.Label(
+            f"Page {photos_result['page']} of {photos_result['total_pages']} ({photos_result['total_count']} total photos)",
+            style=toga.Pack(padding=(0, 0, 10, 0), font_size=12)
+        )
+        photos_box.add(pagination_label)
 
-            # Group photos into rows of 4
-            row_photos = []
-            for photo in photos:
-                row_photos.append(photo)
-                if len(row_photos) == 4:
-                    # Create row
-                    row_box = toga.Box(style=toga.Pack(direction=toga.ROW, padding=(5, 5, 5, 5)))
-                    for p in row_photos:
-                        # Try to load thumbnail from disk first
-                        thumb_data = self.app.db.get_photo_data(p.id, thumbnail=True)
-                        
-                        if not thumb_data:
-                            # Try to load thumbnail from cloud URL
-                            if p.thumbnail_url and p.upload_status == 'completed':
-                                try:
-                                    thumb_data = self._load_image_from_url(p.thumbnail_url, cache_key=f"{p.id}_thumb")
-                                except Exception as e:
-                                    self.logger.warning(f"Failed to load thumbnail from {p.thumbnail_url}: {e}")
+        # Pagination controls
+        pagination_box = toga.Box(style=toga.Pack(direction=toga.ROW, padding=(0, 0, 15, 0)))
 
-                        if not thumb_data and p.cloud_url and p.upload_status == 'completed':
-                            # Fallback: load full image from cloud and generate thumbnail
-                            try:
-                                full_image_data = self._load_image_from_url(p.cloud_url, cache_key=p.id)
-                                if full_image_data:
-                                    img = Image.open(io.BytesIO(full_image_data))
-                                    thumb = img.copy()
-                                    thumb.thumbnail((100, 100))
-                                    thumb_byte_arr = io.BytesIO()
-                                    thumb.save(thumb_byte_arr, format='JPEG')
-                                    thumb_data = thumb_byte_arr.getvalue()
-                                    # Cache the generated thumbnail
-                                    # Ideally we should save this to disk too via db helper, but caching is okay
-                            except Exception as e:
-                                self.logger.warning(f"Failed to generate thumbnail from cloud image: {e}")
+        prev_button = toga.Button(
+            'Previous',
+            on_press=lambda w: self.load_photos_content(max(1, page - 1)),
+            style=toga.Pack(padding=5),
+            enabled=page > 1
+        )
 
-                        if thumb_data:
-                            image_view = toga.ImageView(data=thumb_data, style=toga.Pack(width=100, height=100, padding=5))
-                        else:
-                            # Placeholder for missing thumbnail
-                            image_view = toga.ImageView(style=toga.Pack(width=100, height=100, padding=5, background_color='#cccccc'))
+        page_input = toga.TextInput(
+            value=str(page),
+            style=toga.Pack(width=60, padding=5)
+        )
 
-                        desc_label = toga.Label(p.description or 'No description', style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
-                        photo_children = [image_view, desc_label]
-                        tags_value = []
-                        if getattr(p, 'tags', None):
-                            try:
-                                tags_value = json.loads(p.tags)
-                            except (json.JSONDecodeError, TypeError):
-                                tags_value = []
-                        if tags_value:
-                            tags_label = toga.Label(f"Tags: {', '.join(tags_value)}", style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5), color='#444444'))
-                            photo_children.append(tags_label)
-                        photo_box = toga.Box(children=photo_children, style=toga.Pack(direction=toga.COLUMN))
-                        row_box.add(photo_box)
-                    photos_box.add(row_box)
-                    row_photos = []
+        total_pages_label = toga.Label(
+            f" of {photos_result['total_pages']}",
+            style=toga.Pack(padding=(5, 0, 5, 0))
+        )
 
-            # Add remaining photos
-            if row_photos:
+        next_button = toga.Button(
+            'Next',
+            on_press=lambda w: self.load_photos_content(min(photos_result['total_pages'], page + 1)),
+            style=toga.Pack(padding=5),
+            enabled=page < photos_result['total_pages']
+        )
+
+        go_button = toga.Button(
+            'Go',
+            on_press=lambda w: self.load_photos_content(int(page_input.value) if page_input.value.isdigit() else page),
+            style=toga.Pack(padding=5)
+        )
+
+        pagination_box.add(prev_button, page_input, total_pages_label, go_button, next_button)
+        photos_box.add(pagination_box)
+
+        # Group photos into rows of 4 - now using prepared data
+        row_photos = []
+        for photo_data in photo_data_list:
+            row_photos.append(photo_data)
+            if len(row_photos) == 4:
+                # Create row
                 row_box = toga.Box(style=toga.Pack(direction=toga.ROW, padding=(5, 5, 5, 5)))
-                for p in row_photos:
-                    # Try to load thumbnail from disk first
-                    thumb_data = self.app.db.get_photo_data(p.id, thumbnail=True)
-                    
-                    if not thumb_data:
-                        # Try to check if we have full image locally and generate thumbnail on fly
-                        full_data = self.app.db.get_photo_data(p.id, thumbnail=False)
-                        if full_data:
-                            img = Image.open(io.BytesIO(full_data))
-                            thumb = img.copy()
-                            thumb.thumbnail((100, 100))
-                            thumb_byte_arr = io.BytesIO()
-                            thumb.save(thumb_byte_arr, format='JPEG')
-                            thumb_data = thumb_byte_arr.getvalue()
-
-                    if thumb_data:
-                        image_view = toga.ImageView(data=thumb_data, style=toga.Pack(width=100, height=100, padding=5))
+                for p_data in row_photos:
+                    # Build UI widgets from prepared data
+                    if p_data['thumb_data']:
+                        image_view = toga.ImageView(data=p_data['thumb_data'], style=toga.Pack(width=100, height=100, padding=5))
                     else:
+                        # Placeholder for missing thumbnail
                         image_view = toga.ImageView(style=toga.Pack(width=100, height=100, padding=5, background_color='#cccccc'))
 
-                    desc_label = toga.Label(p.description or 'No description', style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
+                    desc_label = toga.Label(p_data['description'], style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
                     photo_children = [image_view, desc_label]
-                    tags_value = []
-                    if getattr(p, 'tags', None):
-                        try:
-                            tags_value = json.loads(p.tags)
-                        except (json.JSONDecodeError, TypeError):
-                            tags_value = []
-                    if tags_value:
-                        tags_label = toga.Label(f"Tags: {', '.join(tags_value)}", style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5), color='#444444'))
+                    
+                    if p_data['tags']:
+                        tags_label = toga.Label(f"Tags: {', '.join(p_data['tags'])}", style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5), color='#444444'))
                         photo_children.append(tags_label)
+                    
                     photo_box = toga.Box(children=photo_children, style=toga.Pack(direction=toga.COLUMN))
                     row_box.add(photo_box)
                 photos_box.add(row_box)
+                row_photos = []
+
+        # Add remaining photos
+        if row_photos:
+            row_box = toga.Box(style=toga.Pack(direction=toga.ROW, padding=(5, 5, 5, 5)))
+            for p_data in row_photos:
+                # Build UI widgets from prepared data
+                if p_data['thumb_data']:
+                    image_view = toga.ImageView(data=p_data['thumb_data'], style=toga.Pack(width=100, height=100, padding=5))
+                else:
+                    image_view = toga.ImageView(style=toga.Pack(width=100, height=100, padding=5, background_color='#cccccc'))
+
+                desc_label = toga.Label(p_data['description'], style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5)))
+                photo_children = [image_view, desc_label]
+                
+                if p_data['tags']:
+                    tags_label = toga.Label(f"Tags: {', '.join(p_data['tags'])}", style=toga.Pack(text_align='center', font_size=10, padding=(0, 5, 5, 5), color='#444444'))
+                    photo_children.append(tags_label)
+                
+                photo_box = toga.Box(children=photo_children, style=toga.Pack(direction=toga.COLUMN))
+                row_box.add(photo_box)
+            photos_box.add(row_box)
 
         self.app.photos_scroll_container.content = photos_box
 

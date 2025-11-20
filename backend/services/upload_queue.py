@@ -6,6 +6,7 @@ import time
 import logging
 import threading
 import shutil
+import queue
 from datetime import datetime, timedelta
 from threading import Lock
 from sqlalchemy.orm import sessionmaker
@@ -34,26 +35,31 @@ class UploadQueueService:
         self.max_retries = 5  # maximum retry attempts
         self.base_backoff_seconds = 60  # base delay for exponential backoff
 
-        # Thread synchronization
-        self._running_lock = Lock()
-        self._queue_lock = Lock()
+        # Thread-safe queue for coordinating worker thread
+        self._work_queue = queue.Queue()
+        self._stop_event = threading.Event()
 
     def start(self):
         """Start the background upload queue processor."""
-        with self._running_lock:
-            if self.running:
-                logger.warning("Upload queue service already running")
-                return
+        if self.running:
+            logger.warning("Upload queue service already running")
+            return
 
-            self.running = True
-            self.thread = threading.Thread(target=self._process_queue_loop, daemon=True)
-            self.thread.start()
-            logger.info("Upload queue service started")
+        self.running = True
+        self._stop_event.clear()
+        self.thread = threading.Thread(target=self._process_queue_loop, daemon=True)
+        self.thread.start()
+        logger.info("Upload queue service started")
 
     def stop(self):
         """Stop the background upload queue processor."""
-        with self._running_lock:
-            self.running = False
+        self.running = False
+        self._stop_event.set()
+        # Put a sentinel value to wake up the queue if it's waiting
+        try:
+            self._work_queue.put_nowait(None)
+        except queue.Full:
+            pass
 
         if self.thread:
             self.thread.join(timeout=5)
@@ -97,17 +103,29 @@ class UploadQueueService:
 
     def _process_queue_loop(self):
         """Main processing loop for upload queue."""
-        while True:
-            with self._running_lock:
-                if not self.running:
-                    break
-
+        while not self._stop_event.is_set():
             try:
+                # Process pending uploads from database
                 self._process_pending_uploads()
+
+                # Wait for next check interval or stop event
+                # Use queue timeout to allow periodic checks even when queue is empty
+                try:
+                    item = self._work_queue.get(timeout=self.check_interval)
+                    if item is None:  # Sentinel value for shutdown
+                        break
+                    # Process the queued item (photo_id)
+                    self._process_queued_photo(item)
+                except queue.Empty:
+                    # Timeout expired, continue loop to check database again
+                    continue
+
             except Exception as e:
                 logger.error(f"Error in upload queue processing: {e}")
-
-            time.sleep(self.check_interval)
+                # Continue processing even on errors
+                if not self._stop_event.wait(timeout=1):
+                    continue
+                break
 
     def _process_pending_uploads(self):
         """Process all pending and failed photo uploads with retry logic."""
@@ -350,30 +368,55 @@ class UploadQueueService:
         if photo_data is None and photo_path is None:
             raise ValueError("Either photo_data or photo_path must be provided")
 
-        with self._queue_lock:
+        try:
+            # Save photo data locally
+            local_photo_path = self._get_local_photo_path(photo_id)
+
+            if photo_path:
+                # Copy file from source path
+                shutil.copy2(photo_path, local_photo_path)
+            else:
+                # Write data to file
+                with open(local_photo_path, 'wb') as f:
+                    f.write(photo_data)
+
+            # Save thumbnail if provided
+            if thumbnail_data:
+                thumbnail_path = local_photo_path.replace('.jpg', '_thumb.jpg')
+                with open(thumbnail_path, 'wb') as f:
+                    f.write(thumbnail_data)
+
+            # Add to work queue for immediate processing
             try:
-                # Save photo data locally
-                local_photo_path = self._get_local_photo_path(photo_id)
+                self._work_queue.put_nowait(photo_id)
+            except queue.Full:
+                # Queue is full, will be picked up by database polling
+                logger.warning(f"Work queue full, photo {photo_id} will be processed during next database poll")
 
-                if photo_path:
-                    # Copy file from source path
-                    shutil.copy2(photo_path, local_photo_path)
-                else:
-                    # Write data to file
-                    with open(local_photo_path, 'wb') as f:
-                        f.write(photo_data)
+            logger.info(f"Queued photo {photo_id} for upload")
 
-                # Save thumbnail if provided
-                if thumbnail_data:
-                    thumbnail_path = local_photo_path.replace('.jpg', '_thumb.jpg')
-                    with open(thumbnail_path, 'wb') as f:
-                        f.write(thumbnail_data)
+        except Exception as e:
+            logger.error(f"Failed to queue photo {photo_id}: {e}")
+            raise
 
-                logger.info(f"Queued photo {photo_id} for upload")
+    def _process_queued_photo(self, photo_id):
+        """Process a single photo from the work queue."""
+        session = self.SessionLocal()
+        try:
+            photo = session.query(Photo).filter_by(id=photo_id).first()
+            if not photo:
+                logger.warning(f"Photo {photo_id} not found in database")
+                return
 
-            except Exception as e:
-                logger.error(f"Failed to queue photo {photo_id}: {e}")
-                raise
+            # Only process if still pending or failed
+            if photo.upload_status in ('pending', 'failed'):
+                try:
+                    self._process_single_upload(session, photo)
+                except Exception as e:
+                    logger.error(f"Failed to upload photo {photo_id}: {e}")
+                    self._handle_upload_failure(session, photo, e)
+        finally:
+            session.close()
 
 
 # Global instance with thread-safe lazy initialization

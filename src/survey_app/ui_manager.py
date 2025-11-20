@@ -2,6 +2,7 @@
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
+from .ui.ui_builder import create_label, create_text_input, create_button, create_selection
 
 
 class UIManager:
@@ -28,137 +29,117 @@ class UIManager:
     def create_main_ui(self):
         """Create the main user interface."""
         # Header
-        header_label = toga.Label(
+        header_label = create_label(
             'Site Survey App',
-            style=Pack(font_size=24, padding=(10, 10, 20, 10))
+            style_overrides={'font_size': 24, 'padding': (10, 10, 20, 10)}
         )
 
         # Survey selection
-        survey_label = toga.Label(
-            'Select Survey:',
-            style=Pack(padding=(5, 10, 5, 10))
+        survey_label = create_label('Select Survey:')
+
+        self.survey_selection = create_selection(
+            items=['Select a site first...']
         )
 
-        self.survey_selection = toga.Selection(
-            items=['Select a site first...'],
-            style=Pack(padding=(5, 10, 10, 10))
-        )
-
-        select_survey_button = toga.Button(
+        select_survey_button = create_button(
             'Start Survey',
-            on_press=self.app.start_survey,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.start_survey
         )
 
         # Navigation buttons
-        projects_button = toga.Button(
+        projects_button = create_button(
             'Projects',
-            on_press=self.app.show_projects_ui,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.show_projects_ui
         )
 
-        sites_button = toga.Button(
+        sites_button = create_button(
             'Sites',
-            on_press=self.app.show_sites_ui,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.show_sites_ui
         )
 
-        templates_button = toga.Button(
+        templates_button = create_button(
             'Templates',
-            on_press=self.app.show_templates_ui,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.show_templates_ui
         )
 
-        photos_button = toga.Button(
+        photos_button = create_button(
             'Photos',
-            on_press=self.app.show_photos_ui,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.show_photos_ui
         )
 
-        sync_button = toga.Button(
+        sync_button = create_button(
             'Sync Now',
-            on_press=self.app.sync_with_server,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.sync_with_server
         )
 
-        manage_tags_button = toga.Button(
+        manage_tags_button = create_button(
             'Manage Tags',
-            on_press=self.app.tag_management_handler.show_tag_management_ui,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.tag_management_handler.show_tag_management_ui
         )
 
-        config_button = toga.Button(
+        config_button = create_button(
             'Settings',
-            on_press=self.app.show_config_ui,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.show_config_ui
         )
 
         # Enhanced survey form components
-        self.survey_title_label = toga.Label(
+        self.survey_title_label = create_label(
             '',
-            style=Pack(font_size=18, padding=(20, 10, 10, 10), font_weight='bold')
+            style_overrides={'font_size': 18, 'padding': (20, 10, 10, 10), 'font_weight': 'bold'}
         )
 
-        self.progress_label = toga.Label(
+        self.progress_label = create_label(
             '',
-            style=Pack(padding=(5, 10, 5, 10), color='#666666')
+            style_overrides={'color': '#666666'}
         )
 
-        self.question_label = toga.Label(
+        self.question_label = create_label(
             '',
-            style=Pack(padding=(10, 10, 5, 10))
+            style_overrides={'padding': (10, 10, 5, 10)}
         )
 
-        self.answer_input = toga.TextInput(
+        self.answer_input = create_text_input(
             placeholder='Enter your answer',
-            style=Pack(padding=(5, 10, 10, 10))
+            on_change=self.app.on_answer_input_change
         )
-        self.answer_input.on_change = self.app.on_answer_input_change
 
-        self.yes_button = toga.Button(
+        self.yes_button = create_button(
             'Yes',
             on_press=lambda w: self.app.submit_yesno_answer('Yes'),
-            style=Pack(padding=(5, 10, 5, 5))
+            style_overrides={'padding': (5, 10, 5, 5)}
         )
-        self.no_button = toga.Button(
+        self.no_button = create_button(
             'No',
             on_press=lambda w: self.app.submit_yesno_answer('No'),
-            style=Pack(padding=(5, 10, 10, 5))
+            style_overrides={'padding': (5, 10, 10, 5)}
         )
 
-        self.options_selection = toga.Selection(
-            items=[],
-            style=Pack(padding=(5, 10, 10, 10))
-        )
+        self.options_selection = create_selection()
 
-        self.enhanced_photo_button = toga.Button(
+        self.enhanced_photo_button = create_button(
             '📷 Take Photo',
-            on_press=self.app.take_photo_enhanced,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.take_photo_enhanced
         )
 
-        submit_answer_button = toga.Button(
+        submit_answer_button = create_button(
             'Submit Answer',
-            on_press=self.app.submit_answer,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.submit_answer
         )
 
-        next_question_button = toga.Button(
+        next_question_button = create_button(
             'Next Question',
-            on_press=self.app.next_question,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.next_question
         )
 
-        finish_survey_button = toga.Button(
+        finish_survey_button = create_button(
             'Finish Survey',
-            on_press=self.app.finish_survey,
-            style=Pack(padding=(5, 10, 10, 10))
+            on_press=self.app.finish_survey
         )
 
         # Status label
-        self.status_label = toga.Label(
+        self.status_label = create_label(
             'Ready',
-            style=Pack(padding=(10, 10, 10, 10), color='#666666')
+            style_overrides={'padding': (10, 10, 10, 10), 'color': '#666666'}
         )
 
         # Initially hide enhanced survey form

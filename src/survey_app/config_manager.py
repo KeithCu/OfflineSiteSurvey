@@ -1,6 +1,5 @@
 """Configuration Manager for Survey App."""
 import os
-from typing import Dict, Any, Optional
 
 
 class ConfigManager:
@@ -74,64 +73,64 @@ class ConfigManager:
                     # Log warning but keep default
                     pass
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(self, key, default=None):
         """Get a configuration value."""
         return self._config.get(key, default)
 
-    def set(self, key: str, value: Any):
+    def set(self, key, value):
         """Set a configuration value."""
         self._config[key] = value
 
-    def get_all(self) -> Dict[str, Any]:
+    def get_all(self):
         """Get all configuration values."""
         return self._config.copy()
 
     # Convenience methods for commonly accessed settings
     @property
-    def api_timeout(self) -> float:
+    def api_timeout(self):
         return self.get('api_timeout')
 
     @property
-    def auto_save_delay(self) -> float:
+    def auto_save_delay(self):
         return self.get('auto_save_delay')
 
     @property
-    def auto_save_min_interval(self) -> float:
+    def auto_save_min_interval(self):
         return self.get('auto_save_min_interval')
 
     @property
-    def draft_retention_time(self) -> float:
+    def draft_retention_time(self):
         return self.get('draft_retention_time')
 
     @property
-    def api_base_url(self) -> str:
+    def api_base_url(self):
         return self.get('api_base_url')
 
     @property
-    def sync_batch_size(self) -> int:
+    def sync_batch_size(self):
         return self.get('sync_batch_size')
 
     @property
-    def gps_timeout(self) -> float:
+    def gps_timeout(self):
         return self.get('gps_timeout')
 
     # CompanyCam properties
     @property
-    def companycam_client_id(self) -> str:
+    def companycam_client_id(self):
         return self.get('companycam_client_id')
 
     @property
-    def companycam_access_token(self) -> str:
+    def companycam_access_token(self):
         return self.get('companycam_access_token')
 
     @property
-    def companycam_refresh_token(self) -> str:
+    def companycam_refresh_token(self):
         return self.get('companycam_refresh_token')
 
     @property
-    def companycam_user_id(self) -> str:
+    def companycam_user_id(self):
         return self.get('companycam_user_id')
 
     @property
-    def companycam_client_secret(self) -> str:
+    def companycam_client_secret(self):
         return self.get('companycam_client_secret')

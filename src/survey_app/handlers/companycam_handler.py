@@ -2,7 +2,6 @@
 import toga
 import asyncio
 import logging
-from typing import Optional
 
 
 class CompanyCamHandler:
@@ -26,7 +25,7 @@ class CompanyCamHandler:
             self.logger.error(f"Failed to start OAuth flow: {e}")
             self.app.status_label.text = f"Failed to connect to CompanyCam: {e}"
 
-    def handle_oauth_callback(self, auth_code: str) -> bool:
+    def handle_oauth_callback(self, auth_code):
         """Handle OAuth callback from CompanyCam."""
         try:
             success = self.app.companycam_service.handle_oauth_callback(auth_code)
@@ -192,7 +191,7 @@ class CompanyCamHandler:
             self.logger.error(f"Sync failed: {e}")
             self.app.status_label.text = f"An error occurred during sync: {e}"
 
-    def _get_survey_address(self) -> str:
+    def _get_survey_address(self):
         """Get address for the current survey."""
         if self.app.current_site:
             return self.app.current_site.address or ""
@@ -203,7 +202,7 @@ class CompanyCamHandler:
         # This would be called when UI needs to be refreshed
         pass
 
-    def handle_oauth_url(self, url: str) -> bool:
+    def handle_oauth_url(self, url):
         """Handle OAuth callback URL (for custom URL scheme handling)."""
         try:
             if 'code=' in url:

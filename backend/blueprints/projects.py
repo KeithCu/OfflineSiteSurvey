@@ -5,9 +5,6 @@ from ..base.crud_base import CRUDBase
 from shared.validation import Validator, ValidationError
 from shared.enums import PriorityLevel
 import datetime
-from typing import Dict, Any
-
-
 bp = Blueprint('projects', __name__, url_prefix='/api')
 
 
@@ -17,7 +14,7 @@ class ProjectCRUD(CRUDBase):
     def __init__(self):
         super().__init__(Project, logger_name='projects')
     
-    def serialize(self, project: Project) -> Dict[str, Any]:
+    def serialize(self, project):
         """Serialize project to dictionary."""
         return {
             'id': project.id,
@@ -31,7 +28,7 @@ class ProjectCRUD(CRUDBase):
             'updated_at': project.updated_at.isoformat()
         }
     
-    def validate_create_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_create_data(self, data):
         """Validate and prepare data for project creation."""
         # Validate input data using shared validator
         validated_data = Validator.validate_project_data(data)
@@ -75,7 +72,7 @@ class ProjectCRUD(CRUDBase):
         
         return validated_data
     
-    def validate_update_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_update_data(self, data):
         """Validate and prepare data for project update."""
         validated_data = {}
         

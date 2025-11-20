@@ -1,6 +1,5 @@
 """Base CRUD class for Flask blueprints."""
 from flask import jsonify, request
-from typing import Type, Optional, Dict, Any, Callable, List
 from sqlalchemy.orm import DeclarativeBase
 from shared.validation import Validator, ValidationError
 from ..models import db
@@ -25,7 +24,7 @@ class CRUDBase:
     - get_plural_name() - to customize plural resource name
     """
     
-    def __init__(self, model_class: Type[DeclarativeBase], logger_name: Optional[str] = None):
+    def __init__(self, model_class, logger_name=None):
         """Initialize CRUD base class.
         
         Args:
@@ -35,7 +34,7 @@ class CRUDBase:
         self.model = model_class
         self.logger = logging.getLogger(logger_name or self.__class__.__name__)
     
-    def get_list(self, page: int = 1, per_page: int = 50, max_per_page: int = 100) -> tuple:
+    def get_list(self, page=1, per_page=50, max_per_page=100):
         """Get paginated list of resources.
         
         Args:
@@ -68,7 +67,7 @@ class CRUDBase:
             }
         })
     
-    def get_detail(self, resource_id: int) -> tuple:
+    def get_detail(self, resource_id):
         """Get single resource by ID.
         
         Args:
@@ -80,7 +79,7 @@ class CRUDBase:
         resource = self.model.query.get_or_404(resource_id)
         return jsonify(self.serialize(resource))
     
-    def create(self, validate_func: Optional[Callable] = None) -> tuple:
+    def create(self, validate_func=None):
         """Create a new resource.
         
         Args:
@@ -117,7 +116,7 @@ class CRUDBase:
             db.session.rollback()
             return jsonify({'error': f'Failed to create {self.get_singular_name()}'}), 500
     
-    def update(self, resource_id: int, validate_func: Optional[Callable] = None) -> tuple:
+    def update(self, resource_id, validate_func=None):
         """Update an existing resource.
         
         Args:
@@ -154,7 +153,7 @@ class CRUDBase:
             db.session.rollback()
             return jsonify({'error': f'Failed to update {self.get_singular_name()}'}), 500
     
-    def delete(self, resource_id: int, cascade_func: Optional[Callable] = None) -> tuple:
+    def delete(self, resource_id, cascade_func=None):
         """Delete a resource.
         
         Args:
@@ -186,7 +185,7 @@ class CRUDBase:
             db.session.rollback()
             return jsonify({'error': f'Failed to delete {self.get_singular_name()}'}), 500
     
-    def serialize(self, resource: DeclarativeBase) -> Dict[str, Any]:
+    def serialize(self, resource):
         """Serialize resource to dictionary.
         
         Subclasses should override this method to customize serialization.
@@ -210,7 +209,7 @@ class CRUDBase:
                 result[column.name] = value
         return result
     
-    def get_json_data(self) -> Dict[str, Any]:
+    def get_json_data(self):
         """Get and validate JSON data from request.
         
         Returns:
@@ -231,7 +230,7 @@ class CRUDBase:
                 raise
             raise ValidationError('Invalid JSON data')
     
-    def validate_create_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_create_data(self, data):
         """Validate data for creation.
         
         Subclasses should override this method to add custom validation.
@@ -247,7 +246,7 @@ class CRUDBase:
         """
         return data
     
-    def validate_update_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_update_data(self, data):
         """Validate data for update.
         
         Subclasses should override this method to add custom validation.
@@ -264,7 +263,7 @@ class CRUDBase:
         """
         return data
     
-    def get_singular_name(self) -> str:
+    def get_singular_name(self):
         """Get singular resource name for messages.
         
         Subclasses can override to customize the name.
@@ -278,7 +277,7 @@ class CRUDBase:
             return table_name[:-1]
         return table_name
     
-    def get_plural_name(self) -> str:
+    def get_plural_name(self):
         """Get plural resource name for responses.
         
         Returns:

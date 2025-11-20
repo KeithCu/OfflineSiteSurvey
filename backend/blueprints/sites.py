@@ -4,9 +4,6 @@ from ..models import Site
 from ..base.crud_base import CRUDBase
 from shared.validation import Validator, ValidationError
 from ..utils import validate_foreign_key
-from typing import Dict, Any
-
-
 bp = Blueprint('sites', __name__, url_prefix='/api')
 
 
@@ -16,7 +13,7 @@ class SiteCRUD(CRUDBase):
     def __init__(self):
         super().__init__(Site, logger_name='sites')
     
-    def serialize(self, site: Site, include_project_id: bool = True) -> Dict[str, Any]:
+    def serialize(self, site, include_project_id=True):
         """Serialize site to dictionary.
         
         Args:
@@ -39,7 +36,7 @@ class SiteCRUD(CRUDBase):
         
         return result
     
-    def validate_create_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_create_data(self, data):
         """Validate and prepare data for site creation."""
         # Validate input data using shared validator
         validated_data = Validator.validate_site_data(data)
@@ -69,7 +66,7 @@ class SiteCRUD(CRUDBase):
         
         return validated_data
     
-    def validate_update_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_update_data(self, data):
         """Validate and prepare data for site update."""
         validated_data = {}
         
@@ -133,7 +130,7 @@ class SiteCRUD(CRUDBase):
         
         return validated_data
     
-    def get_list(self, page: int = 1, per_page: int = 50, max_per_page: int = 100) -> tuple:
+    def get_list(self, page=1, per_page=50, max_per_page=100):
         """Get paginated list of sites (with project_id included)."""
         per_page = min(per_page, max_per_page)
         
@@ -158,7 +155,7 @@ class SiteCRUD(CRUDBase):
             }
         })
     
-    def get_detail(self, resource_id: int) -> tuple:
+    def get_detail(self, resource_id):
         """Get single site by ID (without project_id in response)."""
         site = self.model.query.get_or_404(resource_id)
         return jsonify(self.serialize(site, include_project_id=False))

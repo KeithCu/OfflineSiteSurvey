@@ -1,6 +1,5 @@
 """Automated tag mapping for CompanyCam integration."""
 from difflib import get_close_matches
-from typing import Optional, List, Dict, Any
 
 class TagMapper:
     """Handles automated mapping of app tags to CompanyCam tags."""
@@ -9,7 +8,7 @@ class TagMapper:
         self.companycam_service = companycam_service
         self.companycam_tags = self._load_companycam_tags()
 
-    def _load_companycam_tags(self) -> List[Dict[str, Any]]:
+    def _load_companycam_tags(self):
         """Load all tags from CompanyCam."""
         try:
             tags = self.companycam_service.list_tags()
@@ -18,7 +17,7 @@ class TagMapper:
             # Handle exceptions during tag loading
             return []
 
-    def find_best_match(self, app_tag: str, cutoff: float = 0.6) -> Optional[Dict[str, Any]]:
+    def find_best_match(self, app_tag, cutoff=0.6):
         """
         Find the best match for an app tag from the list of CompanyCam tags.
         """

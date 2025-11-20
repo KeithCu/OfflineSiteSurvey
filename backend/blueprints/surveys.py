@@ -4,9 +4,6 @@ from ..models import db, Survey, SurveyResponse, SurveyStatus
 from ..base.crud_base import CRUDBase
 from shared.validation import Validator, ValidationError
 from ..utils import validate_foreign_key
-from typing import Dict, Any, List
-
-
 bp = Blueprint('surveys', __name__, url_prefix='/api')
 
 
@@ -16,7 +13,7 @@ class SurveyCRUD(CRUDBase):
     def __init__(self):
         super().__init__(Survey, logger_name='surveys')
     
-    def serialize(self, survey: Survey, include_responses: bool = False) -> Dict[str, Any]:
+    def serialize(self, survey, include_responses=False):
         """Serialize survey to dictionary.
         
         Args:
@@ -38,7 +35,7 @@ class SurveyCRUD(CRUDBase):
         
         return result
     
-    def _serialize_responses(self, responses: List[SurveyResponse]) -> List[Dict[str, Any]]:
+    def _serialize_responses(self, responses):
         """Serialize survey responses to list of dictionaries."""
         return [{
             'id': r.id,
@@ -50,7 +47,7 @@ class SurveyCRUD(CRUDBase):
             'created_at': r.created_at.isoformat()
         } for r in responses]
     
-    def validate_create_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_create_data(self, data):
         """Validate and prepare data for survey creation."""
         # Validate input data using shared validator
         validated_data = Validator.validate_survey_data(data)
@@ -92,12 +89,12 @@ class SurveyCRUD(CRUDBase):
         
         return validated_data
     
-    def get_detail(self, resource_id: int) -> tuple:
+    def get_detail(self, resource_id):
         """Get single survey by ID with responses included."""
         survey = self.model.query.get_or_404(resource_id)
         return jsonify(self.serialize(survey, include_responses=True))
     
-    def create(self, validate_func=None) -> tuple:
+    def create(self, validate_func=None):
         """Create a new survey with custom response format including template_id."""
         try:
             data = self.get_json_data()

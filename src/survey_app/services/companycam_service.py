@@ -5,7 +5,6 @@ import time
 import logging
 import webbrowser
 import urllib.parse
-from typing import Optional, Dict, Any
 
 
 class CompanyCamService:
@@ -28,11 +27,11 @@ class CompanyCamService:
         if not self.client_secret:
             self.logger.warning("CompanyCam client_secret not configured. Set COMPANYCAM_CLIENT_SECRET environment variable.")
 
-    def is_connected(self) -> bool:
+    def is_connected(self):
         """Check if we have valid CompanyCam credentials."""
         return bool(self.config.companycam_access_token and self.config.companycam_user_id)
 
-    def start_oauth_flow(self) -> None:
+    def start_oauth_flow(self):
         """Start the OAuth 2.0 authorization flow."""
         auth_url = f"{self.BASE_URL}/oauth/authorize"
         params = {
@@ -47,7 +46,7 @@ class CompanyCamService:
         self.logger.info(f"Opening OAuth URL: {full_url}")
         webbrowser.open(full_url)
 
-    def handle_oauth_callback(self, auth_code: str) -> bool:
+    def handle_oauth_callback(self, auth_code):
         """Handle the OAuth callback with authorization code."""
         if not self.client_id or not self.client_secret:
             self.logger.error("CompanyCam OAuth credentials not configured")
@@ -76,13 +75,13 @@ class CompanyCamService:
             self.logger.error(f"OAuth callback failed: {e}")
             return False
 
-    def _store_tokens(self, token_data: Dict[str, Any]) -> None:
+    def _store_tokens(self, token_data):
         """Store OAuth tokens in configuration."""
         self.config.set('companycam_access_token', token_data.get('access_token', ''))
         self.config.set('companycam_refresh_token', token_data.get('refresh_token', ''))
         self.config.set('companycam_user_id', str(token_data.get('user_id', '')))
 
-    def refresh_access_token(self) -> bool:
+    def refresh_access_token(self):
         """Refresh the access token using refresh token."""
         if not self.config.companycam_refresh_token:
             return False
@@ -111,14 +110,14 @@ class CompanyCamService:
             self.logger.error(f"Token refresh failed: {e}")
             return False
 
-    def _get_auth_headers(self) -> Dict[str, str]:
+    def _get_auth_headers(self):
         """Get authorization headers for API requests."""
         return {
             'Authorization': f"Bearer {self.config.companycam_access_token}",
             'Content-Type': 'application/json'
         }
 
-    def _ensure_valid_token(self) -> bool:
+    def _ensure_valid_token(self):
         """Ensure we have a valid access token, refreshing if necessary."""
         if not self.config.companycam_access_token:
             return False
@@ -127,7 +126,7 @@ class CompanyCamService:
         # and refresh proactively
         return True
 
-    def create_project(self, name: str, description: str = "", address: str = "") -> Optional[Dict[str, Any]]:
+    def create_project(self, name, description="", address=""):
         """Create a new CompanyCam project."""
         if not self._ensure_valid_token():
             return None
@@ -156,7 +155,7 @@ class CompanyCamService:
             self.logger.error(f"Failed to create project: {e}")
             return None
 
-    def find_project_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+    def find_project_by_name(self, name):
         """Find an existing project by name."""
         if not self._ensure_valid_token():
             return None
@@ -180,9 +179,7 @@ class CompanyCamService:
             self.logger.error(f"Failed to search projects: {e}")
             return None
 
-    def upload_photo(self, project_id: str, image_data: bytes, filename: str,
-                    description: str = "", latitude: float = None, longitude: float = None,
-                    tag_ids: list = None) -> Optional[Dict[str, Any]]:
+    def upload_photo(self, project_id, image_data, filename, description="", latitude=None, longitude=None, tag_ids=None):
         """Upload a photo to a CompanyCam project."""
         if not self._ensure_valid_token():
             return None
@@ -223,7 +220,7 @@ class CompanyCamService:
             self.logger.error(f"Failed to upload photo: {e}")
             return None
 
-    def list_checklist_templates(self) -> Optional[list]:
+    def list_checklist_templates(self):
         """List all checklist templates."""
         if not self._ensure_valid_token():
             return None
@@ -237,7 +234,7 @@ class CompanyCamService:
             self.logger.error(f"Failed to list checklist templates: {e}")
             return None
 
-    def create_project_checklist(self, project_id: str, template_id: str) -> Optional[Dict[str, Any]]:
+    def create_project_checklist(self, project_id, template_id):
         """Create a checklist on a project from a template."""
         if not self._ensure_valid_token():
             return None
@@ -252,7 +249,7 @@ class CompanyCamService:
             self.logger.error(f"Failed to create project checklist: {e}")
             return None
 
-    def get_project_checklist(self, project_id: str, checklist_id: str) -> Optional[Dict[str, Any]]:
+    def get_project_checklist(self, project_id, checklist_id):
         """Retrieve a project checklist."""
         if not self._ensure_valid_token():
             return None
@@ -266,7 +263,7 @@ class CompanyCamService:
             self.logger.error(f"Failed to get project checklist: {e}")
             return None
 
-    def update_checklist_item(self, checklist_id: str, item_id: str, value: str) -> Optional[Dict[str, Any]]:
+    def update_checklist_item(self, checklist_id, item_id, value):
         """Update a checklist item."""
         if not self._ensure_valid_token():
             return None
@@ -281,7 +278,7 @@ class CompanyCamService:
             self.logger.error(f"Failed to update checklist item: {e}")
             return None
 
-    def list_tags(self) -> Optional[list]:
+    def list_tags(self):
         """List all tags."""
         if not self._ensure_valid_token():
             return None
@@ -295,7 +292,7 @@ class CompanyCamService:
             self.logger.error(f"Failed to list tags: {e}")
             return None
 
-    def create_tag(self, name: str) -> Optional[Dict[str, Any]]:
+    def create_tag(self, name):
         """Create a new tag."""
         if not self._ensure_valid_token():
             return None

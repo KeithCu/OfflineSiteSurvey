@@ -1,7 +1,6 @@
 """Input validation utilities."""
 import re
 import os
-from typing import Any, Optional, Union, List
 from shared.enums import ProjectStatus, SurveyStatus, PriorityLevel
 
 try:
@@ -26,14 +25,14 @@ class Validator:
     COORDINATE_PATTERN = re.compile(r'^-?([1-8]?\d(\.\d+)?|90(\.0+)?),\s*-?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$')
 
     @staticmethod
-    def validate_required(value: Any, field_name: str) -> Any:
+    def validate_required(value, field_name):
         """Validate that a required field is not empty."""
         if value is None or (isinstance(value, str) and not value.strip()):
             raise ValidationError(f"{field_name} is required")
         return value
 
     @staticmethod
-    def validate_string_length(value: str, field_name: str, min_length: int = 0, max_length: int = None) -> str:
+    def validate_string_length(value, field_name, min_length=0, max_length=None):
         """Validate string length constraints."""
         if not isinstance(value, str):
             raise ValidationError(f"{field_name} must be a string")
@@ -47,7 +46,7 @@ class Validator:
         return value.strip()
 
     @staticmethod
-    def validate_email(email: str) -> str:
+    def validate_email(email):
         """Validate email format."""
         email = email.strip()
         if not Validator.EMAIL_PATTERN.match(email):
@@ -55,7 +54,7 @@ class Validator:
         return email
 
     @staticmethod
-    def validate_phone(phone: str) -> str:
+    def validate_phone(phone):
         """Validate phone number format."""
         phone = re.sub(r'[^\d+()-.\s]', '', phone.strip())
         if not Validator.PHONE_PATTERN.match(phone):
@@ -63,7 +62,7 @@ class Validator:
         return phone
 
     @staticmethod
-    def validate_coordinates(lat: Union[str, float], lng: Union[str, float]) -> tuple[float, float]:
+    def validate_coordinates(lat, lng):
         """Validate GPS coordinates.
 
         Accepts coordinates with reasonable precision (0-10 decimal places).
@@ -107,8 +106,7 @@ class Validator:
             raise ValidationError("Invalid coordinate format")
 
     @staticmethod
-    def validate_numeric_range(value: Union[str, int, float], field_name: str,
-                             min_val: Union[int, float] = None, max_val: Union[int, float] = None) -> Union[int, float]:
+    def validate_numeric_range(value, field_name, min_val=None, max_val=None):
         """Validate numeric value within range."""
         try:
             num_val = float(value) if isinstance(value, str) else value
@@ -124,14 +122,14 @@ class Validator:
             raise ValidationError(f"{field_name} must be a valid number")
 
     @staticmethod
-    def validate_choice(value: Any, field_name: str, valid_choices: List[Any]) -> Any:
+    def validate_choice(value, field_name, valid_choices):
         """Validate that value is in list of valid choices."""
         if value not in valid_choices:
             raise ValidationError(f"{field_name} must be one of: {', '.join(str(c) for c in valid_choices)}")
         return value
 
     @staticmethod
-    def validate_file_path(file_path: str, field_name: str = "file path", allow_empty: bool = False) -> Optional[str]:
+    def validate_file_path(file_path, field_name="file path", allow_empty=False):
         """Validate file path security and existence."""
         if not file_path and allow_empty:
             return None
@@ -151,7 +149,7 @@ class Validator:
         return file_path
 
     @staticmethod
-    def sanitize_html(text: str) -> str:
+    def sanitize_html(text):
         """Secure HTML sanitization using bleach library."""
         if not text:
             return text
@@ -164,7 +162,7 @@ class Validator:
         return bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes, strip=True)
 
     @staticmethod
-    def validate_project_data(data: dict) -> dict:
+    def validate_project_data(data):
         """Validate project data."""
         validated = {}
 
@@ -195,7 +193,7 @@ class Validator:
 
         return validated
     @staticmethod
-    def validate_site_data(data: dict) -> dict:
+    def validate_site_data(data):
         """Validate site data."""
         validated = {}
 
@@ -228,7 +226,7 @@ class Validator:
         return validated
 
     @staticmethod
-    def validate_survey_data(data: dict) -> dict:
+    def validate_survey_data(data):
         """Validate survey data."""
         validated = {}
 

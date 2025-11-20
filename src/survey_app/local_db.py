@@ -293,7 +293,7 @@ class LocalDatabase:
     def apply_changes(self, changes):
         return self.sync_service.apply_changes(changes)
 
-    def backup(self, backup_dir=None):
+    def backup(self, backup_dir=None, include_media=True):
         if not backup_dir:
             backup_dir = Path(self.db_path).parent / 'backups'
         Path(backup_dir).mkdir(parents=True, exist_ok=True)
@@ -310,8 +310,8 @@ class LocalDatabase:
                         db_filename = f"{db_filename}.db"
                     backup_zip.write(self.db_path, db_filename)
 
-                # Backup photos
-                if self.photos_dir.exists():
+                # Backup photos if include_media is True
+                if include_media and self.photos_dir.exists():
                     for root, _, files in os.walk(self.photos_dir):
                         for file in files:
                             file_path = Path(root) / file

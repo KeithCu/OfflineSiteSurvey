@@ -2,7 +2,8 @@
 """
 Startup script for KoboToolbox Bridge MVP
 """
-from src.kobo_bridge.app import app
+from backend.app import create_app
 
 if __name__ == '__main__':
+    app = create_app()
     app.run(debug=True, host='0.0.0.0', port=5000)

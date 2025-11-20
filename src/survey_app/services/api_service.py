@@ -51,15 +51,29 @@ class APIService:
         kwargs['headers'] = merged_headers
         return kwargs
 
+    def _reset_file_pointers(self, kwargs):
+        """Reset file pointers in kwargs to beginning for retry attempts."""
+        if 'files' in kwargs:
+            files = kwargs['files']
+            if isinstance(files, dict):
+                for key, value in files.items():
+                    if hasattr(value, 'seek'):
+                        value.seek(0)
+                    elif isinstance(value, tuple) and len(value) >= 2 and hasattr(value[1], 'seek'):
+                        # Handle tuple format: (filename, fileobj, content_type)
+                        value[1].seek(0)
+
     def _make_request(self, method, url, **kwargs):
         """Make HTTP request with retry logic (synchronous - for backward compatibility)."""
         # Merge auth headers with any provided headers
         kwargs = self._merge_headers(kwargs)
-        
+
         last_exception = None
 
         for attempt in range(self.max_retries):
             try:
+                # Reset file pointers before each attempt to handle retries properly
+                self._reset_file_pointers(kwargs)
                 response = requests.request(method, url, **kwargs)
                 # Don't retry on client errors (4xx) except for specific cases
                 if response.status_code >= 400 and response.status_code < 500:

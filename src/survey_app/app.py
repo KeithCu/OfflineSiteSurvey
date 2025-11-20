@@ -61,8 +61,15 @@ class SurveyApp(toga.App):
         
         self.db_service = DBService(self.db)
         self.logger.debug("Database service initialized")
+
+        self.auth_service = AuthService(self.config.api_base_url)
+        self.logger.info("Auth service initialized")
         
-        self.api_service = APIService(self.config.api_base_url, offline_queue=self.state.offline_queue if hasattr(self, 'state') else None)
+        self.api_service = APIService(
+            self.config.api_base_url,
+            offline_queue=self.state.offline_queue if hasattr(self, 'state') else None,
+            auth_service=self.auth_service
+        )
         # Note: self.state is initialized later, so offline_queue might be None initially.
         # But APIService usually needs it for offline support.
         # We'll fix order below.
@@ -72,9 +79,6 @@ class SurveyApp(toga.App):
         
         self.tag_mapper = TagMapper(self.companycam_service)
         self.logger.debug("Tag mapper initialized")
-
-        self.auth_service = AuthService(self.config.api_base_url)
-        self.logger.info("Auth service initialized")
 
         # Initialize state
         self.logger.debug("Initializing application state")

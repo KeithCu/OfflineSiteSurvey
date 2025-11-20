@@ -200,7 +200,8 @@ def init_auth(app):
     @app.before_request
     def check_auth():
         if request.path.startswith('/api/auth/login') or \
-           request.path.startswith('/api/auth/register'):
+           request.path.startswith('/api/auth/register') or \
+           request.path.startswith('/api/auth/key'):
             return
 
         if not request.path.startswith('/api'):

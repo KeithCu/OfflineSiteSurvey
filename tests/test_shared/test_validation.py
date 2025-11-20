@@ -57,27 +57,24 @@ class TestValidator:
             with pytest.raises(ValidationError, match="Invalid email format"):
                 Validator.validate_email(email)
 
-    def test_validate_coordinates_success(self):
+    @pytest.mark.parametrize("lat,lng,description", [
+        (40.7128, -74.0060, "4 decimal places"),
+        (40.71280000, -74.00600000, "8 decimal places"),
+        (40.7, -74.0, "1 decimal place"),
+        (40, -74, "no decimal places"),
+        ("40.7128", "-74.0060", "string inputs"),
+        (90.0, 180.0, "maximum values"),
+        (-90.0, -180.0, "minimum values"),
+        (0.0, 0.0, "zero coordinates"),
+        (45.123456789, 90.987654321, "high precision within limits"),
+    ])
+    def test_validate_coordinates_success(self, lat, lng, description):
         """Test successful coordinate validation with various decimal precisions."""
-        # Test various decimal precisions that should all pass
-        test_cases = [
-            # (lat, lng, description)
-            (40.7128, -74.0060, "4 decimal places"),
-            (40.71280000, -74.00600000, "8 decimal places"),
-            (40.7, -74.0, "1 decimal place"),
-            (40, -74, "no decimal places"),
-            ("40.7128", "-74.0060", "string inputs"),
-            (90.0, 180.0, "maximum values"),
-            (-90.0, -180.0, "minimum values"),
-            (0.0, 0.0, "zero coordinates"),
-            (45.123456789, 90.987654321, "high precision within limits"),
-        ]
-
-        for lat, lng, description in test_cases:
-            with self.subTest(description=description):
-                result_lat, result_lng = Validator.validate_coordinates(lat, lng)
-                assert result_lat == float(lat) if isinstance(lat, str) else lat
-                assert result_lng == float(lng) if isinstance(lng, str) else lng
+        result_lat, result_lng = Validator.validate_coordinates(lat, lng)
+        expected_lat = float(lat) if isinstance(lat, str) else lat
+        expected_lng = float(lng) if isinstance(lng, str) else lng
+        assert result_lat == expected_lat
+        assert result_lng == expected_lng
 
     def test_validate_coordinates_failure(self):
         """Test coordinate validation failures."""
@@ -102,13 +99,16 @@ class TestValidator:
             Validator.validate_coordinates("40.7128", "-74.12345678901")
 
         # Test invalid formats
-        with pytest.raises(ValidationError, match="Invalid coordinate format"):
+        with pytest.raises(ValidationError, match="Latitude must be a valid number"):
             Validator.validate_coordinates("invalid", "coords")
 
-        with pytest.raises(ValidationError, match="Invalid coordinate format"):
+        with pytest.raises(ValidationError, match="Longitude must be a valid number"):
+            Validator.validate_coordinates("40.7128", "invalid")
+
+        with pytest.raises(ValidationError, match="Latitude must be a number or numeric string"):
             Validator.validate_coordinates(None, 0)
 
-        with pytest.raises(ValidationError, match="Invalid coordinate format"):
+        with pytest.raises(ValidationError, match="Longitude must be a number or numeric string"):
             Validator.validate_coordinates(40.7128, None)
 
     def test_validate_choice_success(self):

@@ -14,7 +14,9 @@ class Validator:
     """Input validation utilities."""
 
     # Common validation patterns (pre-compiled for performance)
-    EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    # Email pattern: local part must start/end with alphanumeric, no consecutive dots/special chars
+    # Domain parts must start/end with alphanumeric, no consecutive dots/hyphens
+    EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9]+([._%+-][a-zA-Z0-9]+)*@([a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*\.)+[a-zA-Z]{2,}$')
     PHONE_PATTERN = re.compile(r'^\+?1?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})$')
     PHONE_CLEAN_PATTERN = re.compile(r'[^\d+()-.\s]')  # Pre-compiled for phone cleaning
     ZIP_PATTERN = re.compile(r'^\d{5}(-\d{4})?$')
@@ -74,56 +76,71 @@ class Validator:
         
         Optimized to minimize string operations and conversions.
         """
+        # Validate and convert latitude
         try:
-            lat_val = float(lat) if isinstance(lat, str) else lat
-            lng_val = float(lng) if isinstance(lng, str) else lng
-
-            if not (-90 <= lat_val <= 90):
-                raise ValidationError("Latitude must be between -90 and 90")
-
-            if not (-180 <= lng_val <= 180):
-                raise ValidationError("Longitude must be between -180 and 180")
-
-            # Optional: Validate reasonable precision (avoid excessive decimal places)
-            # GPS coordinates typically don't need more than 10 decimal places
-            # Optimized: only check precision if value has decimal component
             if isinstance(lat, str):
-                # Check string format directly without conversion
                 lat_stripped = lat.strip()
+                # Check decimal precision before conversion
                 if '.' in lat_stripped:
                     decimal_part = lat_stripped.split('.', 1)[1]
                     # Remove trailing zeros before counting
                     decimal_part = decimal_part.rstrip('0')
                     if decimal_part and len(decimal_part) > 10:
                         raise ValidationError("Latitude must not have more than 10 decimal places")
-            elif lat_val != int(lat_val):
-                # Float has decimal component, check precision
-                lat_str = f"{lat_val:.10f}".rstrip('0').rstrip('.')
-                if '.' in lat_str:
-                    decimal_places = len(lat_str.split('.', 1)[1])
-                    if decimal_places > 10:
-                        raise ValidationError("Latitude must not have more than 10 decimal places")
+                # Attempt conversion - will raise ValueError if invalid
+                lat_val = float(lat_stripped)
+            else:
+                lat_val = float(lat)
+        except ValueError:
+            raise ValidationError("Latitude must be a valid number")
+        except TypeError:
+            raise ValidationError("Latitude must be a number or numeric string")
 
+        # Validate and convert longitude
+        try:
             if isinstance(lng, str):
-                # Check string format directly without conversion
                 lng_stripped = lng.strip()
+                # Check decimal precision before conversion
                 if '.' in lng_stripped:
                     decimal_part = lng_stripped.split('.', 1)[1]
                     # Remove trailing zeros before counting
                     decimal_part = decimal_part.rstrip('0')
                     if decimal_part and len(decimal_part) > 10:
                         raise ValidationError("Longitude must not have more than 10 decimal places")
-            elif lng_val != int(lng_val):
-                # Float has decimal component, check precision
-                lng_str = f"{lng_val:.10f}".rstrip('0').rstrip('.')
-                if '.' in lng_str:
-                    decimal_places = len(lng_str.split('.', 1)[1])
-                    if decimal_places > 10:
-                        raise ValidationError("Longitude must not have more than 10 decimal places")
+                # Attempt conversion - will raise ValueError if invalid
+                lng_val = float(lng_stripped)
+            else:
+                lng_val = float(lng)
+        except ValueError:
+            raise ValidationError("Longitude must be a valid number")
+        except TypeError:
+            raise ValidationError("Longitude must be a number or numeric string")
 
-            return lat_val, lng_val
-        except (ValueError, TypeError):
-            raise ValidationError("Invalid coordinate format")
+        # Validate ranges
+        if not (-90 <= lat_val <= 90):
+            raise ValidationError("Latitude must be between -90 and 90")
+
+        if not (-180 <= lng_val <= 180):
+            raise ValidationError("Longitude must be between -180 and 180")
+
+        # Check precision for float values (already checked for strings above)
+        if not isinstance(lat, str) and lat_val != int(lat_val):
+            # Float has decimal component, check precision
+            lat_str = f"{lat_val:.10f}".rstrip('0').rstrip('.')
+            if '.' in lat_str:
+                decimal_places = len(lat_str.split('.', 1)[1])
+                if decimal_places > 10:
+                    raise ValidationError("Latitude must not have more than 10 decimal places")
+
+        if not isinstance(lng, str) and lng_val != int(lng_val):
+            # Float has decimal component, check precision
+            lng_str = f"{lng_val:.10f}".rstrip('0').rstrip('.')
+            if '.' in lng_str:
+                decimal_places = len(lng_str.split('.', 1)[1])
+                if decimal_places > 10:
+                    raise ValidationError("Longitude must not have more than 10 decimal places")
+
+        return lat_val, lng_val
 
     @staticmethod
     def validate_numeric_range(value, field_name, min_val=None, max_val=None):

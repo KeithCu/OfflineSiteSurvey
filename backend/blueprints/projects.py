@@ -20,10 +20,10 @@ class ProjectCRUD(CRUDBase):
             'id': project.id,
             'name': project.name,
             'description': project.description,
-            'status': project.status.value if hasattr(project.status, 'value') else str(project.status),
+            'status': project.status.value,
             'client_info': project.client_info,
             'due_date': project.due_date.isoformat() if project.due_date else None,
-            'priority': project.priority.value if hasattr(project.priority, 'value') else str(project.priority),
+            'priority': project.priority.value,
             'created_at': project.created_at.isoformat(),
             'updated_at': project.updated_at.isoformat()
         }

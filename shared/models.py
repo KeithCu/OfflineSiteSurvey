@@ -86,7 +86,7 @@ class SurveyResponse(Base):
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
     created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
-    question_id = Column(Integer, index=True)
+    question_id = Column(Integer, ForeignKey('template_field.id', ondelete='SET NULL'), index=True, nullable=True)
     field_type = Column(String(50), server_default="")
 
 Index('idx_response_survey_question', SurveyResponse.survey_id, SurveyResponse.question_id)
@@ -159,7 +159,7 @@ class Photo(Base):
     requirement_id = Column(String, index=True, server_default="")
     fulfills_requirement = Column(Boolean, default=False, server_default='0')
     tags = Column(Text, server_default="[]")
-    question_id = Column(Integer, ForeignKey('template_field.id'), index=True, nullable=True)
+    question_id = Column(Integer, ForeignKey('template_field.id', ondelete='SET NULL'), index=True, nullable=True)
 
 Index('idx_photo_survey_site', Photo.survey_id, Photo.site_id)
 Index('idx_photo_created_at', Photo.created_at)

@@ -25,7 +25,7 @@ class SurveyCRUD(CRUDBase):
             'title': survey.title,
             'description': survey.description,
             'template_id': survey.template_id,
-            'status': survey.status.value if hasattr(survey.status, 'value') else str(survey.status),
+            'status': survey.status.value,
             'created_at': survey.created_at.isoformat(),
             'updated_at': survey.updated_at.isoformat()
         }

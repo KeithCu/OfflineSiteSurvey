@@ -4,6 +4,7 @@ from sqlalchemy.orm import DeclarativeBase
 from shared.validation import Validator, ValidationError
 from ..models import db
 import logging
+import enum
 
 
 class CRUDBase:
@@ -202,8 +203,8 @@ class CRUDBase:
             # Handle datetime serialization
             if hasattr(value, 'isoformat'):
                 result[column.name] = value.isoformat()
-            # Handle enum serialization
-            elif hasattr(value, 'value'):
+            # Handle enum serialization - enums are instances of enum.Enum
+            elif isinstance(value, enum.Enum):
                 result[column.name] = value.value
             else:
                 result[column.name] = value

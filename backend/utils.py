@@ -295,6 +295,7 @@ def cascade_delete_survey(survey_id):
 def cascade_delete_template(template_id):
     """
     Delete a survey template and all its child records (fields).
+    Also cleans up orphaned question_id references in SurveyResponse and Photo records.
 
     Args:
         template_id (int): ID of the template to delete
@@ -304,7 +305,9 @@ def cascade_delete_template(template_id):
     """
     summary = {
         'templates': 0,
-        'template_fields': 0
+        'template_fields': 0,
+        'responses_cleaned': 0,
+        'photos_cleaned': 0
     }
 
     try:
@@ -312,11 +315,26 @@ def cascade_delete_template(template_id):
         if not template:
             return summary
 
-        # SQLAlchemy will handle cascade delete of template fields due to cascade='all, delete-orphan'
-        # But we count them for the summary
+        # Get all field IDs that will be deleted
         fields = TemplateField.query.filter_by(template_id=template_id).all()
+        field_ids = [field.id for field in fields]
         summary['template_fields'] = len(fields)
 
+        # Clean up orphaned question_id references in SurveyResponse records
+        # Since foreign keys are disabled for CRR tables, we handle this at application level
+        if field_ids:
+            responses_updated = db.session.query(SurveyResponse).filter(
+                SurveyResponse.question_id.in_(field_ids)
+            ).update({SurveyResponse.question_id: None}, synchronize_session=False)
+            summary['responses_cleaned'] = responses_updated
+
+            # Clean up orphaned question_id references in Photo records
+            photos_updated = db.session.query(Photo).filter(
+                Photo.question_id.in_(field_ids)
+            ).update({Photo.question_id: None}, synchronize_session=False)
+            summary['photos_cleaned'] = photos_updated
+
+        # SQLAlchemy will handle cascade delete of template fields due to cascade='all, delete-orphan'
         # Delete the template (cascade will handle fields)
         db.session.delete(template)
         summary['templates'] = 1

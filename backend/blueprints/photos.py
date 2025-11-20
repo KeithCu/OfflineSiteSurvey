@@ -39,7 +39,7 @@ def get_photos():
         'latitude': p.latitude,
         'longitude': p.longitude,
         'description': p.description,
-        'category': p.category,
+        'category': p.category.value,
         'created_at': p.created_at.isoformat(),
         'hash_value': p.hash_value,
         'size_bytes': p.size_bytes,
@@ -252,12 +252,13 @@ def upload_photo_to_survey(survey_id):
             # Validate category
             category_str = request.form.get('category', 'general')
             try:
-                category = Validator.validate_choice(
+                validated_str = Validator.validate_choice(
                     category_str, 'Photo category',
                     [cat.value for cat in PhotoCategory]
                 )
-            except ValidationError:
-                category = PhotoCategory.GENERAL.value  # Default fallback
+                category = PhotoCategory(validated_str)
+            except (ValidationError, ValueError):
+                category = PhotoCategory.GENERAL  # Default fallback
 
             # Validate coordinates
             latitude_str = request.form.get('latitude', '0.0')
@@ -368,7 +369,7 @@ def get_photo(photo_id):
         'latitude': photo.latitude,
         'longitude': photo.longitude,
         'description': photo.description,
-        'category': photo.category,
+        'category': photo.category.value,
         'created_at': photo.created_at.isoformat(),
         'hash_value': photo.hash_value,
         'size_bytes': photo.size_bytes,

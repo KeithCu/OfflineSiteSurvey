@@ -30,12 +30,20 @@ class LocalDatabase:
     def __init__(self, db_path='local_surveys.db'):
         """Initialize the local database"""
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.info(f"Initializing LocalDatabase with path: {db_path}")
+        
         self.db_path = db_path
+        self.logger.debug(f"Database path set to: {self.db_path}")
+        
         self.photos_dir = os.path.join(os.path.dirname(os.path.abspath(db_path)), 'local_photos')
         os.makedirs(self.photos_dir, exist_ok=True)
+        self.logger.info(f"Photos directory initialized: {self.photos_dir}")
         
         self.site_id = str(uuid.uuid4())
+        self.logger.info(f"Generated site_id: {self.site_id}")
+        
         self.engine = create_engine(f'sqlite:///{self.db_path}')
+        self.logger.info(f"SQLAlchemy engine created for database: {self.db_path}")
         self.last_applied_changes = {}
 
         @event.listens_for(self.engine, "connect")
@@ -46,25 +54,50 @@ class LocalDatabase:
             if not os.path.exists(lib_path):
                 # Adjust path for local development if extension is not installed system-wide
                 lib_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'lib', 'crsqlite.so')
+                self.logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
+            else:
+                self.logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")
 
-            db_conn.enable_load_extension(True)
-            db_conn.load_extension(lib_path)
+            try:
+                db_conn.enable_load_extension(True)
+                db_conn.load_extension(lib_path)
+                self.logger.info("Successfully loaded cr-sqlite extension for CRDT support")
+            except Exception as e:
+                self.logger.error(f"Failed to load cr-sqlite extension from {lib_path}: {e}", exc_info=True)
+                raise
 
+        self.logger.info("Creating database tables")
         Base.metadata.create_all(self.engine)
+        self.logger.info("Database tables created successfully")
 
+        self.logger.info("Initializing CRR tables for CRDT synchronization")
         with self.engine.connect() as connection:
             connection.execute(text("PRAGMA foreign_keys = OFF;"))
+            self.logger.debug("Foreign keys disabled for CRR setup")
+            
+            crr_success_count = 0
             for table in Base.metadata.sorted_tables:
                 # Use the consistent table name 'app_config'
                 if table.name == 'app_config':
+                    self.logger.debug(f"Skipping CRR setup for app_config table (server-only)")
                     continue
                 try:
                     connection.execute(text(f"SELECT crsql_as_crr('{table.name}');"))
+                    crr_success_count += 1
+                    self.logger.debug(f"Made table '{table.name}' CRR-enabled")
                 except Exception as e:
-                    self.logger.warning(f"Failed to make {table.name} CRR: {e}")
-                    # Continue with other tables
+                    error_msg = str(e).lower()
+                    if 'already' in error_msg or 'exists' in error_msg or 'duplicate' in error_msg:
+                        self.logger.debug(f"Table '{table.name}' is already CRR-enabled")
+                        crr_success_count += 1
+                    else:
+                        self.logger.warning(f"Failed to make {table.name} CRR: {e}")
+                        # Continue with other tables
+            
+            self.logger.info(f"CRR initialization completed: {crr_success_count} tables configured")
 
         self.Session = sessionmaker(bind=self.engine)
+        self.logger.info("Session maker created and database initialization completed")
 
     def get_session(self):
         return self.Session()

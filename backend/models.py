@@ -17,20 +17,28 @@ def create_crr_tables(target, connection, **kw):
         'projects', 'sites', 'survey', 'survey_response',
         'survey_template', 'template_field', 'photo'
     ]
-    failed_tables = []
     successful_tables = []
-    for table_name in crr_tables:
-        try:
-            connection.execute(text(f"SELECT crsql_as_crr('{table_name}');"))
-            successful_tables.append(table_name)
-            logger.debug(f"Made table '{table_name}' CRR-enabled")
-        except Exception as e:
-            failed_tables.append(table_name)
-            logger.error(f"Failed to make {table_name} CRR: {e}", exc_info=True)
+    
+    try:
+        for table_name in crr_tables:
+            try:
+                connection.execute(text(f"SELECT crsql_as_crr('{table_name}');"))
+                successful_tables.append(table_name)
+                logger.debug(f"Made table '{table_name}' CRR-enabled")
+            except Exception as e:
+                error_msg = str(e).lower()
+                # If table is already CRR-enabled, that's fine - just log and continue
+                if 'already' in error_msg or 'exists' in error_msg or 'duplicate' in error_msg:
+                    logger.debug(f"Table '{table_name}' is already CRR-enabled, skipping")
+                    successful_tables.append(table_name)
+                else:
+                    logger.error(f"Failed to make {table_name} CRR: {e}", exc_info=True)
+                    # Fail fast on first real error to avoid inconsistent state
+                    raise RuntimeError(f"Failed to make table '{table_name}' CRR: {e}. Stopping CRR initialization to prevent inconsistent database state.")
 
-    if failed_tables:
-        logger.critical(f"Failed to create CRR tables: {', '.join(failed_tables)}. CRDT synchronization will not work properly.")
-        raise RuntimeError(f"Failed to create CRR tables: {', '.join(failed_tables)}. CRDT synchronization will not work properly.")
-
-    connection.execute(text("PRAGMA foreign_keys = ON;"))
-    logger.info(f"Successfully initialized {len(successful_tables)} CRR tables for CRDT sync")
+        connection.execute(text("PRAGMA foreign_keys = ON;"))
+        logger.info(f"Successfully initialized {len(successful_tables)} CRR tables for CRDT sync")
+    except Exception:
+        # Always restore foreign keys, even on failure
+        connection.execute(text("PRAGMA foreign_keys = ON;"))
+        raise

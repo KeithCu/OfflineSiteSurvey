@@ -40,20 +40,36 @@ class SurveyApp(toga.App):
 
     def startup(self):
         """Initialize the app"""
+        self.logger.info("Starting SurveyApp initialization")
+        
         # Setup logging first
         setup_logging()
+        self.logger.info("Logging system initialized")
 
         # Initialize configuration
+        self.logger.info("Initializing configuration manager")
         self.config = ConfigManager()
+        self.logger.info(f"Configuration loaded: API URL={self.config.api_base_url}")
 
         # Initialize services
+        self.logger.info("Initializing database and services")
         self.db = LocalDatabase()
+        self.logger.info("Local database initialized")
+        
         self.db_service = DBService(self.db)
+        self.logger.debug("Database service initialized")
+        
         self.api_service = APIService(self.config.api_base_url, offline_queue=self.offline_queue)
+        self.logger.info(f"API service initialized with base URL: {self.config.api_base_url}")
+        
         self.companycam_service = CompanyCamService(self.config)
+        self.logger.info("CompanyCam service initialized")
+        
         self.tag_mapper = TagMapper(self.companycam_service)
+        self.logger.debug("Tag mapper initialized")
 
         # Initialize state
+        self.logger.debug("Initializing application state")
         self.current_project = None
         self.current_survey = None
         self.current_site = None
@@ -74,39 +90,65 @@ class SurveyApp(toga.App):
         self.offline_queue = []  # Queue for operations when offline
         self.auto_save_timer = None
         self.draft_responses = {}  # Temporary storage for in-progress answers
+        self.logger.debug("Application state initialized")
 
         # Initialize handlers
+        self.logger.info("Initializing event handlers")
         self.project_handler = ProjectHandler(self)
+        self.logger.debug("Project handler initialized")
         self.site_handler = SiteHandler(self)
+        self.logger.debug("Site handler initialized")
         self.survey_handler = SurveyHandler(self)
+        self.logger.debug("Survey handler initialized")
         self.photo_handler = PhotoHandler(self)
+        self.logger.debug("Photo handler initialized")
         self.template_handler = TemplateHandler(self)
+        self.logger.debug("Template handler initialized")
         self.sync_handler = SyncHandler(self)
+        self.logger.debug("Sync handler initialized")
         self.companycam_handler = CompanyCamHandler(self)
+        self.logger.debug("CompanyCam handler initialized")
         self.tag_management_handler = TagManagementHandler(self)
+        self.logger.debug("Tag management handler initialized")
+        self.logger.info("All event handlers initialized")
 
         # Pass config to handlers that need it
         self.photo_handler.config = self.config
+        self.logger.debug("Configuration passed to photo handler")
 
         # Initialize UI
+        self.logger.info("Initializing user interface")
         self.ui = SurveyUI(self)
+        self.logger.debug("Survey UI initialized")
         self.ui_manager = UIManager(self)
+        self.logger.debug("UI manager initialized")
 
         # Create main window
+        self.logger.info("Creating main application window")
         self.main_window = toga.MainWindow(title=self.formal_name)
         self.ui_manager.main_window = self.main_window
+        self.logger.debug(f"Main window created: {self.formal_name}")
 
         # Create UI components
+        self.logger.info("Building main UI components")
         self.ui_manager.create_main_ui()
+        self.logger.info("Main UI components created")
 
         # Show the main window
         self.main_window.show()
+        self.logger.info("Main window displayed")
 
         # Start the background sync scheduler
+        self.logger.info("Starting background sync scheduler")
         self.sync_handler.start_sync_scheduler()
+        self.logger.info("Background sync scheduler started")
 
         # Initialize location service
+        self.logger.info("Initializing location service")
         self.location = toga.Location()
+        self.logger.info("Location service initialized")
+        
+        self.logger.info("SurveyApp initialization completed successfully")
 
     async def get_gps_location(self):
         """Get current GPS location."""

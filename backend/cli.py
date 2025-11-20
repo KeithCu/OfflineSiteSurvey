@@ -13,29 +13,49 @@ logger = logging.getLogger(__name__)
 @with_appcontext
 def init_db_command():
     """Clear the existing data and create new tables."""
-    logger.info("Initializing database: Creating tables and constraints")
+    logger.info("Starting database initialization")
+    logger.info("Creating database tables and schema")
     db.create_all()
+    logger.info("Database tables created successfully")
+
+    # Ensure CRR tables are initialized (even if database already existed)
+    # The event listener in app.py only fires on first creation, so we explicitly
+    # initialize CRR tables here to handle both new and existing databases
+    logger.info("Initializing CRR tables for CRDT synchronization")
+    from .models import create_crr_tables
+    with db.engine.connect() as conn:
+        # Call create_crr_tables with metadata and connection (matching event listener signature)
+        create_crr_tables(db.metadata, conn)
+    logger.info("CRR tables initialized successfully")
 
     # Add CHECK constraints for data validation
+    logger.info("Adding database constraints for data validation")
     with db.engine.connect() as conn:
         # Photo hash validation (SHA-256 is 64 characters)
         conn.execute(db.text("ALTER TABLE photo ADD CONSTRAINT IF NOT EXISTS chk_photo_hash_length CHECK (length(hash_value) = 64);"))
+        logger.debug("Added photo hash length constraint")
         # Image compression quality range
         conn.execute(db.text("ALTER TABLE app_config ADD CONSTRAINT IF NOT EXISTS chk_compression_quality_range CHECK (key != 'image_compression_quality' OR (CAST(value AS INTEGER) >= 1 AND CAST(value AS INTEGER) <= 100));"))
+        logger.debug("Added image compression quality range constraint")
         # Auto-sync interval must be non-negative
         conn.execute(db.text("ALTER TABLE app_config ADD CONSTRAINT IF NOT EXISTS chk_sync_interval_non_negative CHECK (key != 'auto_sync_interval' OR CAST(value AS INTEGER) >= 0);"))
+        logger.debug("Added auto-sync interval non-negative constraint")
+    logger.info("Database constraints added successfully")
 
     # Seed initial data
     logger.info("Seeding initial database configuration")
     if not AppConfig.query.filter_by(key='image_compression_quality').first():
         config = AppConfig(key='image_compression_quality', value='75')
         db.session.add(config)
-        logger.debug("Added default image_compression_quality config")
+        logger.info("Added default image_compression_quality config (75)")
+    else:
+        logger.debug("image_compression_quality config already exists")
 
     if not SurveyTemplate.query.filter_by(is_default=True).first():
         logger.info("Loading default survey template")
         import os
         template_path = os.path.join(os.path.dirname(__file__), 'data', 'templates', 'store.json')
+        logger.debug(f"Loading template from: {template_path}")
         with open(template_path, 'r') as f:
             template_data = json.load(f)
 
@@ -48,13 +68,23 @@ def init_db_command():
         section_tags = template_data.get('section_tags')
         if section_tags:
             template.section_tags = json.dumps(section_tags)
+            logger.debug(f"Loaded section tags for template: {template.name}")
         db.session.add(template)
         db.session.flush()
+        logger.debug(f"Created template '{template.name}' with ID {template.id}")
+        
+        field_count = len(template_data['fields'])
+        logger.info(f"Adding {field_count} template fields")
         for field_data in template_data['fields']:
             field = TemplateField(template_id=template.id, **field_data)
             db.session.add(field)
+        logger.info(f"Successfully added {field_count} template fields")
+    else:
+        logger.debug("Default survey template already exists")
 
+    logger.info("Committing database changes")
     db.session.commit()
+    logger.info("Database initialization completed successfully")
     click.echo('Initialized the database with indexes.')
 
 

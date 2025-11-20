@@ -234,7 +234,71 @@ Create a direct, one-way sync bridge from this app to CompanyCam using their rob
 
 ### iOS/Android Optimizations
 - [ ] **Platform-Specific UI**: Native look and feel for each platform
-- [ ] **Camera Integration**: Direct camera access with preview and controls
+- [x] **Camera Integration**: Direct camera access with preview and controls
+
+#### 📸 **Camera API Implementation Challenge - DETAILED TECHNICAL NOTE FOR FUTURE DEVELOPMENT**
+
+**Current Status (2025)**: Mock implementation with file picker fallback. App creates red placeholder images for development/testing.
+
+**Core Problem**: Toga (BeeWare's GUI framework) does NOT provide camera APIs. Camera access requires platform-specific native code.
+
+**Files Requiring Changes**:
+- `src/survey_app/handlers/survey_handler.py` - `take_photo_enhanced()` method (lines 405-490)
+- `src/survey_app/handlers/photo_handler.py` - `take_photo()` method (lines 301-309)
+- `src/survey_app/app.py` - Camera integration would need new methods here
+- `src/survey_app/ui/survey_ui.py` - Photo button integration (lines 79, 255)
+
+**Current Implementation**:
+```python
+# Creates mock red image instead of real camera capture
+img = Image.new('RGB', (640, 480), color='red')
+```
+
+**Research & Solution Directions**:
+
+**iOS Implementation**:
+- **Framework**: AVFoundation (camera access) + UIKit (UI integration)
+- **Key Classes**: `AVCaptureSession`, `AVCapturePhotoOutput`, `UIImagePickerController`
+- **Challenges**: App Store camera permissions, memory management with high-res photos
+- **Research**: iOS Camera Programming Guide, AVFoundation documentation
+
+**Android Implementation**:
+- **Framework**: Camera2 API (modern) or Camera API (legacy)
+- **Key Classes**: `CameraManager`, `CameraDevice`, `ImageReader`
+- **Challenges**: Runtime permissions (CAMERA, WRITE_EXTERNAL_STORAGE), device fragmentation
+- **Research**: Android Camera2 API documentation, CameraX Jetpack library
+
+**Desktop Implementation**:
+- **Windows**: Media Foundation or DirectShow APIs
+- **macOS**: AVFoundation (same as iOS) or QTKit
+- **Linux**: GStreamer with v4l2, GTK camera widgets
+- **Challenges**: No standardized cross-desktop camera API
+
+**Cross-Platform Bridge Pattern**:
+1. **Native Modules**: Platform-specific camera modules (Swift/Kotlin/C++)
+2. **Toga Integration**: Bridge native camera to Python via Toga's native hooks
+3. **Fallback Strategy**: File picker → Platform camera API → Mock (current)
+
+**Implementation Approach**:
+1. **Platform Detection**: `platform.system()` for OS-specific code paths
+2. **Native Camera Classes**: Create platform-specific camera handlers
+3. **Photo Processing**: Maintain existing EXIF extraction, GPS tagging, compression
+4. **UI Integration**: Replace mock with real camera preview/capture UI
+
+**Success Criteria**:
+- Direct camera access with live preview
+- GPS tagging during capture (not post-processing)
+- Platform-appropriate camera UI/UX
+- Fallback to file picker if camera unavailable
+- Memory-efficient handling of high-resolution photos
+
+**Priority**: HIGH for mobile platforms, MEDIUM for desktop (file picker sufficient)
+
+**References**:
+- BeeWare Toga Issue Tracker (camera API requests)
+- Platform-specific camera documentation
+- Existing BeeWare camera implementations in community
+
 - [ ] **Offline Maps**: Cache maps for GPS coordinates without internet
 - [ ] **Push Notifications**: Background sync status and completion reminders
 - [ ] **Biometric Authentication**: Face ID/Touch ID for secure access

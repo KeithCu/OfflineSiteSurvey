@@ -10,8 +10,13 @@ from ..models import db, Photo, Survey, TemplateField
 from shared.utils import compute_photo_hash, generate_thumbnail, CorruptedImageError
 from shared.validation import ValidationError, validate_string_length, sanitize_html, validate_coordinates, validate_choice
 from shared.enums import PhotoCategory
+from shared.schemas import (
+    PhotoListResponse, PhotoDetailResponse, PhotoIntegrityResponse,
+    PhotoRequirementFulfillmentRequest, PhotoRequirementFulfillmentResponse
+)
 from ..services.upload_queue import get_upload_queue
 from ..utils import api_error, handle_api_exception
+from pydantic import ValidationError as PydanticValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -32,22 +37,12 @@ bp = Blueprint('photos', __name__, url_prefix='/api')
 def get_photos():
     """Get all photos."""
     photos = Photo.query.all()
-    return jsonify([{
-        'id': p.id,
-        'survey_id': p.survey_id,
-        'site_id': p.site_id,
-        'cloud_url': p.cloud_url,
-        'thumbnail_url': p.thumbnail_url,
-        'upload_status': p.upload_status,
-        'latitude': p.latitude,
-        'longitude': p.longitude,
-        'description': p.description,
-        'category': p.category.value,
-        'created_at': p.created_at.isoformat(),
-        'hash_value': p.hash_value,
-        'size_bytes': p.size_bytes,
-        'tags': json.loads(p.tags) if p.tags else []
-    } for p in photos])
+    photo_list = []
+    for p in photos:
+        photo_data = PhotoListResponse.model_validate(p).model_dump(mode='json')
+        photo_data['tags'] = json.loads(p.tags) if p.tags else []
+        photo_list.append(photo_data)
+    return jsonify(photo_list)
 
 
 
@@ -56,48 +51,33 @@ def mark_requirement_fulfillment():
     """Mark a photo as fulfilling a requirement"""
     try:
         data = request.get_json()
-    except Exception:
+        if data is None:
+            return jsonify({'error': 'Invalid JSON data'}), 400
+        
+        request_schema = PhotoRequirementFulfillmentRequest(**data)
+    except PydanticValidationError as e:
+        errors = []
+        for error in e.errors():
+            field = '.'.join(str(x) for x in error['loc'])
+            msg = error['msg']
+            errors.append(f"{field}: {msg}")
+        return jsonify({'error': '; '.join(errors)}), 400
+    except Exception as e:
         return jsonify({'error': 'Invalid JSON data'}), 400
 
-    if not isinstance(data, dict):
-        return jsonify({'error': 'Request data must be a JSON object'}), 400
-
-    # Validate photo_id
-    photo_id = data.get('photo_id')
-    if photo_id is None:
-        return jsonify({'error': 'photo_id field is required'}), 400
     try:
-        photo_id = validate_string_length(str(photo_id).strip(), 'photo_id', 1, 200)
-    except ValidationError as e:
-        return jsonify({'error': str(e)}), 400
-
-    # Validate requirement_id (can be None to clear)
-    requirement_id = data.get('requirement_id')
-    if requirement_id is not None:
-        if not isinstance(requirement_id, str):
-            return jsonify({'error': 'requirement_id must be a string or null'}), 400
-        try:
-            requirement_id = validate_string_length(requirement_id.strip(), 'requirement_id', 1, 200)
-        except ValidationError as e:
-            return jsonify({'error': str(e)}), 400
-
-    # Validate fulfills
-    fulfills = data.get('fulfills', True)
-    if not isinstance(fulfills, bool):
-        return jsonify({'error': 'fulfills must be a boolean'}), 400
-
-    try:
-        photo = Photo.query.get_or_404(photo_id)
-        photo.requirement_id = requirement_id
-        photo.fulfills_requirement = fulfills
+        photo = Photo.query.get_or_404(request_schema.photo_id)
+        photo.requirement_id = request_schema.requirement_id
+        photo.fulfills_requirement = request_schema.fulfills
         db.session.commit()
 
-        return jsonify({
-            'photo_id': photo_id,
-            'requirement_id': requirement_id,
-            'fulfills': fulfills,
-            'message': 'Photo requirement fulfillment updated'
-        })
+        response = PhotoRequirementFulfillmentResponse(
+            photo_id=request_schema.photo_id,
+            requirement_id=request_schema.requirement_id,
+            fulfills=request_schema.fulfills,
+            message='Photo requirement fulfillment updated'
+        )
+        return jsonify(response.model_dump(mode='json'))
     except Exception as e:
         db.session.rollback()
         return handle_api_exception(e, "update photo requirement")
@@ -109,6 +89,10 @@ def get_photo_integrity(photo_id):
     logger.info(f"Photo integrity check requested for photo_id={photo_id}")
     photo = Photo.query.get_or_404(photo_id)
 
+    current_hash = None
+    actual_size = 0
+    error = None
+
     # For cloud-stored photos, download and verify
     if photo.cloud_url:
         try:
@@ -117,46 +101,41 @@ def get_photo_integrity(photo_id):
             object_name = extract_object_name_from_url(photo.cloud_url)
             if not object_name:
                 logger.warning(f"Photo integrity check failed: Invalid cloud URL format for photo_id={photo_id}")
-                return jsonify({
-                    'photo_id': photo_id,
-                    'error': 'Invalid cloud URL format'
-                }), 500
-            logger.debug(f"Downloading photo from cloud for integrity check: photo_id={photo_id}")
-            image_data = cloud_storage.download_photo(object_name)
-            current_hash = compute_photo_hash(image_data)
-            actual_size = len(image_data)
-            hash_matches = photo.hash_value == current_hash
-            size_matches = photo.size_bytes == actual_size
-            
-            if not hash_matches or not size_matches:
-                logger.warning(f"Photo integrity mismatch for photo_id={photo_id}: hash_match={hash_matches}, size_match={size_matches}")
+                error = 'Invalid cloud URL format'
             else:
-                logger.info(f"Photo integrity verified for photo_id={photo_id}")
+                logger.debug(f"Downloading photo from cloud for integrity check: photo_id={photo_id}")
+                image_data = cloud_storage.download_photo(object_name)
+                current_hash = compute_photo_hash(image_data)
+                actual_size = len(image_data)
+                hash_matches = photo.hash_value == current_hash
+                size_matches = photo.size_bytes == actual_size
+                
+                if not hash_matches or not size_matches:
+                    logger.warning(f"Photo integrity mismatch for photo_id={photo_id}: hash_match={hash_matches}, size_match={size_matches}")
+                else:
+                    logger.info(f"Photo integrity verified for photo_id={photo_id}")
         except Exception as e:
             logger.error(f"Photo integrity check failed for photo_id={photo_id}: {e}", exc_info=True)
-            return jsonify({
-                'photo_id': photo_id,
-                'error': f'Failed to download and verify cloud photo: {str(e)}'
-            }), 500
+            error = f'Failed to download and verify cloud photo: {str(e)}'
     else:
         # Legacy: check local data (shouldn't happen with new system)
         logger.debug(f"Photo integrity check: No cloud URL for photo_id={photo_id} (legacy mode)")
-        current_hash = None
-        actual_size = 0
 
-    integrity_status = {
-        'photo_id': photo_id,
-        'stored_hash': photo.hash_value,
-        'current_hash': current_hash,
-        'hash_matches': photo.hash_value == current_hash if current_hash else False,
-        'size_bytes': photo.size_bytes,
-        'actual_size': actual_size,
-        'size_matches': photo.size_bytes == actual_size if actual_size else False,
-        'upload_status': photo.upload_status,
-        'cloud_url': photo.cloud_url
-    }
+    integrity_response = PhotoIntegrityResponse(
+        photo_id=photo_id,
+        stored_hash=photo.hash_value,
+        current_hash=current_hash,
+        hash_matches=photo.hash_value == current_hash if current_hash else False,
+        size_bytes=photo.size_bytes,
+        actual_size=actual_size,
+        size_matches=photo.size_bytes == actual_size if actual_size else False,
+        upload_status=photo.upload_status,
+        cloud_url=photo.cloud_url,
+        error=error
+    )
 
-    return jsonify(integrity_status)
+    status_code = 500 if error else 200
+    return jsonify(integrity_response.model_dump(mode='json', exclude_none=True)), status_code
 
 
 @bp.route('/surveys/<int:survey_id>/photos', methods=['POST'])
@@ -387,22 +366,8 @@ def get_photo(photo_id):
     """Get photo metadata and optionally download image data."""
     photo = Photo.query.get_or_404(photo_id)
 
-    response_data = {
-        'id': photo.id,
-        'survey_id': photo.survey_id,
-        'site_id': photo.site_id,
-        'cloud_url': photo.cloud_url,
-        'thumbnail_url': photo.thumbnail_url,
-        'upload_status': photo.upload_status,
-        'latitude': photo.latitude,
-        'longitude': photo.longitude,
-        'description': photo.description,
-        'category': photo.category.value,
-        'created_at': photo.created_at.isoformat(),
-        'hash_value': photo.hash_value,
-        'size_bytes': photo.size_bytes,
-        'tags': json.loads(photo.tags) if photo.tags else []
-    }
+    response_data = PhotoDetailResponse.model_validate(photo).model_dump(mode='json')
+    response_data['tags'] = json.loads(photo.tags) if photo.tags else []
 
     # If requesting full image data, download from cloud
     if request.args.get('include_data') == 'true':

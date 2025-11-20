@@ -553,3 +553,272 @@ class AppConfigResponse(AppConfigBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+# Photo List Response Schema
+class PhotoListResponse(BaseModel):
+    id: str
+    survey_id: Optional[int] = None
+    site_id: Optional[int] = None
+    cloud_url: str = ""
+    thumbnail_url: str = ""
+    upload_status: str = "pending"
+    latitude: float = 0.0
+    longitude: float = 0.0
+    description: str = ""
+    category: str = "general"
+    created_at: datetime
+    hash_value: str = ""
+    size_bytes: int = 0
+    tags: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Photo Detail Response Schema (with optional image_data)
+class PhotoDetailResponse(PhotoBase):
+    id: str
+    created_at: datetime
+    image_data: Optional[str] = None  # Hex string when include_data=true
+    error: Optional[str] = None
+
+    model_config = ConfigDict(use_enum_values=True, from_attributes=True)
+
+
+# Photo Integrity Response Schema
+class PhotoIntegrityResponse(BaseModel):
+    photo_id: str
+    stored_hash: str
+    current_hash: Optional[str] = None
+    hash_matches: bool
+    size_bytes: int
+    actual_size: int
+    size_matches: bool
+    upload_status: str
+    cloud_url: str
+    error: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Photo Requirement Fulfillment Request Schema
+class PhotoRequirementFulfillmentRequest(BaseModel):
+    photo_id: str = Field(..., min_length=1)
+    requirement_id: Optional[str] = Field(None, max_length=200)
+    fulfills: bool = Field(default=True)
+
+    @field_validator('photo_id', 'requirement_id')
+    @classmethod
+    def validate_string_fields(cls, v):
+        if v is not None:
+            return v.strip()
+        return v
+
+
+# Photo Requirement Fulfillment Response Schema
+class PhotoRequirementFulfillmentResponse(BaseModel):
+    photo_id: str
+    requirement_id: Optional[str] = None
+    fulfills: bool
+    message: str
+
+
+# Survey with Responses Schema
+class SurveyWithResponsesResponse(SurveyResponseSchema):
+    responses: List[SurveyResponseResponse] = Field(default_factory=list)
+
+    model_config = ConfigDict(use_enum_values=True, from_attributes=True)
+
+
+# Template List Item Schema
+class TemplateListItem(BaseModel):
+    id: int
+    name: str
+    fields: List[Dict[str, Any]] = Field(default_factory=list)
+    section_tags: Dict[str, List[str]] = Field(default_factory=dict)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Template Detail Response Schema (already exists as SurveyTemplateResponse, but add field details)
+class TemplateFieldDetailResponse(TemplateFieldResponse):
+    conditions: Optional[Dict[str, Any]] = None
+    photo_requirements: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Template Conditional Fields Response Schema
+class ConditionalFieldResponse(BaseModel):
+    id: int
+    field_type: str
+    question: str
+    description: str
+    required: bool
+    options: str
+    order_index: int
+    section: str
+    section_weight: int
+    conditions: Optional[Dict[str, Any]] = None
+    photo_requirements: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TemplateConditionalFieldsResponse(BaseModel):
+    template_id: int
+    fields: List[ConditionalFieldResponse] = Field(default_factory=list)
+    section_tags: Dict[str, List[str]] = Field(default_factory=dict)
+
+
+# Section Tags Update Request Schema
+class SectionTagsUpdateRequest(BaseModel):
+    section_tags: Dict[str, List[str]] = Field(..., min_length=1)
+
+    @field_validator('section_tags')
+    @classmethod
+    def validate_section_tags(cls, v):
+        if not isinstance(v, dict):
+            raise ValueError('section_tags must be a dictionary')
+        validated = {}
+        for section, tags in v.items():
+            if not isinstance(section, str):
+                raise ValueError('Section names must be strings')
+            if not isinstance(tags, list):
+                raise ValueError(f'Tags for section {section} must be a list')
+            validated_tags = []
+            for tag in tags:
+                if not isinstance(tag, str):
+                    tag = str(tag)
+                tag_cleaned = tag.strip()
+                if tag_cleaned and tag_cleaned not in validated_tags:
+                    validated_tags.append(tag_cleaned)
+            if len(validated_tags) > 100:
+                validated_tags = validated_tags[:100]
+            validated[section.strip()] = validated_tags
+        return validated
+
+
+class SectionTagsUpdateResponse(BaseModel):
+    template_id: int
+    section_tags: Dict[str, List[str]]
+
+
+# Survey Condition Evaluation Request Schema
+class SurveyConditionEvaluationRequest(BaseModel):
+    responses: List[Dict[str, Any]] = Field(default_factory=list, max_length=1000)
+
+    @field_validator('responses')
+    @classmethod
+    def validate_responses(cls, v):
+        if len(v) > 1000:
+            raise ValueError('Too many responses (max 1000)')
+        for response in v:
+            if not isinstance(response, dict):
+                raise ValueError('Each response must be a JSON object')
+        return v
+
+
+class SurveyConditionEvaluationResponse(BaseModel):
+    survey_id: int
+    visible_fields: List[int] = Field(default_factory=list)
+
+
+# Survey Progress Response Schema
+class SectionProgress(BaseModel):
+    required: int = 0
+    completed: int = 0
+    photos_required: int = 0
+    photos_taken: int = 0
+    weight: int = 1
+    progress: float = 0.0
+
+
+class SurveyProgressResponse(BaseModel):
+    overall_progress: float
+    sections: Dict[str, SectionProgress] = Field(default_factory=dict)
+    total_required: int = 0
+    total_completed: int = 0
+
+
+# Photo Requirements Response Schema
+class PhotoRequirementData(BaseModel):
+    field_id: int
+    field_question: str
+    taken: bool
+
+
+class PhotoRequirementsResponse(BaseModel):
+    survey_id: int
+    requirements_by_section: Dict[str, List[PhotoRequirementData]] = Field(default_factory=dict)
+
+
+# Config Response Schemas
+class ConfigValueResponse(BaseModel):
+    value: str
+    description: str
+    category: str
+
+
+class AllConfigResponse(BaseModel):
+    config: Dict[str, ConfigValueResponse] = Field(default_factory=dict)
+
+
+class SingleConfigResponse(AppConfigResponse):
+    pass
+
+
+# Cloud Storage Config Response Schema
+class CloudStorageConfigResponse(BaseModel):
+    cloud_storage: Dict[str, str] = Field(default_factory=dict)
+    message: str
+
+
+# Cloud Storage Test Response Schema
+class CloudStorageTestResponse(BaseModel):
+    status: str
+    message: str
+    containers: Optional[List[str]] = None
+    provider: Optional[str] = None
+
+
+# Cloud Storage Status Response Schema
+class CloudStorageStatusResponse(BaseModel):
+    upload_queue_running: bool
+    pending_uploads: int
+    completed_uploads: int
+    failed_uploads: int
+    local_storage_path: str
+
+
+# CRDT Change Schema
+class CRDTChange(BaseModel):
+    table: str = Field(..., min_length=1)
+    pk: str = Field(..., min_length=1)
+    cid: str = Field(..., min_length=1)
+    val: Any
+    col_version: int = Field(..., ge=0)
+    db_version: int = Field(..., ge=0)
+    site_id: str = Field(..., min_length=1)
+
+    @field_validator('table')
+    @classmethod
+    def validate_table(cls, v):
+        valid_tables = ['projects', 'sites', 'survey', 'survey_response', 
+                        'survey_template', 'template_field', 'photo']
+        if v not in valid_tables:
+            raise ValueError(f'table must be one of: {", ".join(valid_tables)}')
+        return v
+
+
+class CRDTChangesRequest(BaseModel):
+    changes: List[CRDTChange] = Field(..., min_length=1)
+
+
+class CRDTChangesResponse(BaseModel):
+    message: str
+    integrity_issues: Optional[List[Dict[str, Any]]] = None
+
+
+class CRDTGetChangesResponse(BaseModel):
+    changes: List[CRDTChange] = Field(default_factory=list)
+

@@ -3,7 +3,7 @@ from flask import Blueprint, jsonify
 from ..models import Survey, SurveyResponse
 from ..base.generic_crud import GenericCRUD, register_crud_routes
 from shared.validation import ValidationError
-from shared.schemas import SurveyCreate, SurveyUpdate, SurveyResponseSchema
+from shared.schemas import SurveyCreate, SurveyUpdate, SurveyResponseSchema, SurveyWithResponsesResponse, SurveyResponseResponse
 from ..utils import validate_foreign_key, cascade_delete_survey
 
 bp = Blueprint('surveys', __name__, url_prefix='/api')
@@ -24,17 +24,9 @@ def validate_survey_foreign_keys(data):
 
 def serialize_survey_with_responses(survey):
     """Serialize survey with responses included."""
-    result = SurveyResponseSchema.model_validate(survey).model_dump(mode='json')
-    result['responses'] = [{
-        'id': r.id,
-        'question': r.question,
-        'answer': r.answer,
-        'response_type': r.response_type,
-        'latitude': r.latitude,
-        'longitude': r.longitude,
-        'created_at': r.created_at.isoformat()
-    } for r in survey.responses]
-    return result
+    survey_data = SurveyResponseSchema.model_validate(survey).model_dump(mode='json')
+    responses = [SurveyResponseResponse.model_validate(r).model_dump(mode='json') for r in survey.responses]
+    return SurveyWithResponsesResponse(**survey_data, responses=responses).model_dump(mode='json')
 
 
 # Create generic CRUD instance

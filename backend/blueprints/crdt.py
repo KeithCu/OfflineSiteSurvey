@@ -5,6 +5,10 @@ import uuid
 import logging
 from ..models import db
 from ..services.crdt_service import CRDTService
+from shared.schemas import (
+    CRDTChangesRequest, CRDTChangesResponse, CRDTGetChangesResponse, CRDTChange
+)
+from pydantic import ValidationError as PydanticValidationError
 
 logger = logging.getLogger(__name__)
 bp = Blueprint('crdt', __name__, url_prefix='/api')
@@ -14,29 +18,48 @@ bp = Blueprint('crdt', __name__, url_prefix='/api')
 def apply_changes():
     """Apply CRDT changes from client."""
     try:
-        changes = request.get_json()
-    except Exception:
-        logger.warning("CRDT sync: Invalid JSON data received")
+        data = request.get_json()
+        if data is None:
+            logger.warning("CRDT sync: Invalid JSON data received")
+            return jsonify({'error': 'Invalid JSON data'}), 400
+
+        if not isinstance(data, list):
+            logger.warning("CRDT sync: Changes must be a list")
+            return jsonify({'error': 'Changes must be a list'}), 400
+
+        if not data:
+            logger.debug("CRDT sync: No changes to apply")
+            return jsonify({'message': 'No changes to apply'}), 200
+        
+        # Validate changes using Pydantic
+        changes = [CRDTChange(**change) for change in data]
+        request_schema = CRDTChangesRequest(changes=changes)
+        
+    except PydanticValidationError as e:
+        errors = []
+        for error in e.errors():
+            field = '.'.join(str(x) for x in error['loc'])
+            msg = error['msg']
+            errors.append(f"{field}: {msg}")
+        logger.warning(f"CRDT sync: Validation error: {'; '.join(errors)}")
+        return jsonify({'error': '; '.join(errors)}), 400
+    except Exception as e:
+        logger.warning(f"CRDT sync: Invalid JSON data: {e}")
         return jsonify({'error': 'Invalid JSON data'}), 400
-
-    if not isinstance(changes, list):
-        logger.warning("CRDT sync: Changes must be a list")
-        return jsonify({'error': 'Changes must be a list'}), 400
-
-    if not changes:
-        logger.debug("CRDT sync: No changes to apply")
-        return jsonify({'message': 'No changes to apply'}), 200
     
     # Log sync start
-    site_id = changes[0].get('site_id', 'unknown') if changes else 'unknown'
+    site_id = changes[0].site_id if changes else 'unknown'
     logger.info(f"CRDT sync: Applying {len(changes)} changes from site_id={site_id}")
 
     conn = db.engine.raw_connection()
     cursor = conn.cursor()
 
     try:
+        # Convert Pydantic models to dicts for CRDTService
+        changes_dict = [change.model_dump(mode='json') for change in changes]
+        
         # Process changes using CRDTService
-        applied_count, integrity_issues = CRDTService.process_changes(changes, conn, cursor)
+        applied_count, integrity_issues = CRDTService.process_changes(changes_dict, conn, cursor)
         
         # Log sync completion
         rejected_count = len(changes) - applied_count
@@ -47,12 +70,14 @@ def apply_changes():
             for issue in integrity_issues[:5]:  # Log first 5 issues
                 logger.warning(f"CRDT sync integrity issue: {issue.get('error', issue.get('action', 'unknown'))}")
 
-        response = {'message': 'Changes applied successfully'}
+        response = CRDTChangesResponse(
+            message='Changes applied successfully',
+            integrity_issues=integrity_issues if integrity_issues else None
+        )
         if integrity_issues:
-            response['integrity_issues'] = integrity_issues
-            response['message'] = 'Changes applied with integrity issues'
+            response.message = 'Changes applied with integrity issues'
 
-        return jsonify(response)
+        return jsonify(response.model_dump(mode='json', exclude_none=True))
 
     except ValueError as e:
         # Validation errors (structural issues) return 400
@@ -111,7 +136,19 @@ def get_changes():
         changes = cursor.fetchall()
         change_count = len(changes)
         logger.info(f"CRDT sync: Returning {change_count} changes for site_id={site_id} (from version {version})")
-        return jsonify([dict(row) for row in changes])
+        
+        # Convert to Pydantic models
+        change_list = []
+        for row in changes:
+            try:
+                change = CRDTChange(**dict(row))
+                change_list.append(change.model_dump(mode='json'))
+            except Exception as e:
+                logger.warning(f"CRDT sync: Failed to validate change: {e}, skipping")
+                continue
+        
+        response = CRDTGetChangesResponse(changes=change_list)
+        return jsonify(response.model_dump(mode='json'))
 
     except Exception as e:
         logger.error(f"CRDT sync: Failed to retrieve changes for site_id={site_id}: {e}", exc_info=True)

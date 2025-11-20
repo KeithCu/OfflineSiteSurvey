@@ -4,6 +4,14 @@ import json
 from ..models import db, SurveyTemplate, TemplateField
 from ..utils import should_show_field
 from shared.validation import ValidationError, validate_string_length, sanitize_html
+from shared.schemas import (
+    SurveyTemplateResponse, TemplateListItem, TemplateFieldDetailResponse,
+    TemplateConditionalFieldsResponse, ConditionalFieldResponse,
+    SectionTagsUpdateRequest, SectionTagsUpdateResponse,
+    SurveyConditionEvaluationRequest, SurveyConditionEvaluationResponse,
+    SurveyProgressResponse, SectionProgress, PhotoRequirementsResponse, PhotoRequirementData
+)
+from pydantic import ValidationError as PydanticValidationError
 
 
 bp = Blueprint('templates', __name__, url_prefix='/api')
@@ -37,12 +45,13 @@ def get_templates():
             section_tags = json.loads(t.section_tags) if t.section_tags else {}
         except json.JSONDecodeError:
             section_tags = {}
-        template_list.append({
-            'id': t.id,
-            'name': t.name,
-            'fields': [{'id': f.id, 'question': f.question} for f in t.fields],
-            'section_tags': section_tags
-        })
+        template_list.append(TemplateListItem(
+            id=t.id,
+            name=t.name,
+            fields=[{'id': f.id, 'question': f.question} for f in t.fields],
+            section_tags=section_tags
+        ).model_dump(mode='json'))
+    
     return jsonify({
         'templates': template_list,
         'pagination': {
@@ -59,20 +68,7 @@ def get_templates():
 @bp.route('/templates/<int:template_id>', methods=['GET'])
 def get_template(template_id):
     template = db.get_or_404(SurveyTemplate, template_id)
-    fields = [{'id': f.id, 'field_type': f.field_type, 'question': f.question, 'description': f.description, 'required': f.required, 'options': f.options, 'order_index': f.order_index, 'section': f.section} for f in sorted(template.fields, key=lambda x: x.order_index)]
-    try:
-        section_tags = json.loads(template.section_tags) if template.section_tags else {}
-    except json.JSONDecodeError:
-        section_tags = {}
-    return jsonify({
-        'id': template.id,
-        'name': template.name,
-        'description': template.description,
-        'category': template.category,
-        'is_default': template.is_default,
-        'fields': fields,
-        'section_tags': section_tags
-    })
+    return jsonify(SurveyTemplateResponse.model_validate(template).model_dump(mode='json'))
 
 
 @bp.route('/templates/<int:template_id>/conditional-fields', methods=['GET'])
@@ -82,30 +78,32 @@ def get_conditional_fields(template_id):
     fields = []
     
     for field in sorted(template.fields, key=lambda x: x.order_index):
-        field_data = {
-            'id': field.id,
-            'field_type': field.field_type,
-            'question': field.question,
-            'description': field.description,
-            'required': field.required,
-            'options': field.options,
-            'order_index': field.order_index,
-            'section': field.section,
-            'section_weight': field.section_weight,
-            'conditions': json.loads(field.conditions) if field.conditions else None,
-            'photo_requirements': json.loads(field.photo_requirements) if field.photo_requirements else None
-        }
-        fields.append(field_data)
+        field_data = ConditionalFieldResponse(
+            id=field.id,
+            field_type=field.field_type,
+            question=field.question,
+            description=field.description,
+            required=field.required,
+            options=field.options,
+            order_index=field.order_index,
+            section=field.section,
+            section_weight=field.section_weight,
+            conditions=json.loads(field.conditions) if field.conditions else None,
+            photo_requirements=json.loads(field.photo_requirements) if field.photo_requirements else None
+        )
+        fields.append(field_data.model_dump(mode='json'))
+    
     try:
         section_tags = json.loads(template.section_tags) if template.section_tags else {}
     except json.JSONDecodeError:
         section_tags = {}
     
-    return jsonify({
-        'template_id': template_id,
-        'fields': fields,
-        'section_tags': section_tags
-    })
+    response = TemplateConditionalFieldsResponse(
+        template_id=template_id,
+        fields=fields,
+        section_tags=section_tags
+    )
+    return jsonify(response.model_dump(mode='json'))
 
 
 @bp.route('/templates/<int:template_id>/section-tags', methods=['PUT'])
@@ -113,58 +111,39 @@ def update_section_tags(template_id):
     """Update section tag mappings for a template"""
     try:
         data = request.get_json()
-    except Exception:
+        if data is None:
+            return jsonify({'error': 'Invalid JSON payload'}), 400
+        
+        request_schema = SectionTagsUpdateRequest(**data)
+    except PydanticValidationError as e:
+        errors = []
+        for error in e.errors():
+            field = '.'.join(str(x) for x in error['loc'])
+            msg = error['msg']
+            errors.append(f"{field}: {msg}")
+        return jsonify({'error': '; '.join(errors)}), 400
+    except Exception as e:
         return jsonify({'error': 'Invalid JSON payload'}), 400
-
-    if not isinstance(data, dict):
-        return jsonify({'error': 'Request payload must be a JSON object'}), 400
-
-    section_tags = data.get('section_tags')
-    if not isinstance(section_tags, dict):
-        return jsonify({'error': 'section_tags must be a JSON object'}), 400
-
-    cleaned = {}
-    for section, tags in section_tags.items():
-        if not isinstance(section, str):
-            continue
-        
-        # Validate section name length
-        try:
-            section = validate_string_length(section.strip(), 'section name', 1, 100)
-        except ValidationError as e:
-            return jsonify({'error': str(e)}), 400
-        
-        if not isinstance(tags, list):
-            return jsonify({'error': f'Tags for section {section} must be a list'}), 400
-        
-        # Validate and sanitize tags
-        validated_tags = []
-        for tag in tags:
-            if not isinstance(tag, str):
-                tag = str(tag)
-            try:
-                validated_tag = validate_string_length(tag.strip(), 'tag', 1, 50)
-                validated_tag = sanitize_html(validated_tag)
-                if validated_tag and validated_tag not in validated_tags:
-                    validated_tags.append(validated_tag)
-            except ValidationError:
-                continue  # Skip invalid tags
-        
-        # Limit tags per section
-        if len(validated_tags) > 100:
-            validated_tags = validated_tags[:100]
-        
-        cleaned[section] = validated_tags
 
     template = db.get_or_404(SurveyTemplate, template_id)
     try:
+        # Sanitize tags
+        cleaned = {}
+        for section, tags in request_schema.section_tags.items():
+            sanitized_tags = [sanitize_html(tag) for tag in tags]
+            cleaned[section] = sanitized_tags
+        
         template.section_tags = json.dumps(cleaned)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to update section tags: {e}'}), 500
 
-    return jsonify({'template_id': template_id, 'section_tags': cleaned})
+    response = SectionTagsUpdateResponse(
+        template_id=template_id,
+        section_tags=cleaned
+    )
+    return jsonify(response.model_dump(mode='json'))
 
 
 @bp.route('/surveys/<int:survey_id>/evaluate-conditions', methods=['POST'])
@@ -172,23 +151,19 @@ def evaluate_survey_conditions(survey_id):
     """Evaluate which fields should be visible based on current responses"""
     try:
         data = request.get_json()
-    except Exception:
+        if data is None:
+            return jsonify({'error': 'Invalid JSON data'}), 400
+        
+        request_schema = SurveyConditionEvaluationRequest(**data)
+    except PydanticValidationError as e:
+        errors = []
+        for error in e.errors():
+            field = '.'.join(str(x) for x in error['loc'])
+            msg = error['msg']
+            errors.append(f"{field}: {msg}")
+        return jsonify({'error': '; '.join(errors)}), 400
+    except Exception as e:
         return jsonify({'error': 'Invalid JSON data'}), 400
-
-    if not isinstance(data, dict):
-        return jsonify({'error': 'Request data must be a JSON object'}), 400
-
-    current_responses = data.get('responses', [])
-    if not isinstance(current_responses, list):
-        return jsonify({'error': 'responses must be a list'}), 400
-    
-    # Validate responses structure (basic validation)
-    if len(current_responses) > 1000:  # Reasonable limit
-        return jsonify({'error': 'Too many responses (max 1000)'}), 400
-    
-    for response in current_responses:
-        if not isinstance(response, dict):
-            return jsonify({'error': 'Each response must be a JSON object'}), 400
 
     from ..models import Survey
     survey = Survey.query.get_or_404(survey_id)
@@ -202,7 +177,7 @@ def evaluate_survey_conditions(survey_id):
     
     # Pre-compute response lookup once for all field evaluations
     from shared.utils import build_response_lookup
-    response_lookup = build_response_lookup(current_responses)
+    response_lookup = build_response_lookup(request_schema.responses)
     
     visible_fields = []
     
@@ -216,10 +191,11 @@ def evaluate_survey_conditions(survey_id):
             # No conditions, always show
             visible_fields.append(field.id)
     
-    return jsonify({
-        'survey_id': survey_id,
-        'visible_fields': visible_fields
-    })
+    response = SurveyConditionEvaluationResponse(
+        survey_id=survey_id,
+        visible_fields=visible_fields
+    )
+    return jsonify(response.model_dump(mode='json'))
 
 
 @bp.route('/surveys/<int:survey_id>/progress', methods=['GET'])
@@ -249,48 +225,52 @@ def get_survey_progress(survey_id):
     for field in fields:
         section = field.section or 'General'
         if section not in sections:
-            sections[section] = {
-                'required': 0,
-                'completed': 0,
-                'photos_required': 0,
-                'photos_taken': 0,
-                'weight': field.section_weight
-            }
+            sections[section] = SectionProgress(
+                required=0,
+                completed=0,
+                photos_required=0,
+                photos_taken=0,
+                weight=field.section_weight,
+                progress=0.0
+            )
         
         if field.required:
-            sections[section]['required'] += 1
+            sections[section].required += 1
             total_required += 1
             
             # Check if this field has a response
             if field.id in response_dict and response_dict[field.id]:
-                sections[section]['completed'] += 1
+                sections[section].completed += 1
                 total_completed += 1
         
         # Handle photo requirements
         if field.field_type == 'photo':
             if field.required:
-                sections[section]['photos_required'] += 1
+                sections[section].photos_required += 1
             
             # Check if photo exists for this field
             photo_exists = any(p for p in photos if p.requirement_id and field.question in p.description)
             if photo_exists:
-                sections[section]['photos_taken'] += 1
+                sections[section].photos_taken += 1
     
     # Calculate overall progress
     overall_progress = (total_completed / total_required * 100) if total_required > 0 else 0
     
     # Calculate section progress
+    sections_dict = {}
     for section_name, section_data in sections.items():
-        section_total = section_data['required']
-        section_completed = section_data['completed']
-        section_data['progress'] = (section_completed / section_total * 100) if section_total > 0 else 0
+        section_total = section_data.required
+        section_completed = section_data.completed
+        section_data.progress = (section_completed / section_total * 100) if section_total > 0 else 0
+        sections_dict[section_name] = section_data.model_dump(mode='json')
     
-    return jsonify({
-        'overall_progress': overall_progress,
-        'sections': sections,
-        'total_required': total_required,
-        'total_completed': total_completed
-    })
+    response = SurveyProgressResponse(
+        overall_progress=overall_progress,
+        sections=sections_dict,
+        total_required=total_required,
+        total_completed=total_completed
+    )
+    return jsonify(response.model_dump(mode='json'))
 
 
 @bp.route('/surveys/<int:survey_id>/photo-requirements', methods=['GET'])
@@ -317,13 +297,18 @@ def get_photo_requirements(survey_id):
                 requirements_by_section[section] = []
             
             photo_req_data = json.loads(field.photo_requirements)
-            photo_req_data['field_id'] = field.id
-            photo_req_data['field_question'] = field.question
-            photo_req_data['taken'] = field.id in existing_photo_requirements
-            
-            requirements_by_section[section].append(photo_req_data)
+            requirement = PhotoRequirementData(
+                field_id=field.id,
+                field_question=field.question,
+                taken=field.id in existing_photo_requirements
+            )
+            # Merge photo_req_data dict with requirement data
+            req_dict = requirement.model_dump(mode='json')
+            req_dict.update(photo_req_data)
+            requirements_by_section[section].append(req_dict)
     
-    return jsonify({
-        'survey_id': survey_id,
-        'requirements_by_section': requirements_by_section
-    })
+    response = PhotoRequirementsResponse(
+        survey_id=survey_id,
+        requirements_by_section=requirements_by_section
+    )
+    return jsonify(response.model_dump(mode='json'))

@@ -5,6 +5,12 @@ import logging
 from flask import Blueprint, jsonify, request
 from ..models import db, AppConfig
 from shared.validation import ValidationError, validate_string_length
+from shared.schemas import (
+    AppConfigResponse, AllConfigResponse, ConfigValueResponse,
+    SingleConfigResponse, CloudStorageConfigResponse,
+    CloudStorageTestResponse, CloudStorageStatusResponse
+)
+from pydantic import ValidationError as PydanticValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -41,25 +47,23 @@ CONFIG_VALIDATION_RULES = {
 def get_all_config():
     """Get all configuration values."""
     configs = AppConfig.query.all()
-    return jsonify({
-        config.key: {
-            'value': config.value,
-            'description': config.description,
-            'category': config.category
-        } for config in configs
-    })
+    config_dict = {
+        config.key: ConfigValueResponse(
+            value=config.value,
+            description=config.description,
+            category=config.category
+        ).model_dump(mode='json')
+        for config in configs
+    }
+    response = AllConfigResponse(config=config_dict)
+    return jsonify(response.model_dump(mode='json'))
 
 
 @bp.route('/config/<key>', methods=['GET'])
 def get_config(key):
     """Get a specific configuration value."""
     config = AppConfig.query.filter_by(key=key).first_or_404()
-    return jsonify({
-        'key': config.key,
-        'value': config.value,
-        'description': config.description,
-        'category': config.category
-    })
+    return jsonify(SingleConfigResponse.model_validate(config).model_dump(mode='json'))
 
 
 @bp.route('/config/<key>', methods=['PUT'])
@@ -147,12 +151,7 @@ def update_config(key):
         db.session.add(config)
         db.session.commit()
         logger.info(f"Configuration updated: key={key}, new_value={config.value}, old_value={old_value}")
-        return jsonify({
-            'key': config.key,
-            'value': config.value,
-            'description': config.description,
-            'category': config.category
-        })
+        return jsonify(SingleConfigResponse.model_validate(config).model_dump(mode='json'))
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to update config: {str(e)}'}), 500
@@ -180,10 +179,11 @@ def get_cloud_storage_config():
             else:
                 config[key.lower()] = env_value
 
-    return jsonify({
-        'cloud_storage': config,
-        'message': 'Cloud storage configuration retrieved (sensitive values masked)'
-    })
+    response = CloudStorageConfigResponse(
+        cloud_storage=config,
+        message='Cloud storage configuration retrieved (sensitive values masked)'
+    )
+    return jsonify(response.model_dump(mode='json'))
 
 
 @bp.route('/config/cloud-storage/test', methods=['POST'])
@@ -197,18 +197,20 @@ def test_cloud_storage_config():
         containers = cloud_storage.driver.list_containers()
         container_names = [c.name for c in containers]
 
-        return jsonify({
-            'status': 'success',
-            'message': 'Cloud storage connection successful',
-            'containers': container_names,
-            'provider': cloud_storage.provider_name
-        })
+        response = CloudStorageTestResponse(
+            status='success',
+            message='Cloud storage connection successful',
+            containers=container_names,
+            provider=cloud_storage.provider_name
+        )
+        return jsonify(response.model_dump(mode='json'))
 
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': f'Cloud storage connection failed: {str(e)}'
-        }), 500
+        response = CloudStorageTestResponse(
+            status='error',
+            message=f'Cloud storage connection failed: {str(e)}'
+        )
+        return jsonify(response.model_dump(mode='json')), 500
 
 
 @bp.route('/config/cloud-storage/status', methods=['GET'])
@@ -224,13 +226,14 @@ def get_cloud_storage_status():
         completed_count = Photo.query.filter_by(upload_status='completed').count()
         failed_count = Photo.query.filter_by(upload_status='failed').count()
 
-        return jsonify({
-            'upload_queue_running': upload_queue.running if upload_queue else False,
-            'pending_uploads': pending_count,
-            'completed_uploads': completed_count,
-            'failed_uploads': failed_count,
-            'local_storage_path': os.getenv('CLOUD_STORAGE_LOCAL_PATH', './local_photos')
-        })
+        response = CloudStorageStatusResponse(
+            upload_queue_running=upload_queue.running if upload_queue else False,
+            pending_uploads=pending_count,
+            completed_uploads=completed_count,
+            failed_uploads=failed_count,
+            local_storage_path=os.getenv('CLOUD_STORAGE_LOCAL_PATH', './local_photos')
+        )
+        return jsonify(response.model_dump(mode='json'))
 
     except Exception as e:
         return jsonify({

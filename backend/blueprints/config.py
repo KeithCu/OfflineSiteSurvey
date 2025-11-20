@@ -1,9 +1,12 @@
 """Config blueprint for Flask API."""
 import os
 import re
+import logging
 from flask import Blueprint, jsonify, request
 from ..models import db, AppConfig
 from shared.validation import Validator, ValidationError
+
+logger = logging.getLogger(__name__)
 
 
 bp = Blueprint('config', __name__, url_prefix='/api')
@@ -79,9 +82,14 @@ def update_config(key):
         return jsonify({'error': 'Config key must be 100 characters or less'}), 400
 
     config = AppConfig.query.filter_by(key=key).first()
+    old_value = None
     if not config:
         # Create new config if it doesn't exist
         config = AppConfig(key=key)
+        logger.info(f"Creating new configuration: key={key}")
+    else:
+        old_value = config.value
+        logger.info(f"Updating configuration: key={key}, old_value={old_value}")
 
     # Validate and set value
     if 'value' in data:
@@ -138,6 +146,7 @@ def update_config(key):
     try:
         db.session.add(config)
         db.session.commit()
+        logger.info(f"Configuration updated: key={key}, new_value={config.value}, old_value={old_value}")
         return jsonify({
             'key': config.key,
             'value': config.value,

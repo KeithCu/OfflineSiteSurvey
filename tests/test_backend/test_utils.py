@@ -12,9 +12,15 @@ def test_compute_photo_hash():
     assert len(hash_value) == 64  # SHA-256 hex length
     assert isinstance(hash_value, str)
 
-    # Test with None/invalid input
-    assert compute_photo_hash(None) is None
-    assert compute_photo_hash("not bytes") is None
+    # Test with None/invalid input - should raise TypeError
+    with pytest.raises(TypeError, match="expected bytes"):
+        compute_photo_hash(None)
+    
+    with pytest.raises(TypeError, match="expected bytes"):
+        compute_photo_hash("not bytes")
+    
+    with pytest.raises(TypeError, match="expected bytes"):
+        compute_photo_hash(123)
 
 
 def test_should_show_field():

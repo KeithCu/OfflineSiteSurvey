@@ -7,6 +7,7 @@ components of the Site Survey application.
 import hashlib
 import json
 import logging
+from functools import lru_cache
 from PIL import Image
 import io
 
@@ -26,7 +27,11 @@ def compute_photo_hash(image_data):
         image_data (bytes): Raw image data bytes to hash
 
     Returns:
-        str or None: Hexadecimal hash string if successful, None for invalid input
+        str: Hexadecimal hash string (64 characters for SHA256)
+
+    Raises:
+        TypeError: If image_data is not bytes type
+        ValueError: If hash algorithm is invalid or unsupported
 
     Examples:
         >>> data = b"test image data"
@@ -34,15 +39,17 @@ def compute_photo_hash(image_data):
         >>> len(hash_value)
         64
     """
-    if isinstance(image_data, bytes):
-        try:
-            return hashlib.new(PHOTO_HASH_ALGO, image_data).hexdigest()
-        except Exception as e:
-            logger.error(f"Failed to compute photo hash with algorithm '{PHOTO_HASH_ALGO}': {e}")
-            return None
+    if not isinstance(image_data, bytes):
+        raise TypeError(f"compute_photo_hash expected bytes, got {type(image_data).__name__}")
     
-    logger.warning(f"compute_photo_hash called with invalid input type: {type(image_data).__name__}, expected bytes")
-    return None
+    try:
+        return hashlib.new(PHOTO_HASH_ALGO, image_data).hexdigest()
+    except ValueError as e:
+        logger.error(f"Failed to compute photo hash with algorithm '{PHOTO_HASH_ALGO}': {e}")
+        raise ValueError(f"Invalid hash algorithm '{PHOTO_HASH_ALGO}': {e}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error computing photo hash: {e}")
+        raise
 
 
 def build_response_lookup(responses):
@@ -204,6 +211,33 @@ def should_show_field(conditions, response_lookup):
             results.append(False)
 
     return all(results) if logic == 'AND' else any(results)
+
+
+@lru_cache(maxsize=128)
+def _calculate_thumbnail_size(original_width, original_height, max_size):
+    """Calculate thumbnail dimensions maintaining aspect ratio.
+    
+    Cached to avoid recalculating dimensions for the same inputs.
+    This is useful when generating multiple thumbnails with the same
+    max_size from images with the same dimensions.
+    
+    Args:
+        original_width (int): Original image width
+        original_height (int): Original image height
+        max_size (int): Maximum dimension for thumbnail
+        
+    Returns:
+        tuple: (width, height) tuple for thumbnail dimensions
+    """
+    if original_width <= max_size and original_height <= max_size:
+        return (original_width, original_height)
+    
+    # Calculate scaling factor to fit within max_size while maintaining aspect ratio
+    ratio = min(max_size / original_width, max_size / original_height)
+    new_width = int(original_width * ratio)
+    new_height = int(original_height * ratio)
+    
+    return (new_width, new_height)
 
 
 def generate_thumbnail(image_data=None, image_path=None, max_size=200):

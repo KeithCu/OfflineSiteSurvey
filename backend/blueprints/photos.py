@@ -4,6 +4,7 @@ import json
 import secrets
 import uuid
 import hashlib
+import logging
 from urllib.parse import urlparse
 from ..models import db, Photo, Survey, TemplateField
 from shared.utils import compute_photo_hash, generate_thumbnail
@@ -11,6 +12,8 @@ from shared.validation import Validator, ValidationError
 from shared.enums import PhotoCategory
 from ..services.upload_queue import get_upload_queue
 from ..utils import api_error, handle_api_exception
+
+logger = logging.getLogger(__name__)
 
 
 def extract_object_name_from_url(url):
@@ -103,6 +106,7 @@ def mark_requirement_fulfillment():
 @bp.route('/photos/<photo_id>/integrity', methods=['GET'])
 def get_photo_integrity(photo_id):
     """Get integrity information for a photo"""
+    logger.info(f"Photo integrity check requested for photo_id={photo_id}")
     photo = Photo.query.get_or_404(photo_id)
 
     # For cloud-stored photos, download and verify
@@ -112,20 +116,31 @@ def get_photo_integrity(photo_id):
             cloud_storage = get_cloud_storage()
             object_name = extract_object_name_from_url(photo.cloud_url)
             if not object_name:
+                logger.warning(f"Photo integrity check failed: Invalid cloud URL format for photo_id={photo_id}")
                 return jsonify({
                     'photo_id': photo_id,
                     'error': 'Invalid cloud URL format'
                 }), 500
+            logger.debug(f"Downloading photo from cloud for integrity check: photo_id={photo_id}")
             image_data = cloud_storage.download_photo(object_name)
             current_hash = compute_photo_hash(image_data)
             actual_size = len(image_data)
+            hash_matches = photo.hash_value == current_hash
+            size_matches = photo.size_bytes == actual_size
+            
+            if not hash_matches or not size_matches:
+                logger.warning(f"Photo integrity mismatch for photo_id={photo_id}: hash_match={hash_matches}, size_match={size_matches}")
+            else:
+                logger.info(f"Photo integrity verified for photo_id={photo_id}")
         except Exception as e:
+            logger.error(f"Photo integrity check failed for photo_id={photo_id}: {e}", exc_info=True)
             return jsonify({
                 'photo_id': photo_id,
                 'error': f'Failed to download and verify cloud photo: {str(e)}'
             }), 500
     else:
         # Legacy: check local data (shouldn't happen with new system)
+        logger.debug(f"Photo integrity check: No cloud URL for photo_id={photo_id} (legacy mode)")
         current_hash = None
         actual_size = 0
 
@@ -147,6 +162,7 @@ def get_photo_integrity(photo_id):
 @bp.route('/surveys/<int:survey_id>/photos', methods=['POST'])
 def upload_photo_to_survey(survey_id):
     """Upload a photo to a survey."""
+    logger.info(f"Photo upload initiated for survey_id={survey_id}")
     try:
         # Validate survey exists
         survey = Survey.query.get_or_404(survey_id)
@@ -322,10 +338,12 @@ def upload_photo_to_survey(survey_id):
                 db.session.add(photo)
 
             db.session.commit()
+            logger.info(f"Photo record created: photo_id={photo_id}, survey_id={survey_id}, size={size_bytes} bytes, hash={hash_value[:16]}...")
 
             # Queue for cloud upload
             upload_queue = get_upload_queue()
             upload_queue.queue_photo_for_upload(photo_id, photo_path=image_path_for_upload, thumbnail_data=thumbnail_data)
+            logger.debug(f"Photo queued for cloud upload: photo_id={photo_id}")
 
             # Clean up temporary file after queuing (upload queue has copied it)
             os.unlink(image_path_for_upload)

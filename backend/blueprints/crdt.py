@@ -4,10 +4,11 @@ import sqlite3
 import json
 import uuid
 import re
+import logging
 from ..models import db, Photo
 from ..utils import compute_photo_hash
 
-
+logger = logging.getLogger(__name__)
 bp = Blueprint('crdt', __name__, url_prefix='/api')
 
 # Valid CRR table names (from create_crr_tables in models.py)
@@ -22,13 +23,20 @@ def apply_changes():
     try:
         changes = request.get_json()
     except Exception:
+        logger.warning("CRDT sync: Invalid JSON data received")
         return jsonify({'error': 'Invalid JSON data'}), 400
 
     if not isinstance(changes, list):
+        logger.warning("CRDT sync: Changes must be a list")
         return jsonify({'error': 'Changes must be a list'}), 400
 
     if not changes:
+        logger.debug("CRDT sync: No changes to apply")
         return jsonify({'message': 'No changes to apply'}), 200
+    
+    # Log sync start
+    site_id = changes[0].get('site_id', 'unknown') if changes else 'unknown'
+    logger.info(f"CRDT sync: Applying {len(changes)} changes from site_id={site_id}")
 
     conn = db.engine.raw_connection()
     cursor = conn.cursor()
@@ -364,6 +372,16 @@ def apply_changes():
 
         conn.commit()
 
+        # Log sync completion
+        applied_count = len(valid_changes)
+        rejected_count = len(changes) - applied_count
+        logger.info(f"CRDT sync: Applied {applied_count} changes, rejected {rejected_count} changes from site_id={site_id}")
+        
+        if integrity_issues:
+            logger.warning(f"CRDT sync: {len(integrity_issues)} integrity issues detected for site_id={site_id}")
+            for issue in integrity_issues[:5]:  # Log first 5 issues
+                logger.warning(f"CRDT sync integrity issue: {issue.get('error', issue.get('action', 'unknown'))}")
+
         response = {'message': 'Changes applied successfully'}
         if integrity_issues:
             response['integrity_issues'] = integrity_issues
@@ -373,6 +391,7 @@ def apply_changes():
 
     except Exception as e:
         conn.rollback()
+        logger.error(f"CRDT sync: Failed to apply changes from site_id={site_id}: {e}", exc_info=True)
         return jsonify({'error': f'Failed to apply changes: {str(e)}'}), 500
     finally:
         conn.close()
@@ -414,9 +433,12 @@ def get_changes():
         )
 
         changes = cursor.fetchall()
+        change_count = len(changes)
+        logger.info(f"CRDT sync: Returning {change_count} changes for site_id={site_id} (from version {version})")
         return jsonify([dict(row) for row in changes])
 
     except Exception as e:
+        logger.error(f"CRDT sync: Failed to retrieve changes for site_id={site_id}: {e}", exc_info=True)
         return jsonify({'error': f'Failed to retrieve changes: {str(e)}'}), 500
     finally:
         conn.close()

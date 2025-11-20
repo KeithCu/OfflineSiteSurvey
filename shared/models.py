@@ -72,8 +72,6 @@ class Survey(Base):
 
 Index('idx_survey_site_id', Survey.site_id)
 Index('idx_survey_template_id', Survey.template_id)
-Index('idx_survey_status', Survey.status)
-Index('idx_survey_created_at', Survey.created_at)
 
 
 class SurveyResponse(Base):

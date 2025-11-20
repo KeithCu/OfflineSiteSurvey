@@ -1,6 +1,7 @@
 """Flask application factory for Site Survey backend."""
 from flask import Flask
 import os
+import logging
 from appdirs import user_data_dir
 from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
@@ -8,6 +9,8 @@ from .models import db, create_crr_tables
 from .blueprints import config, projects, sites, surveys, templates, photos, crdt, auth
 from .cli import init_db_command, check_photo_integrity_command, check_referential_integrity_command
 from .logging_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(test_config=None):
@@ -61,9 +64,17 @@ def create_app(test_config=None):
 
         if not os.path.exists(lib_path):
             lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'lib', 'crsqlite.so'))
+            logger.debug(f"Using fallback cr-sqlite extension path: {lib_path}")
+        else:
+            logger.debug(f"Using cr-sqlite extension from user data dir: {lib_path}")
 
-        db_conn.enable_load_extension(True)
-        db_conn.load_extension(lib_path)
+        try:
+            db_conn.enable_load_extension(True)
+            db_conn.load_extension(lib_path)
+            logger.info("Successfully loaded cr-sqlite extension for CRDT support")
+        except Exception as e:
+            logger.error(f"Failed to load cr-sqlite extension from {lib_path}: {e}", exc_info=True)
+            raise
 
     # Create CRR tables after creation
     event.listen(db.metadata, 'after_create', create_crr_tables)

@@ -1,15 +1,19 @@
 import click
 import json
+import logging
 from flask import current_app
 from flask.cli import with_appcontext
 from .models import db, AppConfig, SurveyTemplate, TemplateField, Photo
 from .utils import compute_photo_hash
+
+logger = logging.getLogger(__name__)
 
 
 @click.command('init-db')
 @with_appcontext
 def init_db_command():
     """Clear the existing data and create new tables."""
+    logger.info("Initializing database: Creating tables and constraints")
     db.create_all()
 
     # Add CHECK constraints for data validation
@@ -22,11 +26,14 @@ def init_db_command():
         conn.execute(db.text("ALTER TABLE app_config ADD CONSTRAINT IF NOT EXISTS chk_sync_interval_non_negative CHECK (key != 'auto_sync_interval' OR CAST(value AS INTEGER) >= 0);"))
 
     # Seed initial data
+    logger.info("Seeding initial database configuration")
     if not AppConfig.query.filter_by(key='image_compression_quality').first():
         config = AppConfig(key='image_compression_quality', value='75')
         db.session.add(config)
+        logger.debug("Added default image_compression_quality config")
 
     if not SurveyTemplate.query.filter_by(is_default=True).first():
+        logger.info("Loading default survey template")
         import os
         template_path = os.path.join(os.path.dirname(__file__), 'data', 'templates', 'store.json')
         with open(template_path, 'r') as f:
@@ -56,7 +63,9 @@ def init_db_command():
 @with_appcontext
 def check_photo_integrity_command(fix):
     """Check integrity of all photos in the database"""
+    logger.info(f"Starting photo integrity check (fix={fix})")
     photos = Photo.query.all()
+    logger.info(f"Checking integrity for {len(photos)} photos")
     issues_found = 0
     fixed = 0
 
@@ -102,6 +111,7 @@ def check_photo_integrity_command(fix):
 
         if photo.hash_value != current_hash or not size_matches:
             issues_found += 1
+            logger.warning(f"Photo integrity issue: photo_id={photo.id}, hash_match={photo.hash_value == current_hash}, size_match={size_matches}")
             click.echo(f"Integrity issue with photo {photo.id}:")
             if photo.hash_value != current_hash:
                 click.echo(f"  Hash mismatch: stored={photo.hash_value}, computed={current_hash}")
@@ -113,13 +123,17 @@ def check_photo_integrity_command(fix):
                 photo.size_bytes = actual_size
                 db.session.commit()
                 fixed += 1
+                logger.info(f"Fixed photo integrity: photo_id={photo.id}")
                 click.echo(f"  Fixed photo {photo.id}")
             elif fix:
+                logger.warning(f"Could not fix photo integrity: photo_id={photo.id}, no valid data available")
                 click.echo(f"  Could not fix photo {photo.id}: no valid data available")
 
     if issues_found == 0:
+        logger.info("Photo integrity check completed: All photos passed")
         click.echo("All photos passed integrity check")
     else:
+        logger.warning(f"Photo integrity check completed: Found {issues_found} issues, fixed {fixed}")
         click.echo(f"Found {issues_found} integrity issues")
         if fix:
             click.echo(f"Fixed {fixed} photos")

@@ -1,5 +1,9 @@
 """Survey UI components for SurveyApp."""
 import toga
+from .ui_builder import (
+    create_label, create_button, create_selection,
+    SurveyQuestionWidget, SurveyProgressWidget
+)
 
 
 class SurveyUI:
@@ -58,39 +62,29 @@ class SurveyUI:
         )
 
         # Enhanced survey form (initially hidden)
-        self.app.survey_title_label = toga.Label(
+        self.app.survey_title_label = create_label(
             '',
-            style=toga.Pack(font_size=18, padding=(20, 10, 10, 10), font_weight='bold')
+            style_overrides={'font_size': 18, 'padding': (20, 10, 10, 10), 'font_weight': 'bold'}
         )
 
-        # Progress indicator
-        self.app.progress_label = toga.Label(
-            '',
-            style=toga.Pack(padding=(5, 10, 5, 10), color='#666666')
-        )
-
-        # Field type specific UI elements
-        self.app.yes_button = toga.Button(
-            'Yes',
-            on_press=lambda w: self.app.survey_handler.submit_yesno_answer('Yes'),
-            style=toga.Pack(padding=(5, 10, 5, 5))
-        )
-        self.app.no_button = toga.Button(
-            'No',
-            on_press=lambda w: self.app.survey_handler.submit_yesno_answer('No'),
-            style=toga.Pack(padding=(5, 10, 10, 5))
-        )
-
-        self.app.options_selection = toga.Selection(
-            items=[],
-            style=toga.Pack(padding=(5, 10, 10, 10))
-        )
-
-        self.app.enhanced_photo_button = toga.Button(
-            '📷 Take Photo',
-            on_press=self.app.survey_handler.take_photo_enhanced,
-            style=toga.Pack(padding=(5, 10, 10, 10))
-        )
+        # Use composite widgets
+        self.app.progress_widget = SurveyProgressWidget()
+        self.app.question_widget = SurveyQuestionWidget()
+        
+        # Wire up question widget handlers
+        self.app.question_widget.answer_input.on_change = self.app.survey_handler.on_answer_input_change
+        self.app.question_widget.yes_button.on_press = lambda w: self.app.survey_handler.submit_yesno_answer('Yes')
+        self.app.question_widget.no_button.on_press = lambda w: self.app.survey_handler.submit_yesno_answer('No')
+        self.app.question_widget.photo_button.on_press = self.app.survey_handler.take_photo_enhanced
+        
+        # Backward compatibility: expose individual components
+        self.app.progress_label = self.app.progress_widget.progress_label
+        self.app.question_label = self.app.question_widget.question_label
+        self.app.answer_input = self.app.question_widget.answer_input
+        self.app.yes_button = self.app.question_widget.yes_button
+        self.app.no_button = self.app.question_widget.no_button
+        self.app.options_selection = self.app.question_widget.options_selection
+        self.app.enhanced_photo_button = self.app.question_widget.photo_button
 
         submit_answer_button = toga.Button(
             'Submit Answer',
@@ -128,19 +122,7 @@ class SurveyUI:
             style=toga.Pack(padding=(5, 10, 10, 10))
         )
 
-        # Enhanced question UI elements
-        self.app.question_label = toga.Label(
-            '',
-            style=toga.Pack(padding=(10, 10, 5, 10))
-        )
-
-        self.app.answer_input = toga.TextInput(
-            placeholder='Enter your answer',
-            style=toga.Pack(padding=(5, 10, 10, 10))
-        )
-
-        # Wire up auto-save to text input changes
-        self.app.answer_input.on_change = self.app.survey_handler.on_answer_input_change
+        # Enhanced question UI elements (already created above via composite widget)
 
         # Photo capture UI
         self.app.photo_box = toga.Box(style=toga.Pack(direction=toga.COLUMN, padding=10, visibility='hidden'))
@@ -195,13 +177,8 @@ class SurveyUI:
 
         # Initially hide enhanced survey form
         self.app.survey_title_label.style.visibility = 'hidden'
-        self.app.progress_label.style.visibility = 'hidden'
-        self.app.question_label.style.visibility = 'hidden'
-        self.app.answer_input.style.visibility = 'hidden'
-        self.app.yes_button.style.visibility = 'hidden'
-        self.app.no_button.style.visibility = 'hidden'
-        self.app.options_selection.style.visibility = 'hidden'
-        self.app.enhanced_photo_button.style.visibility = 'hidden'
+        self.app.progress_widget.set_visible(False)
+        self.app.question_widget.set_visible(False)
         submit_answer_button.style.visibility = 'hidden'
         next_question_button.style.visibility = 'hidden'
         finish_survey_button.style.visibility = 'hidden'
@@ -222,13 +199,8 @@ class SurveyUI:
                 config_button,
                 self.app.photo_box,
                 self.app.survey_title_label,
-                self.app.progress_label,
-                self.app.question_label,
-                self.app.answer_input,
-                self.app.yes_button,
-                self.app.no_button,
-                self.app.options_selection,
-                self.app.enhanced_photo_button,
+                self.app.progress_widget,
+                self.app.question_widget,
                 submit_answer_button,
                 next_question_button,
                 finish_survey_button,
@@ -244,21 +216,14 @@ class SurveyUI:
     def show_survey_ui(self):
         """Show the enhanced survey interface"""
         self.app.survey_title_label.style.visibility = 'visible'
-        self.app.progress_label.style.visibility = 'visible'
-        self.app.question_label.style.visibility = 'visible'
+        self.app.progress_widget.set_visible(True)
+        self.app.question_widget.set_visible(True)
         self.app.survey_title_label.text = self.app.current_survey['title']
 
     def show_question(self):
         """Show the current question in enhanced UI with Phase 2 features"""
         # Update progress
         self.update_progress()
-
-        # Hide all input elements first
-        self.app.answer_input.style.visibility = 'hidden'
-        self.app.yes_button.style.visibility = 'hidden'
-        self.app.no_button.style.visibility = 'hidden'
-        self.app.options_selection.style.visibility = 'hidden'
-        self.app.enhanced_photo_button.style.visibility = 'hidden'
 
         # Find the next visible field
         visible_field = self.app.survey_handler.get_next_visible_field()
@@ -271,29 +236,36 @@ class SurveyUI:
         self.app.current_section = section
         self.update_section_tag_controls(section)
 
-        # Update question label with required indicator
-        required_indicator = " * " if visible_field.get('required', False) else " "
-        self.app.question_label.text = f"{required_indicator}{visible_field['question']}"
+        # Update question widget
+        self.app.question_widget.update_question(
+            visible_field['question'],
+            required=visible_field.get('required', False)
+        )
 
-        # Handle different field types
+        # Handle different field types using composite widget
         field_type = visible_field.get('field_type', 'text')
         if field_type == 'yesno':
-            self.app.yes_button.style.visibility = 'visible'
-            self.app.no_button.style.visibility = 'visible'
+            self.app.question_widget.show_yesno_buttons(
+                on_yes=lambda w: self.app.survey_handler.submit_yesno_answer('Yes'),
+                on_no=lambda w: self.app.survey_handler.submit_yesno_answer('No')
+            )
         elif field_type == 'photo':
-            self.app.enhanced_photo_button.style.visibility = 'visible'
+            self.app.question_widget.show_photo_button(
+                on_press=self.app.survey_handler.take_photo_enhanced
+            )
             # Show photo requirements if available
             if visible_field.get('photo_requirements'):
                 self.show_photo_requirements(visible_field['photo_requirements'])
         elif visible_field.get('options'):
             # Multiple choice
-            self.app.options_selection.items = visible_field['options']
-            self.app.options_selection.style.visibility = 'visible'
+            self.app.question_widget.show_selection(items=visible_field['options'])
         else:
             # Text input
-            self.app.answer_input.placeholder = visible_field.get('description', 'Enter your answer')
-            self.app.answer_input.value = ''
-            self.app.answer_input.style.visibility = 'visible'
+            self.app.question_widget.show_text_input(
+                placeholder=visible_field.get('description', 'Enter your answer'),
+                value='',
+                on_change=self.app.survey_handler.on_answer_input_change
+            )
 
     def show_photo_requirements(self, photo_requirements):
         """Show photo requirements for current photo field"""

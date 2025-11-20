@@ -2,7 +2,10 @@
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
-from .ui.ui_builder import create_label, create_text_input, create_button, create_selection
+from .ui.ui_builder import (
+    create_label, create_text_input, create_button, create_selection,
+    SurveyQuestionWidget, SurveyProgressWidget
+)
 
 
 class UIManager:
@@ -17,14 +20,11 @@ class UIManager:
         """Initialize UI component references."""
         # Main UI components
         self.survey_selection = None
-        self.progress_label = None
-        self.question_label = None
-        self.answer_input = None
-        self.yes_button = None
-        self.no_button = None
-        self.options_selection = None
-        self.enhanced_photo_button = None
         self.status_label = None
+        
+        # Composite widgets
+        self.question_widget = None
+        self.progress_widget = None
 
     def create_main_ui(self):
         """Create the main user interface."""
@@ -88,38 +88,15 @@ class UIManager:
             style_overrides={'font_size': 18, 'padding': (20, 10, 10, 10), 'font_weight': 'bold'}
         )
 
-        self.progress_label = create_label(
-            '',
-            style_overrides={'color': '#666666'}
-        )
-
-        self.question_label = create_label(
-            '',
-            style_overrides={'padding': (10, 10, 5, 10)}
-        )
-
-        self.answer_input = create_text_input(
-            placeholder='Enter your answer',
-            on_change=self.app.on_answer_input_change
-        )
-
-        self.yes_button = create_button(
-            'Yes',
-            on_press=lambda w: self.app.submit_yesno_answer('Yes'),
-            style_overrides={'padding': (5, 10, 5, 5)}
-        )
-        self.no_button = create_button(
-            'No',
-            on_press=lambda w: self.app.submit_yesno_answer('No'),
-            style_overrides={'padding': (5, 10, 10, 5)}
-        )
-
-        self.options_selection = create_selection()
-
-        self.enhanced_photo_button = create_button(
-            '📷 Take Photo',
-            on_press=self.app.take_photo_enhanced
-        )
+        # Use composite widgets
+        self.progress_widget = SurveyProgressWidget()
+        self.question_widget = SurveyQuestionWidget()
+        
+        # Wire up question widget handlers
+        self.question_widget.answer_input.on_change = self.app.on_answer_input_change
+        self.question_widget.yes_button.on_press = lambda w: self.app.submit_yesno_answer('Yes')
+        self.question_widget.no_button.on_press = lambda w: self.app.submit_yesno_answer('No')
+        self.question_widget.photo_button.on_press = self.app.take_photo_enhanced
 
         submit_answer_button = create_button(
             'Submit Answer',
@@ -160,13 +137,8 @@ class UIManager:
                 sync_button,
                 manage_tags_button,
                 self.survey_title_label,
-                self.progress_label,
-                self.question_label,
-                self.answer_input,
-                self.yes_button,
-                self.no_button,
-                self.options_selection,
-                self.enhanced_photo_button,
+                self.progress_widget,
+                self.question_widget,
                 submit_answer_button,
                 next_question_button,
                 finish_survey_button,
@@ -181,29 +153,19 @@ class UIManager:
         """Hide all enhanced survey UI elements."""
         if self.survey_title_label:
             self.survey_title_label.style.visibility = 'hidden'
-        if self.progress_label:
-            self.progress_label.style.visibility = 'hidden'
-        if self.question_label:
-            self.question_label.style.visibility = 'hidden'
-        if self.answer_input:
-            self.answer_input.style.visibility = 'hidden'
-        if self.yes_button:
-            self.yes_button.style.visibility = 'hidden'
-        if self.no_button:
-            self.no_button.style.visibility = 'hidden'
-        if self.options_selection:
-            self.options_selection.style.visibility = 'hidden'
-        if self.enhanced_photo_button:
-            self.enhanced_photo_button.style.visibility = 'hidden'
+        if self.progress_widget:
+            self.progress_widget.set_visible(False)
+        if self.question_widget:
+            self.question_widget.set_visible(False)
 
     def show_enhanced_survey_ui(self):
         """Show enhanced survey UI elements."""
         if self.survey_title_label:
             self.survey_title_label.style.visibility = 'visible'
-        if self.progress_label:
-            self.progress_label.style.visibility = 'visible'
-        if self.question_label:
-            self.question_label.style.visibility = 'visible'
+        if self.progress_widget:
+            self.progress_widget.set_visible(True)
+        if self.question_widget:
+            self.question_widget.set_visible(True)
 
     def hide_enhanced_survey_ui(self):
         """Hide enhanced survey UI elements."""
@@ -211,33 +173,58 @@ class UIManager:
 
     def show_question_ui(self, field_type, options=None, description=None):
         """Show appropriate UI elements for a question field type."""
-        # Hide all input elements first
-        if self.answer_input:
-            self.answer_input.style.visibility = 'hidden'
-        if self.yes_button:
-            self.yes_button.style.visibility = 'hidden'
-        if self.no_button:
-            self.no_button.style.visibility = 'hidden'
-        if self.options_selection:
-            self.options_selection.style.visibility = 'hidden'
-        if self.enhanced_photo_button:
-            self.enhanced_photo_button.style.visibility = 'hidden'
-
+        if not self.question_widget:
+            return
+        
         # Show appropriate input based on field type
         if field_type == 'yesno':
-            if self.yes_button:
-                self.yes_button.style.visibility = 'visible'
-            if self.no_button:
-                self.no_button.style.visibility = 'visible'
+            self.question_widget.show_yesno_buttons(
+                on_yes=lambda w: self.app.submit_yesno_answer('Yes'),
+                on_no=lambda w: self.app.submit_yesno_answer('No')
+            )
         elif field_type == 'photo':
-            if self.enhanced_photo_button:
-                self.enhanced_photo_button.style.visibility = 'visible'
+            self.question_widget.show_photo_button(on_press=self.app.take_photo_enhanced)
         elif options:
-            if self.options_selection:
-                self.options_selection.items = options
-                self.options_selection.style.visibility = 'visible'
+            self.question_widget.show_selection(items=options)
         else:
-            if self.answer_input:
-                self.answer_input.placeholder = description or 'Enter your answer'
-                self.answer_input.value = ''
-                self.answer_input.style.visibility = 'visible'
+            self.question_widget.show_text_input(
+                placeholder=description or 'Enter your answer',
+                value='',
+                on_change=self.app.on_answer_input_change
+            )
+    
+    # Backward compatibility properties
+    @property
+    def question_label(self):
+        """Backward compatibility: access question label."""
+        return self.question_widget.question_label if self.question_widget else None
+    
+    @property
+    def answer_input(self):
+        """Backward compatibility: access answer input."""
+        return self.question_widget.answer_input if self.question_widget else None
+    
+    @property
+    def yes_button(self):
+        """Backward compatibility: access yes button."""
+        return self.question_widget.yes_button if self.question_widget else None
+    
+    @property
+    def no_button(self):
+        """Backward compatibility: access no button."""
+        return self.question_widget.no_button if self.question_widget else None
+    
+    @property
+    def options_selection(self):
+        """Backward compatibility: access options selection."""
+        return self.question_widget.options_selection if self.question_widget else None
+    
+    @property
+    def enhanced_photo_button(self):
+        """Backward compatibility: access photo button."""
+        return self.question_widget.photo_button if self.question_widget else None
+    
+    @property
+    def progress_label(self):
+        """Backward compatibility: access progress label."""
+        return self.progress_widget.progress_label if self.progress_widget else None

@@ -188,11 +188,12 @@ class CRDTService:
             else:
                 existing_photo = None
             
-            # Reject changes that set upload_status='pending' (prevents syncing new pending photos)
-            if change['cid'] == 'upload_status' and change['val'] == 'pending':
+            # Allow setting upload_status='pending' (needed for offline photo creation)
+            # But block changing FROM 'pending' to other statuses during sync
+            if change['cid'] == 'upload_status' and change['val'] != 'pending' and existing_photo and existing_photo.get('upload_status') == 'pending':
                 return {
                     'photo_id': photo_id,
-                    'error': 'Cannot sync photo with upload_status=pending. Photo must complete upload first.',
+                    'error': 'Cannot change upload_status from pending during sync. Upload must complete first.',
                     'action': 'rejected'
                 }
             

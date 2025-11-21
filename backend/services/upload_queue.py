@@ -142,8 +142,8 @@ class UploadQueueService:
             # Check for stale pending photos (pending for too long without retry tracking)
             self._handle_stale_pending_photos(session)
 
-            # Get pending photos (never failed before)
-            pending_photos = session.query(Photo).filter_by(upload_status='pending').all()
+            # Get pending photos (never failed before) with row locking to prevent race conditions
+            pending_photos = session.query(Photo).filter_by(upload_status='pending').with_for_update().all()
 
             # Get failed photos that are eligible for retry
             failed_photos = self._get_retryable_failed_photos(session)

@@ -58,12 +58,41 @@ PriorityLevel: ['critical', 'high', 'medium', 'low']
 - Stored as Float with 6-8 decimal precision
 
 ## Prerequisites
-- Python 3.11+
-- uv package manager
-- PostgreSQL (recommended) or SQLite for backend database
-- Android SDK (for Android development)
-- Xcode (for iOS/macOS development, macOS only)
-- GTK+ development libraries (for Linux desktop development)
+
+### Core Requirements
+- **Python 3.11+** - The application requires Python 3.11 or higher
+- **uv package manager** - For dependency management and virtual environment handling
+- **Database**: PostgreSQL (recommended for production) or SQLite (for development/testing)
+
+### Platform-Specific Requirements
+
+#### Android Development
+- **Android SDK** - Required for Android APK building and testing
+- **Android Studio** or Android SDK command-line tools
+- **Java JDK 11+** - Required by Android build tools
+- USB drivers (for device testing)
+
+#### iOS/macOS Development
+- **macOS only** - iOS development requires macOS host
+- **Xcode 14+** - Apple development environment
+- **Command Line Tools for Xcode** - `xcode-select --install`
+
+#### Linux Desktop Development
+- **GTK+ development libraries**:
+  ```bash
+  # Ubuntu/Debian
+  sudo apt-get install libgtk-3-dev libgirepository1.0-dev
+
+  # Fedora/CentOS
+  sudo dnf install gtk3-devel gobject-introspection-devel
+
+  # Arch Linux
+  sudo pacman -S gtk3 gobject-introspection
+  ```
+
+#### Windows Development
+- **Visual Studio Build Tools** (for some native dependencies)
+- Windows SDK (automatically installed with Visual Studio)
 
 ## Development Setup
 ```bash
@@ -659,29 +688,70 @@ db_conn.load_extension(lib_path)
   - Returns: Array of change objects from other clients since specified version
 
 ## Building for Different Platforms
+
+### Android APK
 ```bash
-# Android APK
+# Create Android project structure
 uv run briefcase create android
+
+# Build debug APK
 uv run briefcase build android
-uv run briefcase run android  # Run on connected device/emulator
-uv run briefcase package android  # For Play Store distribution
 
-# iOS app (macOS only)
+# Run on connected device or emulator
+uv run briefcase run android
+
+# Build release APK for Play Store
+uv run briefcase package android
+```
+**Requirements**: Android SDK installed and configured. For release builds, configure signing keys.
+
+### iOS App (macOS Only)
+```bash
+# Create iOS project (macOS only)
 uv run briefcase create iOS
-uv run briefcase open iOS  # Open in Xcode for testing
-uv run briefcase run iOS  # Run in simulator
-uv run briefcase package iOS  # For App Store
 
-# Windows app
+# Open in Xcode for development/testing
+uv run briefcase open iOS
+
+# Run in iOS Simulator
+uv run briefcase run iOS
+
+# Build for App Store distribution
+uv run briefcase package iOS
+```
+**Requirements**: Xcode 14+ installed. Apple Developer account for distribution.
+
+### Windows App
+```bash
+# Create Windows project
 uv run briefcase create windows
+
+# Build Windows executable/MSIX package
 uv run briefcase build windows
+
+# Run Windows app
 uv run briefcase run windows
 
-# Linux app
-uv run briefcase create linux
-uv run briefcase build linux
-uv run briefcase run linux
+# Package for distribution
+uv run briefcase package windows
 ```
+**Requirements**: Windows SDK (installed with Visual Studio Build Tools).
+
+### Linux App
+```bash
+# Create Linux project
+uv run briefcase create linux
+
+# Build Linux AppImage/snap package
+uv run briefcase build linux
+
+# Run Linux app
+uv run briefcase run linux
+
+# Package for distribution
+uv run briefcase package linux
+```
+**Requirements**: GTK+ development libraries installed (see Prerequisites).
 
 ## Debugging & Troubleshooting
 
@@ -850,6 +920,174 @@ tests/
 
 ## IMPORTANT: Always activate .venv first
 **CRITICAL**: Remember to activate the virtual environment with `source .venv/bin/activate` before running ANY commands. All `uv run` commands must be executed from within the activated virtual environment.
+
+## Concurrency Guidelines - NO ASYNC CODE
+
+**CRITICAL**: This codebase does NOT use async/await patterns. All async code must be removed and replaced with threading-based concurrency using `ThreadPoolExecutor`.
+
+### Async Code Removal
+
+✅ **COMPLETED**: All async functions have been removed from the codebase.
+
+**Previously contained async functions (now fixed):**
+- `src/survey_app/ui/team_ui.py`: `async def load_team_handler()`, `async def add_member()`
+- `src/survey_app/ui/login_ui.py`: `async def login()`, `async def register()`
+- `src/survey_app/handlers/photo_handler.py`: `async def take_photo()`, `async def take_requirement_photo()`
+- `src/survey_app/handlers/survey_handler.py`: `async def take_photo_enhanced()`
+- `src/survey_app/app.py`: `async def capture_photo()`, `async def _fallback_capture_photo()`
+
+All functions now use `ThreadPoolExecutor` for background operations and update UI safely via `main_window.call_soon()`.
+
+### ThreadPoolExecutor Pattern
+
+Use `concurrent.futures.ThreadPoolExecutor` for:
+- Network operations in UI handlers
+- File I/O operations
+- Any blocking operation that would freeze the UI
+
+#### Basic ThreadPoolExecutor Usage
+
+```python
+import concurrent.futures
+
+# Create executor (typically one per app or service)
+self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+# Submit task and get Future
+future = self.executor.submit(self._do_network_request, url, data)
+
+# Handle result (in main thread, typically via callback or polling)
+def on_result_ready():
+    try:
+        result = future.result()  # Blocks briefly to get result
+        # Update UI with result
+        self.update_ui(result)
+    except Exception as e:
+        # Handle error
+        self.show_error(e)
+
+# Submit callback or poll for completion
+future.add_done_callback(lambda f: self.app.main_window.call_soon(on_result_ready))
+```
+
+#### Refactoring Async Functions
+
+**BEFORE (INCORRECT - DO NOT USE)**:
+```python
+async def load_team_handler(self, widget):
+    self.load_team()  # Blocking network call in UI thread
+
+def load_team(self):
+    # Synchronous blocking network request
+    resp = requests.get(url, headers=headers)
+    # Update UI directly
+    self.member_list.data = resp.json()
+```
+
+**AFTER (CORRECT)**:
+```python
+def load_team_handler(self, widget):
+    # Submit to thread pool instead of blocking UI
+    future = self.app.executor.submit(self._load_team_async, widget)
+    future.add_done_callback(lambda f: self.app.main_window.call_soon(self._on_team_loaded, f))
+
+def _load_team_async(self, widget):
+    # Runs in background thread
+    resp = requests.get(url, headers=headers)
+    return resp.json()  # Return data, don't touch UI
+
+def _on_team_loaded(self, future):
+    # Runs in main thread
+    try:
+        members = future.result()
+        self.member_list.data = members
+    except Exception as e:
+        self.status_label.text = f"Error: {e}"
+```
+
+#### UI Thread Safety
+
+**IMPORTANT**: Never update UI components from background threads. Use callbacks or `call_soon()`:
+
+```python
+# WRONG - Direct UI update from background thread
+def background_task():
+    data = requests.get(url).json()
+    self.label.text = data['message']  # ❌ CRASHES
+
+# RIGHT - Schedule UI update on main thread
+def background_task():
+    data = requests.get(url).json()
+    return data  # Return data only
+
+def on_background_complete(future):
+    try:
+        data = future.result()
+        # Schedule UI update on main thread
+        self.app.main_window.call_soon(self._update_ui, data)
+    except Exception as e:
+        self.app.main_window.call_soon(self._show_error, e)
+
+def _update_ui(self, data):
+    self.label.text = data['message']  # ✅ SAFE
+```
+
+### When to Use Threading.Thread vs ThreadPoolExecutor
+
+#### Use Threading.Thread (Long-running loops):
+- **NetworkQueue**: Processes requests in a continuous loop - use `threading.Thread`
+- **UploadQueueService**: Background upload processing loop - use `threading.Thread`
+- **SyncHandler**: Sync scheduler with infinite loop - use `threading.Thread`
+- **Any service with continuous background processing**
+
+#### Use ThreadPoolExecutor (Short-lived tasks):
+- **UI handlers making network calls** - use `ThreadPoolExecutor`
+- **File operations** - use `ThreadPoolExecutor`
+- **One-off background tasks** - use `ThreadPoolExecutor`
+- **Any operation that should return a result** - use `ThreadPoolExecutor`
+
+#### ThreadPoolExecutor Benefits:
+- Automatic thread management
+- Built-in result handling with Futures
+- Exception propagation
+- Resource pooling (reuse threads)
+- Easier testing and debugging
+
+### ThreadPoolExecutor in Services
+
+Services should accept an executor parameter rather than creating their own:
+
+```python
+class SomeService:
+    def __init__(self, executor=None):
+        # Use provided executor or create one
+        self.executor = executor or concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
+    def async_operation(self, callback=None):
+        future = self.executor.submit(self._do_work)
+        if callback:
+            future.add_done_callback(lambda f: callback(f.result()))
+        return future
+```
+
+### Testing ThreadPoolExecutor Code
+
+Use `concurrent.futures.wait()` or `future.result()` with timeout in tests:
+
+```python
+def test_async_operation():
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    service = SomeService(executor)
+
+    future = service.async_operation()
+    # Wait for completion with timeout
+    concurrent.futures.wait([future], timeout=5)
+    result = future.result()
+    assert result == expected
+```
+
+## License
+This project is licensed under the GNU Lesser General Public License v3.0 (LGPL v3). See the LICENSE file for full licensing terms and conditions.
 
 ## Code Style Preferences
 - **Type Hints**: Do not use type hints in this codebase. The project is small and maintained by a single developer, so type hints are not needed.

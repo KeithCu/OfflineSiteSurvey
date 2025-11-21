@@ -84,9 +84,14 @@ class CloudStorageService:
         """Get or create the storage container/bucket."""
         try:
             return self.driver.get_container(container_name=self.bucket_name)
-        except Exception:
-            logger.info(f"Creating container: {self.bucket_name}")
-            return self.driver.create_container(container_name=self.bucket_name)
+        except Exception as e:
+            # Container might not exist, try to create it
+            logger.info(f"Container {self.bucket_name} not found, creating it: {e}")
+            try:
+                return self.driver.create_container(container_name=self.bucket_name)
+            except Exception as create_e:
+                logger.error(f"Failed to create container {self.bucket_name}: {create_e}")
+                raise
 
     @retry(
         stop=stop_after_attempt(5),

@@ -607,4 +607,9 @@ uv run flask run
 
 ## License
 
-See individual component licenses (BeeWare is BSD licensed, cr-sqlite has its own license).
+This project is licensed under the GNU Lesser General Public License v3.0 (LGPL v3). See the LICENSE file for full licensing terms and conditions.
+
+Individual components have their own licenses:
+- BeeWare framework: BSD licensed
+- cr-sqlite: MIT licensed
+- Other dependencies: See their respective licenses

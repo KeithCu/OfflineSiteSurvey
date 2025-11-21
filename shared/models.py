@@ -11,10 +11,10 @@ Base = declarative_base()
 from zoneinfo import ZoneInfo
 APP_TIMEZONE = ZoneInfo('America/New_York')  # Eastern Time with automatic DST handling
 
-# EPOCH: Naive datetime representing Unix epoch in Eastern Time
-# Stored as naive in SQLite (SQLite limitation), but conceptually represents Eastern Time
-# This matches server_default format and ensures consistency
-EPOCH = datetime(1970, 1, 1)  # Naive datetime, represents Eastern Time epoch
+# EPOCH: Timezone-aware datetime representing Unix epoch in Eastern Time
+# Used for consistent default timestamps across all models
+# When stored in SQLite, timezone info is stripped (SQLite limitation)
+EPOCH = datetime(1970, 1, 1, tzinfo=APP_TIMEZONE)  # Timezone-aware epoch in Eastern Time
 
 def now():
     """Return current datetime in application timezone (Eastern Time, timezone-aware).
@@ -29,7 +29,7 @@ class Team(Base):
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String(200), nullable=False, unique=True, server_default="")
     description = Column(Text, server_default="")
-    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
     members = relationship('User', backref='team', lazy=True)
 
@@ -42,7 +42,7 @@ class User(Base):
     password_hash = Column(String(128), nullable=False, server_default="")
     role = Column(Enum(UserRole), default=UserRole.SURVEYOR, nullable=False, server_default=text("'surveyor'"))
     team_id = Column(Integer, ForeignKey('teams.id', ondelete='SET NULL'), nullable=True)
-    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
 
 
@@ -55,7 +55,7 @@ class Project(Base):
     client_info = Column(Text, server_default="")
     due_date = Column(DateTime)
     priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, nullable=False, server_default=text("'medium'"))
-    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
     sites = relationship('Site', backref='project', lazy=True, cascade="all, delete-orphan")
 
@@ -69,7 +69,7 @@ class Site(Base):
     longitude = Column(Float, server_default="0.0")
     notes = Column(Text, server_default="")
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), index=True)
-    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
     surveys = relationship('Survey', backref='site', lazy=True, cascade="all, delete-orphan")
     photos = relationship('Photo', backref='site', lazy=True, cascade="all, delete-orphan")
@@ -83,7 +83,7 @@ class Survey(Base):
     title = Column(String(200), nullable=False, server_default="Untitled Survey")
     description = Column(Text, server_default="")
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False)
-    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
     updated_at = Column(DateTime, default=now, onupdate=now)
     status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, nullable=False, server_default=text("'draft'"))
     template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'))
@@ -104,7 +104,7 @@ class SurveyResponse(Base):
     response_type = Column(String(50), index=True, server_default="")
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
-    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
     question_id = Column(Integer, ForeignKey('template_field.id', ondelete='SET NULL'), index=True, nullable=True)
     field_type = Column(String(50), server_default="")
 

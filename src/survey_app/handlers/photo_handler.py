@@ -298,24 +298,22 @@ class PhotoHandler:
             self.logger.error(f"Failed to load image from {url}: {e}")
             raise
 
-    def take_photo(self, widget):
-        """Take a photo (legacy method)
+    async def take_photo(self, widget):
+        """Take a photo using centralized capture"""
+        try:
+            photo_data = await self.app.capture_photo()
+            if photo_data:
+                self.app.current_photo_data = photo_data
+                self.app.image_view.image = toga.Image(data=self.app.current_photo_data)
 
-        NOTE: Toga currently does not provide camera access APIs.
-        Real camera integration would require platform-specific code.
-        For now, this uses a mock photo for development/testing.
-        """
-        # Create mock photo for development/testing
-        img = Image.new('RGB', (640, 480), color='red')
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='JPEG', quality=75)
-        self.app.current_photo_data = img_byte_arr.getvalue()
-        self.app.image_view.image = toga.Image(data=self.app.current_photo_data)
-
-        # Get GPS location synchronously (returns None for synchronous app)
-        lat, long = self.app.get_gps_location()
-        if lat is not None and long is not None:
-            self.app.photo_location_input.value = f"{lat}, {long}"
+                # Get GPS location
+                lat, long = self.app.get_gps_location()
+                if lat is not None and long is not None:
+                    self.app.photo_location_input.value = f"{lat}, {long}"
+        except Exception as e:
+            self.logger.warning(f"Photo capture failed: {e}")
+            if hasattr(self.app, 'status_label'):
+                self.app.status_label.text = "Photo capture failed."
 
     def save_photo(self, widget):
         """Save photo (legacy method)"""
@@ -417,7 +415,7 @@ class PhotoHandler:
         req_box.add(status_indicator, req_label, take_photo_btn)
         return req_box
 
-    def take_requirement_photo(self, field_id):
+    async def take_requirement_photo(self, field_id):
         """Take a photo for a specific requirement"""
         # Find the field for this requirement
         field = next((f for f in self.app.template_fields if f['id'] == field_id), None)
@@ -426,7 +424,7 @@ class PhotoHandler:
             return
 
         # Use existing photo capture logic
-        self.app.survey_handler.take_photo_enhanced(None)
+        await self.app.survey_handler.take_photo_enhanced(None)
 
         # Mark photo as fulfilling requirement
         if hasattr(self.app, 'last_photo_id'):

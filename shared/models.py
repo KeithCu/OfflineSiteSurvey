@@ -29,9 +29,9 @@ class Team(Base):
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String(200), nullable=False, unique=True, server_default="")
     description = Column(Text, server_default="")
-    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
-    members = relationship('User', backref='team', lazy=True)
+    members = relationship('User', backref='team', lazy='select')
 
 
 class User(Base):
@@ -42,7 +42,7 @@ class User(Base):
     password_hash = Column(String(128), nullable=False, server_default="")
     role = Column(Enum(UserRole), default=UserRole.SURVEYOR, nullable=False, server_default=text("'surveyor'"))
     team_id = Column(Integer, ForeignKey('teams.id', ondelete='SET NULL'), nullable=True)
-    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
 
 
@@ -55,9 +55,9 @@ class Project(Base):
     client_info = Column(Text, server_default="")
     due_date = Column(DateTime)
     priority = Column(Enum(PriorityLevel), default=PriorityLevel.MEDIUM, nullable=False, server_default=text("'medium'"))
-    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
-    sites = relationship('Site', backref='project', lazy=True, cascade="all, delete-orphan")
+    sites = relationship('Site', backref='project', lazy='select', cascade="all, delete-orphan")
 
 
 class Site(Base):
@@ -69,10 +69,10 @@ class Site(Base):
     longitude = Column(Float, server_default="0.0")
     notes = Column(Text, server_default="")
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), index=True)
-    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
-    surveys = relationship('Survey', backref='site', lazy=True, cascade="all, delete-orphan")
-    photos = relationship('Photo', backref='site', lazy=True, cascade="all, delete-orphan")
+    surveys = relationship('Survey', backref='site', lazy='select', cascade="all, delete-orphan")
+    photos = relationship('Photo', backref='site', lazy='select', cascade="all, delete-orphan")
 
 Index('idx_site_project_id', Site.project_id)
 
@@ -83,13 +83,13 @@ class Survey(Base):
     title = Column(String(200), nullable=False, server_default="Untitled Survey")
     description = Column(Text, server_default="")
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), nullable=False)
-    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
     status = Column(Enum(SurveyStatus), default=SurveyStatus.DRAFT, nullable=False, server_default=text("'draft'"))
     template_id = Column(Integer, ForeignKey('survey_template.id', ondelete='SET NULL'))
     template = relationship('SurveyTemplate', backref='surveys')
     responses = relationship('SurveyResponse', backref='survey', cascade="all, delete-orphan")
-    photos = relationship('Photo', backref='survey', lazy=True, cascade="all, delete-orphan")
+    photos = relationship('Photo', backref='survey', lazy='select', cascade="all, delete-orphan")
 
 Index('idx_survey_site_id', Survey.site_id)
 Index('idx_survey_template_id', Survey.template_id)
@@ -104,7 +104,7 @@ class SurveyResponse(Base):
     response_type = Column(String(50), index=True, server_default="")
     latitude = Column(Float, server_default="0.0")
     longitude = Column(Float, server_default="0.0")
-    created_at = Column(DateTime, default=now, server_default=text("'1970-01-01 00:00:00'"))
+    created_at = Column(DateTime, default=now)
     question_id = Column(Integer, ForeignKey('template_field.id', ondelete='SET NULL'), index=True, nullable=True)
     field_type = Column(String(50), server_default="")
 
@@ -131,7 +131,7 @@ class SurveyTemplate(Base):
     is_default = Column(Boolean, default=False, server_default='0')
     created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
-    fields = relationship('TemplateField', backref='template', cascade='all, delete-orphan', lazy=True)
+    fields = relationship('TemplateField', backref='template', cascade='all, delete-orphan', lazy='select')
     section_tags = Column(Text, server_default="{}")
 
 
@@ -150,7 +150,6 @@ class TemplateField(Base):
     photo_requirements = Column(Text, server_default="")
     section_weight = Column(Integer, default=1, server_default="1")
 
-Index('idx_template_field_template_id', TemplateField.template_id)
 Index('idx_template_field_order', TemplateField.template_id, TemplateField.order_index)
 
 
@@ -171,7 +170,7 @@ class Photo(Base):
     longitude = Column(Float, server_default="0.0")
     description = Column(Text, server_default="")
     category = Column(Enum(PhotoCategory), default=PhotoCategory.GENERAL, nullable=False, server_default=text("'general'"))
-    created_at = Column(DateTime, default=EPOCH, server_default=text("'1970-01-01 00:00:00'"), index=True)
+    created_at = Column(DateTime, default=EPOCH, index=True)
     hash_value = Column(String(64), index=True, server_default="")
     size_bytes = Column(Integer, server_default="0")
     file_path = Column(String(500), server_default="")

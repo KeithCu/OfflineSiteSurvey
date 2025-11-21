@@ -55,10 +55,7 @@ class TeamUI:
     def close(self, widget):
         self.on_close()
 
-    async def load_team_handler(self, widget):
-        self.load_team()
-
-    def load_team(self):
+    def load_team_handler(self, widget):
         # We need to get current user's team_id first
         if not self.app.auth_service.user:
             return
@@ -68,11 +65,21 @@ class TeamUI:
             self.status_label.text = "You are not in a team."
             return
 
+        # Submit network request to thread pool
+        future = self.app.executor.submit(self._load_team_async, team_id)
+        future.add_done_callback(lambda f: self.app.main_window.call_soon(self._on_team_loaded, f))
+
+    def _load_team_async(self, team_id):
+        """Load team members in background thread."""
         headers = self.app.auth_service.get_headers()
+        api_url = self.app.config.api_base_url
+        resp = requests.get(f"{api_url}/api/teams/{team_id}/members", headers=headers, timeout=5)
+        return resp
+
+    def _on_team_loaded(self, future):
+        """Handle team loading completion on main thread."""
         try:
-            # Use config from app
-            api_url = self.app.config.api_base_url
-            resp = requests.get(f"{api_url}/api/teams/{team_id}/members", headers=headers, timeout=5)
+            resp = future.result()
             if resp.status_code == 200:
                 members = resp.json()
                 self.member_list.data = [(m['username'], m['email'], m['role']) for m in members]
@@ -82,7 +89,7 @@ class TeamUI:
         except Exception as e:
             self.status_label.text = f"Error: {str(e)}"
 
-    async def add_member(self, widget):
+    def add_member(self, widget):
         username = self.new_username_input.value
         if not username:
             self.status_label.text = "Enter a username."
@@ -96,22 +103,32 @@ class TeamUI:
         self.add_button.enabled = False
         self.status_label.text = "Adding..."
 
+        # Submit network request to thread pool
+        future = self.app.executor.submit(self._add_member_async, team_id, username)
+        future.add_done_callback(lambda f: self.app.main_window.call_soon(self._on_member_added, f))
+
+    def _add_member_async(self, team_id, username):
+        """Add team member in background thread."""
         headers = self.app.auth_service.get_headers()
+        api_url = self.app.config.api_base_url
+        resp = requests.post(
+            f"{api_url}/api/teams/{team_id}/members",
+            json={'username': username},
+            headers=headers,
+            timeout=10
+        )
+        return resp
+
+    def _on_member_added(self, future):
+        """Handle member addition completion on main thread."""
+        self.add_button.enabled = True
         try:
-            api_url = self.app.config.api_base_url
-            resp = requests.post(
-                f"{api_url}/api/teams/{team_id}/members",
-                json={'username': username},
-                headers=headers,
-                timeout=10
-            )
+            resp = future.result()
             if resp.status_code == 200:
                 self.status_label.text = "User added successfully!"
                 self.new_username_input.value = ""
-                self.load_team()
+                self.load_team_handler(None)  # Reload team list
             else:
                 self.status_label.text = f"Failed: {resp.json().get('error')}"
         except Exception as e:
             self.status_label.text = f"Error: {str(e)}"
-
-        self.add_button.enabled = True

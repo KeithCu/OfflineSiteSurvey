@@ -30,7 +30,7 @@ class LoginUI:
 
         return main_box
 
-    async def login(self, widget):
+    def login(self, widget):
         username = self.username_input.value
         password = self.password_input.value
 
@@ -41,17 +41,25 @@ class LoginUI:
         self.status_label.text = "Logging in..."
         self.login_button.enabled = False
 
-        def do_login():
-            return self.app.auth_service.login(username, password)
+        # Submit login to thread pool
+        future = self.app.executor.submit(self._login_async, username, password)
+        future.add_done_callback(lambda f: self.app.main_window.call_soon(self._on_login_complete, f))
 
-        # Basic wrapper until we have proper async support
-        success, error = do_login()
+    def _login_async(self, username, password):
+        """Perform login in background thread."""
+        return self.app.auth_service.login(username, password)
 
-        if success:
-            self.on_login_success()
-        else:
-            self.status_label.text = error
-            self.login_button.enabled = True
+    def _on_login_complete(self, future):
+        """Handle login completion on main thread."""
+        self.login_button.enabled = True
+        try:
+            success, error = future.result()
+            if success:
+                self.on_login_success()
+            else:
+                self.status_label.text = error
+        except Exception as e:
+            self.status_label.text = f"Login error: {str(e)}"
 
     def show_register(self, widget):
         # Switch content to RegistrationUI
@@ -92,7 +100,7 @@ class RegistrationUI:
     def cancel(self, widget):
         self.app.main_window.content = self.login_ui.layout
 
-    async def register(self, widget):
+    def register(self, widget):
         username = self.username_input.value
         email = self.email_input.value
         password = self.password_input.value
@@ -109,11 +117,23 @@ class RegistrationUI:
         self.status_label.text = "Registering..."
         self.register_button.enabled = False
 
-        success, error = self.app.auth_service.register(username, email, password)
+        # Submit registration to thread pool
+        future = self.app.executor.submit(self._register_async, username, email, password)
+        future.add_done_callback(lambda f: self.app.main_window.call_soon(self._on_register_complete, f))
 
-        if success:
-            self.app.main_window.info_dialog("Success", "Registration successful! Please login.")
-            self.app.main_window.content = self.login_ui.layout
-        else:
-            self.status_label.text = error
-            self.register_button.enabled = True
+    def _register_async(self, username, email, password):
+        """Perform registration in background thread."""
+        return self.app.auth_service.register(username, email, password)
+
+    def _on_register_complete(self, future):
+        """Handle registration completion on main thread."""
+        self.register_button.enabled = True
+        try:
+            success, error = future.result()
+            if success:
+                self.app.main_window.info_dialog("Success", "Registration successful! Please login.")
+                self.app.main_window.content = self.login_ui.layout
+            else:
+                self.status_label.text = error
+        except Exception as e:
+            self.status_label.text = f"Registration error: {str(e)}"

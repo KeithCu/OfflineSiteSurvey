@@ -402,10 +402,16 @@ class SurveyHandler:
         state.current_question_index += 1
         self.show_question()
 
-    async def take_photo_enhanced(self, widget):
+    def take_photo_enhanced(self, widget):
         """Take a photo in enhanced UI"""
+        # Submit photo capture to thread pool
+        future = self.app.executor.submit(self.app.capture_photo)
+        future.add_done_callback(lambda f: self.app.main_window.call_soon(self._on_photo_enhanced_captured, f))
+
+    def _on_photo_enhanced_captured(self, future):
+        """Handle enhanced photo capture completion on main thread."""
         try:
-            photo_data = await self.app.capture_photo()
+            photo_data = future.result()
             if photo_data:
                 self._process_photo_data(photo_data)
         except Exception as e:

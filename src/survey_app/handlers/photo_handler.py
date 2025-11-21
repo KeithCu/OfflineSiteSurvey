@@ -298,10 +298,16 @@ class PhotoHandler:
             self.logger.error(f"Failed to load image from {url}: {e}")
             raise
 
-    async def take_photo(self, widget):
+    def take_photo(self, widget):
         """Take a photo using centralized capture"""
+        # Submit photo capture to thread pool
+        future = self.app.executor.submit(self.app.capture_photo)
+        future.add_done_callback(lambda f: self.app.main_window.call_soon(self._on_photo_captured, f))
+
+    def _on_photo_captured(self, future):
+        """Handle photo capture completion on main thread."""
         try:
-            photo_data = await self.app.capture_photo()
+            photo_data = future.result()
             if photo_data:
                 self.app.current_photo_data = photo_data
                 self.app.image_view.image = toga.Image(data=self.app.current_photo_data)
@@ -415,7 +421,7 @@ class PhotoHandler:
         req_box.add(status_indicator, req_label, take_photo_btn)
         return req_box
 
-    async def take_requirement_photo(self, field_id):
+    def take_requirement_photo(self, field_id):
         """Take a photo for a specific requirement"""
         # Find the field for this requirement
         field = next((f for f in self.app.template_fields if f['id'] == field_id), None)
@@ -424,7 +430,7 @@ class PhotoHandler:
             return
 
         # Use existing photo capture logic
-        await self.app.survey_handler.take_photo_enhanced(None)
+        self.app.survey_handler.take_photo_enhanced(None)
 
         # Mark photo as fulfilling requirement
         if hasattr(self.app, 'last_photo_id'):

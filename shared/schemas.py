@@ -1,6 +1,8 @@
 """Pydantic schemas for validation and serialization."""
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+import json
+import uuid
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 import re
 import bleach
@@ -92,7 +94,7 @@ class ProjectBase(BaseModel):
     @field_validator('name')
     @classmethod
     def validate_name(cls, v):
-        return validate_string_length(v, 1, 200)
+        return validate_string_length(v, 'name', 1, 200)
 
     @field_validator('description', 'client_info')
     @classmethod
@@ -120,7 +122,7 @@ class ProjectUpdate(BaseModel):
     @classmethod
     def validate_name(cls, v):
         if v is not None:
-            return validate_string_length(v, 1, 200)
+            return validate_string_length(v, 'name', 1, 200)
         return v
 
     @field_validator('description', 'client_info')
@@ -153,7 +155,7 @@ class SiteBase(BaseModel):
     @field_validator('name')
     @classmethod
     def validate_name(cls, v):
-        return validate_string_length(v, 1, 200)
+        return validate_string_length(v, 'name', 1, 200)
 
     @field_validator('address', 'notes')
     @classmethod
@@ -187,7 +189,7 @@ class SiteUpdate(BaseModel):
     @classmethod
     def validate_name(cls, v):
         if v is not None:
-            return validate_string_length(v, 1, 200)
+            return validate_string_length(v, 'name', 1, 200)
         return v
 
     @field_validator('address', 'notes')
@@ -225,7 +227,7 @@ class SurveyBase(BaseModel):
     @field_validator('title')
     @classmethod
     def validate_title(cls, v):
-        return validate_string_length(v, 1, 200)
+        return validate_string_length(v, 'title', 1, 200)
 
     @field_validator('description')
     @classmethod
@@ -252,7 +254,7 @@ class SurveyUpdate(BaseModel):
     @classmethod
     def validate_title(cls, v):
         if v is not None:
-            return validate_string_length(v, 1, 200)
+            return validate_string_length(v, 'title', 1, 200)
         return v
 
     @field_validator('description')
@@ -356,6 +358,15 @@ class PhotoBase(BaseModel):
 class PhotoCreate(PhotoBase):
     id: str  # Photo IDs are strings (UUID-like)
 
+    @field_validator('id')
+    @classmethod
+    def validate_id(cls, v):
+        try:
+            uuid.UUID(v)
+        except ValueError:
+            raise ValueError('id must be a valid UUID')
+        return v
+
 
 class PhotoUpdate(BaseModel):
     survey_id: Optional[int] = Field(None, gt=0)
@@ -457,7 +468,7 @@ class SurveyTemplateBase(BaseModel):
     @field_validator('name')
     @classmethod
     def validate_name(cls, v):
-        return validate_string_length(v, 1, 200)
+        return validate_string_length(v, 'name', 1, 200)
 
     @field_validator('description', 'category')
     @classmethod
@@ -482,7 +493,7 @@ class SurveyTemplateUpdate(BaseModel):
     @classmethod
     def validate_name(cls, v):
         if v is not None:
-            return validate_string_length(v, 1, 200)
+            return validate_string_length(v, 'name', 1, 200)
         return v
 
     @field_validator('description', 'category')
@@ -512,7 +523,7 @@ class AppConfigBase(BaseModel):
     @field_validator('key')
     @classmethod
     def validate_key(cls, v):
-        return validate_string_length(v, 1, 100)
+        return validate_string_length(v, 'key', 1, 100)
 
     @field_validator('value', 'description', 'category')
     @classmethod
@@ -536,7 +547,7 @@ class AppConfigUpdate(BaseModel):
     @classmethod
     def validate_key(cls, v):
         if v is not None:
-            return validate_string_length(v, 1, 100)
+            return validate_string_length(v, 'key', 1, 100)
         return v
 
     @field_validator('value', 'description', 'category')
@@ -570,6 +581,16 @@ class PhotoListResponse(BaseModel):
     hash_value: str = ""
     size_bytes: int = 0
     tags: List[str] = Field(default_factory=list)
+
+    @field_validator('tags', mode='before')
+    @classmethod
+    def parse_tags(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return []
+        return v
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -42,9 +42,10 @@ def create_crr_tables(target, connection, **kw):
                 logger.error(f"Unexpected error making {table_name} CRR: {e}", exc_info=True)
                 raise RuntimeError(f"Failed to make table '{table_name}' CRR: {e}. Stopping CRR initialization to prevent inconsistent database state.")
 
-        connection.execute(text("PRAGMA foreign_keys = ON;"))
         logger.info(f"Successfully initialized {len(successful_tables)} CRR tables for CRDT sync")
-    except SQLAlchemyError:
+    finally:
         # Always restore foreign keys, even on failure
-        connection.execute(text("PRAGMA foreign_keys = ON;"))
-        raise
+        try:
+            connection.execute(text("PRAGMA foreign_keys = ON;"))
+        except Exception as e:
+            logger.error(f"Failed to re-enable foreign keys: {e}")

@@ -17,7 +17,7 @@ def test_compute_photo_hash():
         compute_photo_hash(None)
     
     with pytest.raises(TypeError, match="expected bytes"):
-        compute_photo_hash("not bytes")
+        compute_photo_hash(12345)
     
     with pytest.raises(TypeError, match="expected bytes"):
         compute_photo_hash(123)

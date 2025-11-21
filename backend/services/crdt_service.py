@@ -227,85 +227,85 @@ class CRDTService:
             if change['cid'] == 'cloud_url' and change['val']:
                 expected_hash = CRDTService._get_pending_value(photo_id, 'hash_value', existing_photo, pending_changes_by_photo)
                 if expected_hash:
-                try:
-                    from ..services.cloud_storage import get_cloud_storage
-                    cloud_storage = get_cloud_storage()
-                    object_name = CRDTService._extract_object_name_from_url(change['val'])
-                    if object_name:
-                        downloaded_data = cloud_storage.download_photo(object_name)
-                        downloaded_hash = compute_photo_hash(downloaded_data)
-                        if downloaded_hash != existing_photo.get('hash_value'):
-                            return {
-                                'photo_id': photo_id,
-                                'expected_hash': existing_photo.get('hash_value'),
-                                'received_hash': downloaded_hash,
-                                'action': 'rejected'
-                            }
-                except Exception as e:
-                    return {
-                        'photo_id': photo_id,
-                        'error': f'Cloud verification failed: {str(e)}',
-                        'action': 'rejected'
-                    }
+                    try:
+                        from ..services.cloud_storage import get_cloud_storage
+                        cloud_storage = get_cloud_storage()
+                        object_name = CRDTService._extract_object_name_from_url(change['val'])
+                        if object_name:
+                            downloaded_data = cloud_storage.download_photo(object_name)
+                            downloaded_hash = compute_photo_hash(downloaded_data)
+                            if downloaded_hash != existing_photo.get('hash_value'):
+                                return {
+                                    'photo_id': photo_id,
+                                    'expected_hash': existing_photo.get('hash_value'),
+                                    'received_hash': downloaded_hash,
+                                    'action': 'rejected'
+                                }
+                    except Exception as e:
+                        return {
+                            'photo_id': photo_id,
+                            'error': f'Cloud verification failed: {str(e)}',
+                            'action': 'rejected'
+                        }
             
             # Validate hash_value changes - ensure they match any existing cloud data
             elif change['cid'] == 'hash_value' and change['val']:
                 cloud_url = CRDTService._get_pending_value(photo_id, 'cloud_url', existing_photo, pending_changes_by_photo)
                 upload_status = CRDTService._get_pending_value(photo_id, 'upload_status', existing_photo, pending_changes_by_photo)
                 if cloud_url and upload_status == 'completed':
-                try:
-                    from ..services.cloud_storage import get_cloud_storage
-                    cloud_storage = get_cloud_storage()
-                    object_name = CRDTService._extract_object_name_from_url(existing_photo.get('cloud_url'))
-                    if object_name:
-                        downloaded_data = cloud_storage.download_photo(object_name)
-                        downloaded_hash = compute_photo_hash(downloaded_data)
-                        if downloaded_hash != change['val']:
-                            return {
-                                'photo_id': photo_id,
-                                'expected_hash': downloaded_hash,
-                                'received_hash': change['val'],
-                                'action': 'rejected'
-                            }
-                except Exception as e:
-                    return {
-                        'photo_id': photo_id,
-                        'error': f'Hash verification failed due to cloud unavailability: {str(e)}',
-                        'action': 'rejected'
-                    }
+                    try:
+                        from ..services.cloud_storage import get_cloud_storage
+                        cloud_storage = get_cloud_storage()
+                        object_name = CRDTService._extract_object_name_from_url(existing_photo.get('cloud_url'))
+                        if object_name:
+                            downloaded_data = cloud_storage.download_photo(object_name)
+                            downloaded_hash = compute_photo_hash(downloaded_data)
+                            if downloaded_hash != change['val']:
+                                return {
+                                    'photo_id': photo_id,
+                                    'expected_hash': downloaded_hash,
+                                    'received_hash': change['val'],
+                                    'action': 'rejected'
+                                }
+                    except Exception as e:
+                        return {
+                            'photo_id': photo_id,
+                            'error': f'Hash verification failed due to cloud unavailability: {str(e)}',
+                            'action': 'rejected'
+                        }
             
             # Validate upload_status changes to 'completed' - verify cloud data exists and matches hash
             elif change['cid'] == 'upload_status' and change['val'] == 'completed':
                 cloud_url = CRDTService._get_pending_value(photo_id, 'cloud_url', existing_photo, pending_changes_by_photo)
                 hash_value = CRDTService._get_pending_value(photo_id, 'hash_value', existing_photo, pending_changes_by_photo)
                 if hash_value:
-                if not cloud_url:
-                    return {
-                        'photo_id': photo_id,
-                        'error': 'Cannot mark upload as completed without cloud_url',
-                        'action': 'rejected'
-                    }
-                
-                try:
-                    from ..services.cloud_storage import get_cloud_storage
-                    cloud_storage = get_cloud_storage()
-                    object_name = CRDTService._extract_object_name_from_url(existing_photo.get('cloud_url'))
-                    if object_name:
-                        downloaded_data = cloud_storage.download_photo(object_name)
-                        downloaded_hash = compute_photo_hash(downloaded_data)
-                        if downloaded_hash != existing_photo.get('hash_value'):
-                            return {
-                                'photo_id': photo_id,
-                                'expected_hash': existing_photo.get('hash_value'),
-                                'received_hash': downloaded_hash,
-                                'action': 'rejected'
-                            }
-                except Exception as e:
-                    return {
-                        'photo_id': photo_id,
-                        'error': f'Upload completion verification failed: {str(e)}',
-                        'action': 'rejected'
-                    }
+                    if not cloud_url:
+                        return {
+                            'photo_id': photo_id,
+                            'error': 'Cannot mark upload as completed without cloud_url',
+                            'action': 'rejected'
+                        }
+
+                    try:
+                        from ..services.cloud_storage import get_cloud_storage
+                        cloud_storage = get_cloud_storage()
+                        object_name = CRDTService._extract_object_name_from_url(existing_photo.get('cloud_url'))
+                        if object_name:
+                            downloaded_data = cloud_storage.download_photo(object_name)
+                            downloaded_hash = compute_photo_hash(downloaded_data)
+                            if downloaded_hash != existing_photo.get('hash_value'):
+                                return {
+                                    'photo_id': photo_id,
+                                    'expected_hash': existing_photo.get('hash_value'),
+                                    'received_hash': downloaded_hash,
+                                    'action': 'rejected'
+                                }
+                    except Exception as e:
+                        return {
+                            'photo_id': photo_id,
+                            'error': f'Upload completion verification failed: {str(e)}',
+                            'action': 'rejected'
+                        }
             
             return None
             

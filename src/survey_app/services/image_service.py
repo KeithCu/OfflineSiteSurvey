@@ -10,12 +10,13 @@ from shared.utils import compute_photo_hash, generate_thumbnail, CorruptedImageE
 class ImageService:
     """Service for handling photo file I/O and image processing."""
 
-    def __init__(self, photos_dir):
+    def __init__(self, photos_dir, thumbnail_max_size=200):
         """Initialize image service with photos directory."""
         self.photos_dir = Path(photos_dir)
+        self.thumbnail_max_size = thumbnail_max_size
         self.logger = logging.getLogger(self.__class__.__name__)
         self.photos_dir.mkdir(parents=True, exist_ok=True)
-        self.logger.info(f"Image service initialized with photos directory: {self.photos_dir}")
+        self.logger.info(f"Image service initialized with photos directory: {self.photos_dir}, thumbnail_max_size: {thumbnail_max_size}")
 
     def save_photo_file(self, photo_id, image_data, thumbnail_data=None):
         """Save photo data to local filesystem."""
@@ -69,7 +70,7 @@ class ImageService:
         thumbnail_data = None
         corrupted = False
         try:
-            thumbnail_data = generate_thumbnail(image_data, max_size=200)
+            thumbnail_data = generate_thumbnail(image_data, max_size=self.thumbnail_max_size)
         except CorruptedImageError as e:
             self.logger.error(f"Corrupted image detected for photo {photo_id}: {e}")
             corrupted = True

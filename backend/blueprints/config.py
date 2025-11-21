@@ -1,6 +1,7 @@
 """Config blueprint for Flask API."""
 import os
 import re
+import json
 import logging
 from flask import Blueprint, jsonify, request
 from ..models import db, AppConfig
@@ -27,6 +28,18 @@ CONFIG_VALIDATION_RULES = {
         'min': 1,
         'max': 100,
         'description': 'JPEG compression quality (1-100)'
+    },
+    'thumbnail_max_size': {
+        'type': int,
+        'min': 50,
+        'max': 1000,
+        'description': 'Maximum thumbnail dimension in pixels (50-1000)'
+    },
+    'upload_retry_attempts': {
+        'type': int,
+        'min': 0,
+        'max': 10,
+        'description': 'Number of upload retry attempts (0-10)'
     },
     'auto_sync_interval': {
         'type': int,
@@ -71,7 +84,7 @@ def update_config(key):
     """Update a configuration value."""
     try:
         data = request.get_json()
-    except Exception:
+    except json.JSONDecodeError:
         return jsonify({'error': 'Invalid JSON data'}), 400
 
     if not isinstance(data, dict):

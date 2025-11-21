@@ -58,7 +58,7 @@ class SurveyApp(toga.App):
 
         # Initialize services
         self.logger.info("Initializing database and services")
-        self.db = LocalDatabase()
+        self.db = LocalDatabase(config=self.config)
         self.logger.info("Local database initialized")
         
         self.db_service = DBService(self.db)
@@ -255,7 +255,7 @@ class SurveyApp(toga.App):
         """Create a mock photo for development/testing"""
         img = Image.new('RGB', (640, 480), color='red')
         img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='JPEG', quality=75)
+        img.save(img_byte_arr, format='JPEG', quality=self.config.image_compression_quality)
         return img_byte_arr.getvalue()
 
     def schedule_auto_save(self, question_id, answer_text):

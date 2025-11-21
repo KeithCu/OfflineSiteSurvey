@@ -13,6 +13,7 @@ from threading import Lock
 from contextlib import contextmanager
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, or_
+from sqlalchemy.exc import SQLAlchemyError
 from shared.models import Photo, now
 from .cloud_storage import get_cloud_storage
 from shared.utils import generate_thumbnail, compute_photo_hash, CorruptedImageError
@@ -29,7 +30,7 @@ def session_scope(session_factory):
     try:
         yield session
         session.commit()
-    except Exception:
+    except SQLAlchemyError:
         session.rollback()
         raise
     finally:

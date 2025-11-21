@@ -62,10 +62,11 @@ class LocalDatabase:
         except IOError as e:
             self.logger.error(f"Failed to save site config to {config_path}: {e}")
 
-    def __init__(self, db_path='local_surveys.db'):
+    def __init__(self, db_path='local_surveys.db', config=None):
         """Initialize the local database"""
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.info(f"Initializing LocalDatabase with path: {db_path}")
+        self.config = config
         
         self.db_path = db_path
         self.logger.debug(f"Database path set to: {self.db_path}")
@@ -166,7 +167,8 @@ class LocalDatabase:
 
         # Initialize services (share last_applied_changes dict with sync_service)
         self.repository = SurveyRepository(self.Session)
-        self.image_service = ImageService(self.photos_dir)
+        thumbnail_max_size = self.config.thumbnail_max_size if self.config else 200
+        self.image_service = ImageService(self.photos_dir, thumbnail_max_size)
         self.sync_service = SyncService(self.Session, self.site_id, self.last_applied_changes)
         self.logger.info("Services initialized: repository, image_service, sync_service")
 

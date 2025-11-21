@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import event, text
-from sqlalchemy.exc import OperationalError, IntegrityError
+from sqlalchemy.exc import OperationalError, IntegrityError, SQLAlchemyError
 import logging
 from shared.models import (
     Base, Project, Site, Survey, SurveyResponse, AppConfig,
@@ -44,7 +44,7 @@ def create_crr_tables(target, connection, **kw):
 
         connection.execute(text("PRAGMA foreign_keys = ON;"))
         logger.info(f"Successfully initialized {len(successful_tables)} CRR tables for CRDT sync")
-    except Exception:
+    except SQLAlchemyError:
         # Always restore foreign keys, even on failure
         connection.execute(text("PRAGMA foreign_keys = ON;"))
         raise

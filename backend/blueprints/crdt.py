@@ -114,7 +114,7 @@ def get_changes():
         except (ValueError, TypeError):
             return jsonify({'error': f'Invalid site_id format: {site_id} is not a valid UUID'}), 400
 
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return jsonify({'error': 'Invalid request parameters'}), 400
 
     conn = db.engine.raw_connection()

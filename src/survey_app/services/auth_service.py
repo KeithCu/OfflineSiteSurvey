@@ -21,7 +21,7 @@ class AuthService:
                     data = json.load(f)
                     self.token = data.get('token')
                     self.user = data.get('user')
-            except Exception:
+            except (IOError, OSError, json.JSONDecodeError):
                 pass
 
     def _save_token(self):
@@ -58,14 +58,14 @@ class AuthService:
                 return True, None
             else:
                 return False, resp.json().get('error', 'Registration failed')
-        except Exception as e:
+        except requests.RequestException as e:
             return False, f"Connection error: {str(e)}"
 
     def logout(self):
         if self.token:
             try:
                 requests.post(f"{self.api_base_url}/api/auth/logout", headers=self.get_headers(), timeout=5)
-            except Exception:
+            except requests.RequestException:
                 pass
         self.token = None
         self.user = None

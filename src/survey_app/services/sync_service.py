@@ -2,6 +2,7 @@
 import json
 import logging
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from shared.models import Photo
 
@@ -103,7 +104,7 @@ class SyncService:
             if integrity_issues:
                 self.logger.warning(f"Photo integrity issues detected: {integrity_issues}")
                 
-        except Exception:
+        except SQLAlchemyError:
             session.rollback()
             raise
         finally:

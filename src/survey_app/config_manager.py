@@ -32,6 +32,11 @@ class ConfigManager(BaseSettings):
     gps_timeout: float = 10.0
     gps_accuracy_threshold: float = 50.0  # meters
 
+    # Image processing settings
+    image_compression_quality: int = 75  # JPEG quality (1-100)
+    thumbnail_max_size: int = 200  # Maximum thumbnail dimension in pixels
+    upload_retry_attempts: int = 3  # Number of upload retry attempts
+
     # CompanyCam settings (loaded manually from env without prefix)
     companycam_client_id: str = ''
     companycam_client_secret: str = ''

@@ -18,7 +18,7 @@ from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 from .models import db, create_crr_tables
 from .blueprints import config, projects, sites, surveys, templates, photos, crdt, auth, teams
-from .cli import init_db_command, check_photo_integrity_command, check_referential_integrity_command
+from .cli import init_db_command, check_photo_integrity_command, check_referential_integrity_command, run_integrity_worker_command, run_orphan_cleanup_worker_command
 from .logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -156,9 +156,11 @@ def create_app(test_config=None):
     app.cli.add_command(init_db_command)
     app.cli.add_command(check_photo_integrity_command)
     app.cli.add_command(check_referential_integrity_command)
-    from .cli import run_worker_command
+    from .cli import run_worker_command, run_integrity_worker_command, run_orphan_cleanup_worker_command
     app.cli.add_command(run_worker_command)
-    logger.info("CLI commands registered: init-db, check-photo-integrity, check-referential-integrity, run-worker")
+    app.cli.add_command(run_integrity_worker_command)
+    app.cli.add_command(run_orphan_cleanup_worker_command)
+    logger.info("CLI commands registered: init-db, check-photo-integrity, check-referential-integrity, run-worker, run-integrity-worker, run-orphan-cleanup-worker")
 
     logger.info("Flask application initialization completed successfully")
     return app

@@ -342,6 +342,96 @@ def check_referential_integrity_command(fix, relationship):
         return 1
 
 
+@click.command('run-orphan-cleanup-worker')
+@click.option('--check-interval-hours', default=6, help='Interval in hours between orphan cleanup checks')
+@with_appcontext
+def run_orphan_cleanup_worker_command(check_interval_hours):
+    """Run the orphan cleanup worker as a standalone process.
+
+    This command runs the orphan cleanup service in a separate process,
+    suitable for deployment as a systemd service. The worker periodically
+    checks for and removes orphaned records created by CRDT sync issues.
+
+    Use Ctrl+C to stop the worker gracefully.
+    """
+    logger.info("Starting orphan cleanup worker")
+
+    from .services.orphan_cleanup_service import get_orphan_cleanup_service
+    cleanup_service = get_orphan_cleanup_service()
+    cleanup_service.check_interval_hours = check_interval_hours
+
+    # Set up signal handlers for graceful shutdown
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, shutting down orphan cleanup worker gracefully")
+        cleanup_service.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    try:
+        cleanup_service.start()
+        logger.info(f"Orphan cleanup worker started (check interval: {check_interval_hours}h)")
+        click.echo(f"Orphan cleanup worker running (check interval: {check_interval_hours}h)")
+        click.echo("Press Ctrl+C to stop")
+
+        # Keep the process alive - sleep loop allows graceful shutdown
+        while cleanup_service.running:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Orphan cleanup worker interrupted by user")
+        cleanup_service.stop()
+    except Exception as e:
+        logger.error(f"Orphan cleanup worker error: {e}", exc_info=True)
+        cleanup_service.stop()
+        raise
+
+
+@click.command('run-integrity-worker')
+@click.option('--check-interval-hours', default=24, help='Interval in hours between full integrity checks')
+@with_appcontext
+def run_integrity_worker_command(check_interval_hours):
+    """Run the photo integrity worker as a standalone process.
+
+    This command runs the photo integrity checking service in a separate process,
+    suitable for deployment as a systemd service. The worker periodically checks
+    photo integrity and marks corrupted photos.
+
+    Use Ctrl+C to stop the worker gracefully.
+    """
+    logger.info("Starting photo integrity worker")
+
+    from .services.photo_integrity_service import get_photo_integrity_service
+    integrity_service = get_photo_integrity_service()
+    integrity_service.check_interval_hours = check_interval_hours
+
+    # Set up signal handlers for graceful shutdown
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, shutting down integrity worker gracefully")
+        integrity_service.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    try:
+        integrity_service.start()
+        logger.info(f"Photo integrity worker started (check interval: {check_interval_hours}h)")
+        click.echo(f"Photo integrity worker running (check interval: {check_interval_hours}h)")
+        click.echo("Press Ctrl+C to stop")
+
+        # Keep the process alive - sleep loop allows graceful shutdown
+        while integrity_service.running:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Integrity worker interrupted by user")
+        integrity_service.stop()
+    except Exception as e:
+        logger.error(f"Integrity worker error: {e}", exc_info=True)
+        integrity_service.stop()
+        raise
+
+
 @click.command('run-worker')
 @click.option('--check-interval', default=30, help='Interval in seconds between queue checks')
 @with_appcontext

@@ -409,3 +409,29 @@ def cascade_delete_template(template_id):
         raise
 
     return summary
+
+
+def get_config_value(key, default=None):
+    """Get a configuration value from the database.
+
+    Args:
+        key: Configuration key to retrieve
+        default: Default value if key doesn't exist
+
+    Returns:
+        The configuration value, or default if not found
+    """
+    from .models import AppConfig
+
+    try:
+        config_entry = AppConfig.query.filter_by(key=key).first()
+        if config_entry:
+            # Try to parse as JSON first, then fall back to string
+            try:
+                return json.loads(config_entry.value)
+            except (json.JSONDecodeError, TypeError):
+                return config_entry.value
+        return default
+    except Exception as e:
+        logger.warning(f"Error retrieving config value for key '{key}': {e}")
+        return default

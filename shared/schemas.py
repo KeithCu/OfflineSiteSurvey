@@ -7,6 +7,53 @@ from pydantic import BaseModel, Field, field_validator, model_validator, ConfigD
 import re
 import bleach
 from shared.enums import ProjectStatus, SurveyStatus, PhotoCategory, PriorityLevel
+
+# Default max section tags (used when config is not available)
+DEFAULT_MAX_SECTION_TAGS = 100
+
+def get_max_section_tags_limit():
+    """Get the maximum number of section tags allowed from config or default."""
+    try:
+        # Try to import and use the backend config function
+        from backend.utils import get_config_value
+        return get_config_value('max_section_tags', DEFAULT_MAX_SECTION_TAGS)
+    except ImportError:
+        # If backend not available (e.g., in frontend), use default
+        return DEFAULT_MAX_SECTION_TAGS
+
+
+def sanitize_text_or_json(value: str) -> str:
+    """Safely sanitize text that might be HTML or JSON.
+
+    For JSON fields, we validate the JSON structure instead of stripping HTML.
+    For regular text fields, we sanitize HTML as before.
+
+    Args:
+        value: The string value to sanitize
+
+    Returns:
+        The sanitized string
+    """
+    if not value:
+        return value
+
+    # Check if this looks like JSON (starts with { or [)
+    stripped = value.strip()
+    if stripped.startswith(('{', '[')):
+        # This appears to be JSON - validate it instead of sanitizing HTML
+        try:
+            # Parse and re-serialize to ensure valid JSON
+            parsed = json.loads(stripped)
+            return json.dumps(parsed)  # Return normalized JSON
+        except json.JSONDecodeError:
+            # Invalid JSON - log warning but don't sanitize HTML as it might be intentional
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Invalid JSON detected but not sanitized: {value[:100]}...")
+            return value  # Return as-is to avoid corrupting intentional content
+
+    # Not JSON - apply HTML sanitization
+    return sanitize_html(value)
 # Note: APP_TIMEZONE and now are available from shared.models if needed
 
 
@@ -40,13 +87,17 @@ def sanitize_html(text: str) -> str:
 
 
 def validate_coordinates(lat: Any, lng: Any) -> tuple[float, float]:
-    """Validate GPS coordinates."""
+    """Validate GPS coordinates with high precision support."""
+    # For maximum precision, we could store as strings and validate format
+    # But Float provides sufficient precision (15 decimal digits) for GPS needs
+
     try:
         if isinstance(lat, str):
             lat_stripped = lat.strip()
+            # Allow up to 10 decimal places (more than GPS precision needs)
             if '.' in lat_stripped:
                 decimal_part = lat_stripped.split('.', 1)[1].rstrip('0')
-                if decimal_part and len(decimal_part) > 10:
+                if len(decimal_part) > 10:
                     raise ValidationError("Latitude must not have more than 10 decimal places")
             lat_val = float(lat_stripped)
         else:
@@ -59,7 +110,7 @@ def validate_coordinates(lat: Any, lng: Any) -> tuple[float, float]:
             lng_stripped = lng.strip()
             if '.' in lng_stripped:
                 decimal_part = lng_stripped.split('.', 1)[1].rstrip('0')
-                if decimal_part and len(decimal_part) > 10:
+                if len(decimal_part) > 10:
                     raise ValidationError("Longitude must not have more than 10 decimal places")
             lng_val = float(lng_stripped)
         else:
@@ -73,6 +124,37 @@ def validate_coordinates(lat: Any, lng: Any) -> tuple[float, float]:
         raise ValidationError("Longitude must be between -180 and 180")
 
     return lat_val, lng_val
+
+
+def format_coordinate_for_storage(coord: float) -> str:
+    """Format coordinate as string for exact storage if needed.
+
+    GPS coordinates typically need 6-8 decimal places for ~10cm precision.
+    SQLite REAL provides ~15 decimal digits, so Float is usually sufficient.
+    Use this only if Float precision issues are observed in practice.
+
+    Args:
+        coord: Coordinate value as float
+
+    Returns:
+        String representation with appropriate precision
+    """
+    return f"{coord:.10f}".rstrip('0').rstrip('.')
+
+
+def parse_coordinate_from_storage(coord_str: str) -> float:
+    """Parse coordinate from string storage.
+
+    Args:
+        coord_str: Coordinate as string
+
+    Returns:
+        Coordinate as float
+    """
+    try:
+        return float(coord_str)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def validate_choice(value: Any, field_name: str, valid_choices: list) -> Any:
@@ -426,6 +508,14 @@ class TemplateFieldBase(BaseModel):
             return v.strip()
         return v or ""
 
+    @field_validator('conditions')
+    @classmethod
+    def validate_conditions(cls, v):
+        """Validate conditions field - should be JSON or empty."""
+        if v:
+            return sanitize_text_or_json(v)
+        return v or ""
+
 
 class TemplateFieldCreate(TemplateFieldBase):
     template_id: int = Field(..., gt=0)
@@ -476,6 +566,14 @@ class SurveyTemplateBase(BaseModel):
         if v:
             return v.strip()
         return v or ""
+
+    @field_validator('section_tags')
+    @classmethod
+    def validate_section_tags_json(cls, v):
+        """Validate section_tags field - should be JSON."""
+        if v:
+            return sanitize_text_or_json(v)
+        return v or "{}"
 
 
 class SurveyTemplateCreate(SurveyTemplateBase):
@@ -713,8 +811,9 @@ class SectionTagsUpdateRequest(BaseModel):
                 tag_cleaned = tag.strip()
                 if tag_cleaned and tag_cleaned not in validated_tags:
                     validated_tags.append(tag_cleaned)
-            if len(validated_tags) > 100:
-                validated_tags = validated_tags[:100]
+            max_tags = get_max_section_tags_limit()
+            if len(validated_tags) > max_tags:
+                validated_tags = validated_tags[:max_tags]
             validated[section.strip()] = validated_tags
         return validated
 

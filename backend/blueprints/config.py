@@ -47,6 +47,12 @@ CONFIG_VALIDATION_RULES = {
         'max': 86400,  # Max 24 hours
         'description': 'Auto-sync frequency in seconds (0-86400)'
     },
+    'max_section_tags': {
+        'type': int,
+        'min': 1,
+        'max': 1000,
+        'description': 'Maximum number of section tags allowed per section (1-1000)'
+    },
     'max_offline_days': {
         'type': int,
         'min': 0,

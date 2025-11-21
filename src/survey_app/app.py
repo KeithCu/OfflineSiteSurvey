@@ -31,6 +31,7 @@ import time
 import threading
 import json
 import io
+import asyncio
 from PIL import Image, ExifTags
 
 
@@ -207,6 +208,84 @@ class SurveyApp(toga.App):
             if hasattr(self, 'ui_manager') and hasattr(self.ui_manager, 'status_label'):
                 self.ui_manager.status_label.text = f"GPS error: {e}"
             return None, None
+
+    async def capture_photo(self):
+        """
+        Capture a photo using the device camera with fallback to file picker.
+        Returns raw image bytes (JPEG) or None if cancelled/failed.
+        """
+        try:
+            # Check camera availability and permissions
+            if not self.camera:
+                self.logger.warning("No camera device available")
+                return await self._fallback_capture_photo()
+
+            try:
+                # Request permission
+                if not await self.camera.request_permission():
+                    self.logger.warning("Camera permission denied")
+                    return await self._fallback_capture_photo()
+
+                # Take photo
+                image = await self.camera.take_photo()
+                if image:
+                    return image.data
+                else:
+                    # User cancelled
+                    return None
+            except NotImplementedError:
+                self.logger.warning("Camera API not implemented on this platform")
+                return await self._fallback_capture_photo()
+            except Exception as e:
+                self.logger.error(f"Camera error: {e}")
+                return await self._fallback_capture_photo()
+
+        except Exception as e:
+            self.logger.error(f"Photo capture failed: {e}")
+            return await self._fallback_capture_photo()
+
+    async def _fallback_capture_photo(self):
+        """Fallback photo capture using file picker or mock generation"""
+        try:
+            # 1. Try file picker
+            if hasattr(self.main_window, 'open_file_dialog'):
+                # Wrap the callback-based dialog in a future
+                loop = asyncio.get_event_loop()
+                future = loop.create_future()
+
+                def on_result(file_path):
+                    if not future.done():
+                        if file_path:
+                            try:
+                                with open(file_path, 'rb') as f:
+                                    future.set_result(f.read())
+                            except Exception as e:
+                                future.set_exception(e)
+                        else:
+                            # Cancelled - return mock photo as per fallback requirement
+                            future.set_result(self._create_mock_photo_bytes())
+
+                self.main_window.open_file_dialog(
+                    title="Select Photo (Camera Fallback)",
+                    file_types=['jpg', 'jpeg', 'png'],
+                    on_result=on_result
+                )
+
+                return await future
+
+            else:
+                return self._create_mock_photo_bytes()
+
+        except Exception as e:
+            self.logger.warning(f"Fallback capture failed: {e}")
+            return self._create_mock_photo_bytes()
+
+    def _create_mock_photo_bytes(self):
+        """Create a mock photo for development/testing"""
+        img = Image.new('RGB', (640, 480), color='red')
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='JPEG', quality=75)
+        return img_byte_arr.getvalue()
 
     def schedule_auto_save(self, question_id, answer_text):
         """Delegate to survey handler"""

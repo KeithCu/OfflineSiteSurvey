@@ -402,50 +402,15 @@ class SurveyHandler:
         state.current_question_index += 1
         self.show_question()
 
-    def take_photo_enhanced(self, widget):
-        """Take a photo in enhanced UI
-
-        NOTE: Toga currently does not provide camera access APIs.
-        Real camera integration would require platform-specific code:
-        - iOS: AVFoundation framework
-        - Android: Camera2 API
-        - Desktop: Platform-specific camera libraries
-
-        For now, this uses a file picker fallback for development/testing.
-        """
+    async def take_photo_enhanced(self, widget):
+        """Take a photo in enhanced UI"""
         try:
-            # Try to use file picker as fallback (if Toga supports it)
-            if hasattr(self.app.main_window, 'open_file_dialog'):
-                def on_file_selected(file_path):
-                    if file_path:
-                        with open(file_path, 'rb') as f:
-                            photo_data = f.read()
-                        self._process_photo_data(photo_data)
-                    else:
-                        # User cancelled - create mock photo for development
-                        self._create_mock_photo()
-
-                # Open file dialog for image selection
-                self.app.main_window.open_file_dialog(
-                    title="Select Photo",
-                    file_types=['jpg', 'jpeg', 'png'],
-                    on_result=on_file_selected
-                )
-            else:
-                # Fallback to mock photo if no file dialog available
-                self._create_mock_photo()
-
+            photo_data = await self.app.capture_photo()
+            if photo_data:
+                self._process_photo_data(photo_data)
         except Exception as e:
-            self.app.logger.warning(f"Photo capture failed, using mock: {e}")
-            self._create_mock_photo()
-
-    def _create_mock_photo(self):
-        """Create a mock photo for development/testing"""
-        img = Image.new('RGB', (640, 480), color='red')
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='JPEG', quality=75)
-        photo_data = img_byte_arr.getvalue()
-        self._process_photo_data(photo_data)
+            self.app.logger.warning(f"Photo capture failed: {e}")
+            self.app.ui_manager.status_label.text = "Photo capture failed."
 
     def _process_photo_data(self, photo_data):
         """Process the captured/selected photo data"""

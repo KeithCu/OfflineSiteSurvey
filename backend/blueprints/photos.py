@@ -182,8 +182,19 @@ def upload_photo_to_survey(survey_id):
 
         temp_path = None
         try:
+            # Map file extensions to proper temporary file suffixes
+            extension_mapping = {
+                'jpg': '.jpg',
+                'jpeg': '.jpg',
+                'png': '.png',
+                'gif': '.gif',
+                'webp': '.webp'
+            }
+            # Use the appropriate extension for the temporary file, default to .jpg
+            temp_suffix = extension_mapping.get(file_ext, '.jpg')
+
             # Create temporary file for streaming upload
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=temp_suffix) as temp_file:
                 temp_path = temp_file.name
                 # Stream the upload in chunks to avoid memory issues
                 chunk_size = 8192  # 8KB chunks

@@ -35,6 +35,33 @@ from .services.sync_service import SyncService
 
 
 class LocalDatabase:
+    def _get_site_config_path(self):
+        """Get the path to the site configuration file."""
+        return Path(self.db_path).parent / 'site_config.json'
+
+    def _load_site_id(self):
+        """Load site_id from the configuration file if it exists."""
+        config_path = self._get_site_config_path()
+        if config_path.exists():
+            try:
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    return config.get('site_id')
+            except (json.JSONDecodeError, IOError) as e:
+                self.logger.warning(f"Failed to load site config from {config_path}: {e}")
+        return None
+
+    def _save_site_id(self, site_id):
+        """Save site_id to the configuration file."""
+        config_path = self._get_site_config_path()
+        config = {'site_id': site_id}
+        try:
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            self.logger.info(f"Saved site_id to {config_path}")
+        except IOError as e:
+            self.logger.error(f"Failed to save site config to {config_path}: {e}")
+
     def __init__(self, db_path='local_surveys.db'):
         """Initialize the local database"""
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -46,9 +73,15 @@ class LocalDatabase:
         self.photos_dir = Path(db_path).parent / 'local_photos'
         self.photos_dir.mkdir(parents=True, exist_ok=True)
         self.logger.info(f"Photos directory initialized: {self.photos_dir}")
-        
-        self.site_id = str(uuid.uuid4())
-        self.logger.info(f"Generated site_id: {self.site_id}")
+
+        # Load existing site_id or generate new one
+        self.site_id = self._load_site_id()
+        if self.site_id:
+            self.logger.info(f"Loaded existing site_id: {self.site_id}")
+        else:
+            self.site_id = str(uuid.uuid4())
+            self._save_site_id(self.site_id)
+            self.logger.info(f"Generated new site_id: {self.site_id}")
         
         self.engine = create_engine(f'sqlite:///{self.db_path}')
         self.logger.info(f"SQLAlchemy engine created for database: {self.db_path}")

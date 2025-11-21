@@ -142,13 +142,36 @@ class CRDTService:
         return path if path else None
     
     @staticmethod
-    def validate_photo_integrity(change, cursor):
+    def _get_pending_value(photo_id, column_name, existing_photo, pending_changes_by_photo):
+        """Get the value for a column, checking pending changes first, then existing DB state.
+
+        Args:
+            photo_id: The photo ID to check
+            column_name: The column name to get value for
+            existing_photo: The current DB state for the photo
+            pending_changes_by_photo: Dict of pending changes grouped by photo_id
+
+        Returns:
+            The value from pending changes, or existing DB state, or None
+        """
+        # Check pending changes first
+        if photo_id in pending_changes_by_photo:
+            photo_changes = pending_changes_by_photo[photo_id]
+            if column_name in photo_changes:
+                return photo_changes[column_name]
+
+        # Fall back to existing DB state
+        return existing_photo.get(column_name) if existing_photo else None
+
+    @staticmethod
+    def validate_photo_integrity(change, cursor, pending_changes_by_photo=None):
         """Validate photo integrity for photo table changes.
-        
+
         Args:
             change: Change dictionary for photo table
             cursor: Database cursor for querying photo data
-            
+            pending_changes_by_photo: Optional dict of pending changes grouped by photo_id
+
         Returns:
             dict or None: Integrity issue dict if validation fails, None if valid
         """
@@ -173,16 +196,36 @@ class CRDTService:
                     'action': 'rejected'
                 }
             
-            # Reject changes for existing photos that currently have upload_status='pending'
+            # For existing photos with upload_status='pending', only block critical fields
             if existing_photo and existing_photo.get('upload_status') == 'pending':
-                return {
-                    'photo_id': photo_id,
-                    'error': 'Cannot sync photo with upload_status=pending. Photo must complete upload first.',
-                    'action': 'rejected'
+                # Define which fields can be updated even when upload_status='pending'
+                allowed_metadata_fields = {
+                    'description', 'tags', 'category', 'latitude', 'longitude', 'section'
                 }
+                # Define fields that cannot be updated when upload_status='pending'
+                blocked_fields = {
+                    'cloud_url', 'hash_value', 'upload_status', 'size_bytes', 'file_path'
+                }
+
+                # Allow metadata updates, but block critical field changes
+                if change['cid'] in blocked_fields:
+                    return {
+                        'photo_id': photo_id,
+                        'error': f'Cannot update {change["cid"]} while photo upload is pending. Photo must complete upload first.',
+                        'action': 'rejected'
+                    }
+                elif change['cid'] not in allowed_metadata_fields:
+                    # Unknown field - block for safety
+                    return {
+                        'photo_id': photo_id,
+                        'error': f'Cannot update {change["cid"]} while photo upload is pending. Photo must complete upload first.',
+                        'action': 'rejected'
+                    }
             
             # Validate cloud URL changes - download and verify hash
-            if change['cid'] == 'cloud_url' and change['val'] and existing_photo and existing_photo.get('hash_value'):
+            if change['cid'] == 'cloud_url' and change['val']:
+                expected_hash = CRDTService._get_pending_value(photo_id, 'hash_value', existing_photo, pending_changes_by_photo)
+                if expected_hash:
                 try:
                     from ..services.cloud_storage import get_cloud_storage
                     cloud_storage = get_cloud_storage()
@@ -205,7 +248,10 @@ class CRDTService:
                     }
             
             # Validate hash_value changes - ensure they match any existing cloud data
-            elif change['cid'] == 'hash_value' and change['val'] and existing_photo and existing_photo.get('cloud_url') and existing_photo.get('upload_status') == 'completed':
+            elif change['cid'] == 'hash_value' and change['val']:
+                cloud_url = CRDTService._get_pending_value(photo_id, 'cloud_url', existing_photo, pending_changes_by_photo)
+                upload_status = CRDTService._get_pending_value(photo_id, 'upload_status', existing_photo, pending_changes_by_photo)
+                if cloud_url and upload_status == 'completed':
                 try:
                     from ..services.cloud_storage import get_cloud_storage
                     cloud_storage = get_cloud_storage()
@@ -228,8 +274,11 @@ class CRDTService:
                     }
             
             # Validate upload_status changes to 'completed' - verify cloud data exists and matches hash
-            elif change['cid'] == 'upload_status' and change['val'] == 'completed' and existing_photo and existing_photo.get('hash_value'):
-                if not existing_photo.get('cloud_url'):
+            elif change['cid'] == 'upload_status' and change['val'] == 'completed':
+                cloud_url = CRDTService._get_pending_value(photo_id, 'cloud_url', existing_photo, pending_changes_by_photo)
+                hash_value = CRDTService._get_pending_value(photo_id, 'hash_value', existing_photo, pending_changes_by_photo)
+                if hash_value:
+                if not cloud_url:
                     return {
                         'photo_id': photo_id,
                         'error': 'Cannot mark upload as completed without cloud_url',
@@ -283,7 +332,21 @@ class CRDTService:
         """
         integrity_issues = []
         valid_changes = []
-        
+
+        # Build pending changes map for atomic validation
+        pending_changes_by_photo = {}
+        for change in changes:
+            if change.get('table') == 'photo':
+                try:
+                    pk_data = json.loads(change['pk'])
+                    photo_id = pk_data.get('id')
+                    if photo_id:
+                        if photo_id not in pending_changes_by_photo:
+                            pending_changes_by_photo[photo_id] = {}
+                        pending_changes_by_photo[photo_id][change['cid']] = change['val']
+                except (json.JSONDecodeError, KeyError):
+                    pass  # Skip invalid changes, they'll be caught later
+
         for change in changes:
             # Validate change structure
             error_msg, validated_change = CRDTService.validate_change_structure(change)
@@ -299,7 +362,7 @@ class CRDTService:
             
             # Handle photo table changes - verify photo integrity
             if validated_change['table'] == 'photo':
-                photo_issue = CRDTService.validate_photo_integrity(validated_change, cursor)
+                photo_issue = CRDTService.validate_photo_integrity(validated_change, cursor, pending_changes_by_photo)
                 if photo_issue:
                     integrity_issues.append(photo_issue)
                     # Skip rejected photo changes

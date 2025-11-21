@@ -44,6 +44,12 @@ def main():
                 print("❌ --backup-file is required for restore")
                 sys.exit(1)
 
+            # Check if backup file exists
+            import os
+            if not os.path.exists(args.backup_file):
+                print(f"❌ Backup file does not exist: {args.backup_file}")
+                sys.exit(1)
+
             validate = not args.no_validate
             db.restore(args.backup_file, validate_hashes=validate)
             print(f"✅ Restore completed from: {args.backup_file}")

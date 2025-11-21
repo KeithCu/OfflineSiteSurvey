@@ -276,33 +276,45 @@ class SurveyUI:
         self.app.status_label.text = f"Photo requirement: {req_text}"
 
     def update_section_tag_controls(self, section):
-        """Rebuild section-scoped tag toggles"""
-        section_name = section or 'General'
-        self.app.section_tag_label.text = f"{section_name} Tags"
-        self.app.clear_photo_tag_selection()
-        while self.app.section_tag_switches_box.children:
-            child = self.app.section_tag_switches_box.children[0]
-            self.app.section_tag_switches_box.remove(child)
-        self.app.section_tag_switches.clear()
+        """Rebuild section-scoped tag toggles - thread-safe UI updates"""
+        # Ensure UI updates happen on main thread to prevent race conditions
+        def _update_ui():
+            section_name = section or 'General'
+            self.app.section_tag_label.text = f"{section_name} Tags"
+            self.app.clear_photo_tag_selection()
 
-        tags = self.app.section_tags.get(section_name, []) if isinstance(self.app.section_tags, dict) else []
-        if not tags:
-            info_label = toga.Label(
-                "No tags defined for this section.",
-                style=toga.Pack(font_size=10, color='#666666', padding=(0, 5, 5, 5))
-            )
-            self.app.section_tag_switches_box.add(info_label)
-            return
+            # Clear existing switches atomically
+            while self.app.section_tag_switches_box.children:
+                child = self.app.section_tag_switches_box.children[0]
+                self.app.section_tag_switches_box.remove(child)
+            self.app.section_tag_switches.clear()
 
-        for tag in tags:
-            switch = toga.Switch(
-                label=tag,
-                value=False,
-                on_toggle=lambda widget, tag=tag: self.app.toggle_photo_tag(tag, widget.is_on),
-                style=toga.Pack(padding=(0, 5, 5, 5))
-            )
-            self.app.section_tag_switches_box.add(switch)
-            self.app.section_tag_switches[tag] = switch
+            tags = self.app.section_tags.get(section_name, []) if isinstance(self.app.section_tags, dict) else []
+            if not tags:
+                info_label = toga.Label(
+                    "No tags defined for this section.",
+                    style=toga.Pack(font_size=10, color='#666666', padding=(0, 5, 5, 5))
+                )
+                self.app.section_tag_switches_box.add(info_label)
+                return
+
+            # Add all switches in a batch to minimize UI operations
+            for tag in tags:
+                switch = toga.Switch(
+                    label=tag,
+                    value=False,
+                    on_toggle=lambda widget, tag=tag: self.app.toggle_photo_tag(tag, widget.is_on),
+                    style=toga.Pack(padding=(0, 5, 5, 5))
+                )
+                self.app.section_tag_switches_box.add(switch)
+                self.app.section_tag_switches[tag] = switch
+
+        # Schedule UI update on main thread
+        if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'call_soon'):
+            self.app.main_window.call_soon(_update_ui)
+        else:
+            # Fallback if call_soon not available (shouldn't happen in normal Toga apps)
+            _update_ui()
 
     def update_progress(self):
         """Update progress indicator with enhanced Phase 2 tracking"""

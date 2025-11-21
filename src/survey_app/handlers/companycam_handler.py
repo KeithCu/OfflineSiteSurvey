@@ -137,24 +137,34 @@ class CompanyCamHandler:
                         # Map tags
                         app_tags = self.app.db.get_tags_for_photo(photo.id)
                         companycam_tag_ids = []
-                        if app_tags:
+                        if app_tags and hasattr(self.app, 'tag_mapper'):
                             for app_tag in app_tags:
-                                matched_tag = self.app.tag_mapper.find_best_match(app_tag)
-                                if matched_tag:
-                                    companycam_tag_ids.append(matched_tag['id'])
+                                try:
+                                    matched_tag = self.app.tag_mapper.find_best_match(app_tag)
+                                    if matched_tag:
+                                        companycam_tag_ids.append(matched_tag['id'])
+                                except (AttributeError, KeyError) as e:
+                                    self.logger.warning(f"Failed to map tag '{app_tag}': {e}")
+                                    continue
 
                         # Add section as a tag
-                        section = self.app.db.get_section_for_photo(photo.id)
-                        if section:
-                            section_tag_name = f"#section-{section.lower().replace(' ', '-')}"
-                            matched_tag = self.app.tag_mapper.find_best_match(section_tag_name)
-                            if matched_tag:
-                                companycam_tag_ids.append(matched_tag['id'])
-                            else:
-                                # Create the tag if it doesn't exist
-                                new_tag = self.app.companycam_service.create_tag(section_tag_name)
-                                if new_tag:
-                                    companycam_tag_ids.append(new_tag['id'])
+                        try:
+                            section = self.app.db.get_section_for_photo(photo.id)
+                            if section and hasattr(self.app, 'tag_mapper'):
+                                section_tag_name = f"#section-{section.lower().replace(' ', '-')}"
+                                matched_tag = self.app.tag_mapper.find_best_match(section_tag_name)
+                                if matched_tag:
+                                    companycam_tag_ids.append(matched_tag['id'])
+                                else:
+                                    # Create the tag if it doesn't exist
+                                    try:
+                                        new_tag = self.app.companycam_service.create_tag(section_tag_name)
+                                        if new_tag:
+                                            companycam_tag_ids.append(new_tag['id'])
+                                    except Exception as e:
+                                        self.logger.warning(f"Failed to create section tag '{section_tag_name}': {e}")
+                        except (AttributeError, KeyError) as e:
+                            self.logger.warning(f"Failed to get section for photo {photo.id}: {e}")
 
                         filename = f"survey_photo_{photo.id}.jpg"
                         result = self.app.companycam_service.upload_photo(

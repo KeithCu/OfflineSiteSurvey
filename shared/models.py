@@ -171,7 +171,7 @@ Index('idx_template_field_order', TemplateField.template_id, TemplateField.order
 
 class Photo(Base):
     __tablename__ = 'photo'
-    id = Column(String, primary_key=True, nullable=False)
+    id = Column(String(100), primary_key=True, nullable=False)
     survey_id = Column(Integer, ForeignKey('survey.id', ondelete='CASCADE'), index=True)
     site_id = Column(Integer, ForeignKey('sites.id', ondelete='CASCADE'), index=True)
     cloud_url = Column(String(1000), server_default="")

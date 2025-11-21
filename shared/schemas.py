@@ -66,24 +66,65 @@ class ValidationError(Exception):
 def validate_string_length(value: str, field_name: str, min_length: int = 0, max_length: Optional[int] = None) -> str:
     """Validate string length constraints."""
     if not isinstance(value, str):
-        raise ValidationError(f"{field_name} must be a string")
+        raise ValidationError(f"Validation failed: {field_name} must be a string")
     value = value.strip()
     if len(value) < min_length:
-        raise ValidationError(f"{field_name} must be at least {min_length} characters")
+        raise ValidationError(f"Validation failed: {field_name} must be at least {min_length} characters")
     if max_length and len(value) > max_length:
-        raise ValidationError(f"{field_name} must be no more than {max_length} characters")
+        raise ValidationError(f"Validation failed: {field_name} must be no more than {max_length} characters")
     return value
 
 
+def _fallback_sanitize_html(text: str) -> str:
+    """Fallback HTML sanitization when bleach is not available.
+
+    This is a basic implementation that strips dangerous tags and attributes.
+    It's not as comprehensive as bleach but provides basic protection.
+    """
+    if not text:
+        return text
+
+    # If no HTML-like characters, return as-is
+    if '<' not in text and '>' not in text and '&' not in text:
+        return text
+
+    # Basic tag stripping - remove script, style, and other dangerous tags
+    dangerous_tags = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'meta']
+    result = text
+
+    for tag in dangerous_tags:
+        # Remove opening tags
+        result = result.replace(f'<{tag}', '<removed')
+        result = result.replace(f'<{tag.upper()}', '<REMOVED')
+        # Remove closing tags
+        result = result.replace(f'</{tag}>', '')
+        result = result.replace(f'</{tag.upper()}>', '')
+
+    # Remove event handlers (on* attributes)
+    import re
+    result = re.sub(r'\s+on\w+="[^"]*"', '', result)
+    result = re.sub(r"\s+on\w+='[^']*'", '', result)
+
+    return result
+
+
 def sanitize_html(text: str) -> str:
-    """Secure HTML sanitization using bleach library."""
+    """Secure HTML sanitization using bleach library, with fallback."""
     if not text:
         return text
     if '<' not in text and '>' not in text and '&' not in text:
         return text
-    allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote']
-    allowed_attributes = {}
-    return bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes, strip=True)
+
+    try:
+        allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote']
+        allowed_attributes = {}
+        return bleach.clean(text, tags=allowed_tags, attributes=allowed_attributes, strip=True)
+    except (NameError, AttributeError):
+        # Fallback if bleach is not available at runtime
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("Bleach library not available, using fallback HTML sanitization. Install bleach for better security.")
+        return _fallback_sanitize_html(text)
 
 
 def validate_coordinates(lat: Any, lng: Any) -> tuple[float, float]:
@@ -91,37 +132,44 @@ def validate_coordinates(lat: Any, lng: Any) -> tuple[float, float]:
     # For maximum precision, we could store as strings and validate format
     # But Float provides sufficient precision (15 decimal digits) for GPS needs
 
+    # Validate latitude
     try:
         if isinstance(lat, str):
             lat_stripped = lat.strip()
+            if not lat_stripped:
+                raise ValidationError("Validation failed: Latitude cannot be empty")
             # Allow up to 10 decimal places (more than GPS precision needs)
             if '.' in lat_stripped:
                 decimal_part = lat_stripped.split('.', 1)[1].rstrip('0')
                 if len(decimal_part) > 10:
-                    raise ValidationError("Latitude must not have more than 10 decimal places")
+                    raise ValidationError("Validation failed: Latitude must not have more than 10 decimal places")
             lat_val = float(lat_stripped)
         else:
             lat_val = float(lat)
-    except (ValueError, TypeError):
-        raise ValidationError("Latitude must be a valid number")
+    except (ValueError, TypeError) as e:
+        raise ValidationError(f"Validation failed: Latitude must be a valid number, got '{lat}' ({type(lat).__name__})")
 
+    # Validate longitude
     try:
         if isinstance(lng, str):
             lng_stripped = lng.strip()
+            if not lng_stripped:
+                raise ValidationError("Validation failed: Longitude cannot be empty")
             if '.' in lng_stripped:
                 decimal_part = lng_stripped.split('.', 1)[1].rstrip('0')
                 if len(decimal_part) > 10:
-                    raise ValidationError("Longitude must not have more than 10 decimal places")
+                    raise ValidationError("Validation failed: Longitude must not have more than 10 decimal places")
             lng_val = float(lng_stripped)
         else:
             lng_val = float(lng)
-    except (ValueError, TypeError):
-        raise ValidationError("Longitude must be a valid number")
+    except (ValueError, TypeError) as e:
+        raise ValidationError(f"Validation failed: Longitude must be a valid number, got '{lng}' ({type(lng).__name__})")
 
+    # Validate ranges
     if not (-90 <= lat_val <= 90):
-        raise ValidationError("Latitude must be between -90 and 90")
+        raise ValidationError(f"Validation failed: Latitude must be between -90 and 90, got {lat_val}")
     if not (-180 <= lng_val <= 180):
-        raise ValidationError("Longitude must be between -180 and 180")
+        raise ValidationError(f"Validation failed: Longitude must be between -180 and 180, got {lng_val}")
 
     return lat_val, lng_val
 
@@ -160,7 +208,7 @@ def parse_coordinate_from_storage(coord_str: str) -> float:
 def validate_choice(value: Any, field_name: str, valid_choices: list) -> Any:
     """Validate that value is in list of valid choices."""
     if value not in valid_choices:
-        raise ValidationError(f"{field_name} must be one of: {', '.join(str(c) for c in valid_choices)}")
+        raise ValidationError(f"Validation failed: {field_name} must be one of: {', '.join(str(c) for c in valid_choices)}")
     return value
 
 

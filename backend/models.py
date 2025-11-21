@@ -13,6 +13,17 @@ db = SQLAlchemy(model_class=Base)
 def create_crr_tables(target, connection, **kw):
     """Make tables CRR for cr-sqlite sync."""
     logger.info("Initializing CRR tables for CRDT synchronization")
+
+    # Check if cr-sqlite extension is available
+    try:
+        # Try a simple cr-sqlite function to verify extension is loaded
+        connection.execute(text("SELECT crsql_version();"))
+        logger.debug("cr-sqlite extension verified as available")
+    except Exception as e:
+        logger.error(f"cr-sqlite extension not available: {e}. CRR table creation will be skipped.")
+        logger.error("Make sure cr-sqlite extension is properly installed and loaded before initializing the database.")
+        raise RuntimeError(f"cr-sqlite extension required for CRDT functionality: {e}")
+
     connection.execute(text("PRAGMA foreign_keys = OFF;"))
     crr_tables = [
         'projects', 'sites', 'survey', 'survey_response',

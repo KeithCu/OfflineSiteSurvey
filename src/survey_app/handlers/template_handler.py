@@ -80,8 +80,8 @@ class TemplateHandler:
             # Find template data
             template = next((t for t in self.app.templates_data if t['id'] == template_id), None)
             if template:
-                if not self.app.current_site:
-                    self.app.status_label.text = "Please select a site first"
+                if not self.app.current_site or not hasattr(self.app.current_site, 'id') or self.app.current_site.id is None:
+                    self.app.status_label.text = "Please select a valid site first"
                     return
 
                 survey_data = {
@@ -121,7 +121,10 @@ class TemplateHandler:
 
         try:
             existing_tags = json.loads(template.section_tags) if template.section_tags else {}
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Invalid JSON in section_tags for template {template_id}: {e}. Using empty tags.")
             existing_tags = {}
 
         self.section_tag_inputs = {}
